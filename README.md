@@ -1,6 +1,5 @@
 # 🐥 GO르덕
 
----
 
 ## 📁 폴더 구조
 
@@ -67,5 +66,3 @@ git push -u origin FE-login
 * `feat: 로그인 기능 구현`
 * `fix: 채팅 오류 수정`
 * `design: 홈 화면 UI 수정`
-
----
