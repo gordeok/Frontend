@@ -33,7 +33,7 @@ const COLORS = {
   blue: "#4C8DFF",
   lightBlue: "#E8F1FF",
   beige: "#EDE8DE",
-  line: "#E8E2D8",
+  line: "#F2EDE6",
 };
 
 type MemberState = "모집중" | "예약중" | "모집완료";
@@ -121,7 +121,7 @@ export default function DivideDetailScreen() {
             </View>
           </View>
 
-          <View style={styles.profileSection}>
+          <Pressable style={styles.profileSection}>
             <View style={styles.profileCircle}>
               <Text style={styles.profileInitial}>{post.userName[0]}</Text>
             </View>
@@ -140,7 +140,9 @@ export default function DivideDetailScreen() {
                 <Text style={styles.scoreLabel}> 신뢰점수</Text>
               </View>
             </View>
-          </View>
+
+            <Ionicons name="chevron-forward" size={22} color={COLORS.black} />
+          </Pressable>
 
           <View style={styles.divider} />
 
@@ -303,20 +305,22 @@ const styles = StyleSheet.create({
   },
 
   profileSection: {
+    minHeight: 86,
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 22,
-    paddingVertical: 16,
+    paddingVertical: 18,
+    backgroundColor: COLORS.white,
   },
 
   profileCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: "#D8D2C8",
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 12,
+    marginRight: 14,
   },
 
   profileInitial: {
@@ -328,13 +332,14 @@ const styles = StyleSheet.create({
   profileInfo: {
     flex: 1,
     justifyContent: "center",
+    marginRight: 12,
   },
 
   writer: {
     fontSize: 15,
     fontWeight: "900",
     color: COLORS.black,
-    marginBottom: 7,
+    marginBottom: 8,
   },
 
   scoreRow: {
@@ -343,7 +348,7 @@ const styles = StyleSheet.create({
   },
 
   scoreBar: {
-    flex: 1,
+    width: 96,
     height: 7,
     borderRadius: 999,
     backgroundColor: "#EFEAE2",
@@ -370,7 +375,7 @@ const styles = StyleSheet.create({
   },
 
   divider: {
-    height: 1,
+    height: 0.7,
     backgroundColor: COLORS.line,
   },
 
@@ -404,10 +409,11 @@ const styles = StyleSheet.create({
   },
 
   smallDivider: {
-    height: 1,
+    height: 0.7,
     backgroundColor: COLORS.line,
     marginTop: 16,
     marginBottom: 16,
+    marginHorizontal: -22,
   },
 
   contentText: {
@@ -432,6 +438,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.line,
     marginTop: 20,
     marginBottom: 16,
+    marginHorizontal: -22,
   },
 
   sectionTitle: {
@@ -449,12 +456,12 @@ const styles = StyleSheet.create({
 
   memberCard: {
     width: (SCREEN_WIDTH - 56) / 2,
-    minHeight: 58,
+    minHeight: 62,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: COLORS.line,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 11,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -462,19 +469,22 @@ const styles = StyleSheet.create({
 
   memberInfo: {
     flex: 1,
-    marginRight: 6,
+    marginRight: 8,
+    justifyContent: "center",
   },
 
   memberName: {
     fontSize: 15,
     fontWeight: "900",
     color: COLORS.black,
+    lineHeight: 19,
   },
 
   priceText: {
-    marginTop: 4,
+    marginTop: 3,
     fontSize: 13,
     color: COLORS.gray700,
+    lineHeight: 17,
   },
 
   donePriceText: {
@@ -483,9 +493,12 @@ const styles = StyleSheet.create({
   },
 
   statusBadge: {
+    minWidth: 54,
+    height: 24,
     paddingHorizontal: 8,
-    paddingVertical: 5,
     borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   statusOpen: {
@@ -503,6 +516,7 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 11,
     fontWeight: "900",
+    lineHeight: 14,
   },
 
   statusOpenText: {
