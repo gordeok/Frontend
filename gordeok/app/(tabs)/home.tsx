@@ -204,8 +204,13 @@ export default function HomeScreen() {
       ? params.members
       : "";
 
-  const selectedGroupIds = groupParam.split(",").filter(Boolean);
-  const selectedMemberIds = memberParam.split(",").filter(Boolean);
+  const selectedGroupIds = useMemo(() => {
+    return groupParam.split(",").filter(Boolean);
+  }, [groupParam]);
+
+  const selectedMemberIds = useMemo(() => {
+    return memberParam.split(",").filter(Boolean);
+  }, [memberParam]);
 
   const selectedGroups = useMemo(() => {
     return idolData
@@ -220,7 +225,7 @@ export default function HomeScreen() {
           favorites,
         };
       });
-  }, [groupParam, memberParam]);
+  }, [selectedGroupIds, selectedMemberIds]);
 
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
 
@@ -328,10 +333,7 @@ export default function HomeScreen() {
                     <Pressable
                       key={group.id}
                       onPress={() => {
-                        if (selectedGroups.length === 1) {
-                          return;
-                        }
-
+                        if (selectedGroups.length === 1) return;
                         setSelectedGroupId(isSelected ? null : group.id);
                       }}
                       style={styles.groupItem}
@@ -348,7 +350,9 @@ export default function HomeScreen() {
                           },
                         ]}
                       >
-                        <Text style={styles.groupInitial}>{group.shortName}</Text>
+                        <Text style={styles.groupInitial}>
+                          {group.shortName}
+                        </Text>
                       </View>
 
                       <Text
@@ -401,7 +405,9 @@ export default function HomeScreen() {
 
                       <View>
                         <Text style={styles.favoriteName}>{favorite}</Text>
-                        <Text style={styles.favoriteGroupName}>{group.name}</Text>
+                        <Text style={styles.favoriteGroupName}>
+                          {group.name}
+                        </Text>
                       </View>
                     </Pressable>
                   ))
@@ -426,7 +432,17 @@ export default function HomeScreen() {
                   <PostCard
                     key={post.id}
                     post={post}
-                    onPress={() => router.push(`/posts/${post.id}` as any)}
+                    onPress={() =>
+                      router.push({
+                        pathname: "/divide-detail",
+                        params: {
+                          postId: post.id,
+                          postData: JSON.stringify(post),
+                          groups: groupParam,
+                          members: memberParam,
+                        },
+                      } as any)
+                    }
                   />
                 ))}
               </View>
@@ -436,7 +452,7 @@ export default function HomeScreen() {
 
         <Pressable
           style={styles.writeButton}
-          onPress={() => router.push("/post-create" as any)}
+          onPress={() => router.push("/divide-create" as any)}
         >
           <Ionicons name="add" size={24} color={COLORS.white} />
           <Text style={styles.writeText}>글쓰기</Text>
@@ -455,12 +471,16 @@ function makePosts(groups: any[]) {
     posts.push({
       id: `${group.id}-1`,
       groupId: group.id,
+      groupName: group.displayName,
       userName: `${favorite}맘`,
       title: `${group.displayName} 새 앨범 분철`,
       albumName: getAlbumName(group.id),
       time: groupIndex === 0 ? "3분 전" : "8분 전",
+      date: "2025.05.11",
       status: "마감임박",
       completed: false,
+      content: "덤 많이 드려요.\n재배송비는 추후 분납 예정입니다.",
+      deliveryMethod: "CU 반값택배",
       members: group.members.map((member: string, index: number) => ({
         name: member,
         state: index === 0 ? "모집중" : index <= 2 ? "예약중" : "모집완료",
@@ -471,12 +491,16 @@ function makePosts(groups: any[]) {
     posts.push({
       id: `${group.id}-2`,
       groupId: group.id,
+      groupName: group.displayName,
       userName: `${group.displayName}러버`,
       title: `${group.displayName} 포카 특전 분철`,
       albumName: getSecondAlbumName(group.id),
       time: groupIndex === 0 ? "12분 전" : "18분 전",
+      date: "2025.05.13",
       status: "모집중",
       completed: false,
+      content: "포카 특전 위주로 분철합니다.\n하자 확인 후 보내드려요.",
+      deliveryMethod: "GS 반값택배",
       members: group.members.map((member: string, index: number) => ({
         name: member,
         state: index <= 2 ? "모집중" : index === 3 ? "예약중" : "모집완료",
@@ -487,12 +511,16 @@ function makePosts(groups: any[]) {
     posts.push({
       id: `${group.id}-3`,
       groupId: group.id,
+      groupName: group.displayName,
       userName: `${group.shortName}_분철`,
       title: `${group.displayName} 럭드 분철`,
       albumName: "럭키드로우 특전",
       time: "25분 전",
+      date: "2025.05.15",
       status: "모집완료",
       completed: true,
+      content: "럭키드로우 특전 분철 완료되었습니다.",
+      deliveryMethod: "일반택배",
       members: group.members.slice(0, 6).map((member: string, index: number) => ({
         name: member,
         state: "모집완료",
@@ -695,18 +723,15 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.white,
   },
-
   container: {
     flex: 1,
     backgroundColor: COLORS.white,
   },
-
   scrollContent: {
     paddingTop: 0,
     paddingHorizontal: 22,
     paddingBottom: 120,
   },
-
   header: {
     height: 64,
     flexDirection: "row",
@@ -714,18 +739,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 10,
   },
-
   logo: {
     fontSize: 24,
     fontWeight: "900",
     color: COLORS.black,
   },
-
   headerIcons: {
     flexDirection: "row",
     gap: 8,
   },
-
   iconButton: {
     width: 36,
     height: 36,
@@ -733,7 +755,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
   searchBox: {
     height: 42,
     borderRadius: 13,
@@ -743,27 +764,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     marginBottom: 22,
   },
-
   searchInput: {
     flex: 1,
     marginLeft: 8,
     fontSize: 13,
     color: COLORS.black,
   },
-
   emptyBox: {
     marginTop: 90,
     alignItems: "center",
     paddingHorizontal: 20,
   },
-
   emptyTitle: {
     fontSize: 17,
     fontWeight: "900",
     color: COLORS.black,
     marginBottom: 8,
   },
-
   emptyText: {
     fontSize: 13,
     fontWeight: "600",
@@ -771,12 +788,10 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
   },
-
   groupList: {
     gap: 14,
     paddingBottom: 22,
   },
-
   addGroupButton: {
     width: 62,
     height: 62,
@@ -786,12 +801,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 2,
   },
-
   groupItem: {
     width: 76,
     alignItems: "center",
   },
-
   groupCircle: {
     width: 64,
     height: 64,
@@ -801,13 +814,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     overflow: "hidden",
   },
-
   groupInitial: {
     fontSize: 13,
     fontWeight: "900",
     color: COLORS.black,
   },
-
   groupName: {
     marginTop: 8,
     fontSize: 11,
@@ -815,35 +826,29 @@ const styles = StyleSheet.create({
     color: COLORS.gray900,
     textAlign: "center",
   },
-
   selectedGroupName: {
     color: COLORS.black,
     fontWeight: "900",
   },
-
   favoriteHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 10,
   },
-
   sectionTitle: {
     fontSize: 15,
     fontWeight: "800",
     color: COLORS.black,
   },
-
   editText: {
     fontSize: 13,
     color: COLORS.gray500,
   },
-
   favoriteList: {
     gap: 8,
     paddingBottom: 26,
   },
-
   favoriteChip: {
     minHeight: 38,
     borderRadius: 19,
@@ -853,7 +858,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-
   favoriteImage: {
     width: 30,
     height: 30,
@@ -864,54 +868,45 @@ const styles = StyleSheet.create({
     marginRight: 8,
     overflow: "hidden",
   },
-
   favoriteInitial: {
     color: COLORS.white,
     fontSize: 12,
     fontWeight: "800",
   },
-
   favoriteName: {
     fontSize: 13,
     fontWeight: "900",
     color: COLORS.black,
   },
-
   favoriteGroupName: {
     fontSize: 9,
     fontWeight: "700",
     color: COLORS.gray500,
     marginTop: 1,
   },
-
   listHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 12,
   },
-
   listTitle: {
     fontSize: 17,
     fontWeight: "900",
     color: COLORS.black,
   },
-
   sortButton: {
     flexDirection: "row",
     alignItems: "center",
   },
-
   sortText: {
     fontSize: 12,
     fontWeight: "700",
     color: COLORS.black,
   },
-
   postList: {
     gap: 14,
   },
-
   postCard: {
     backgroundColor: COLORS.white,
     borderRadius: 18,
@@ -925,21 +920,17 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 3,
   },
-
   postCardPressed: {
     backgroundColor: "#FAFAFA",
     transform: [{ scale: 0.99 }],
   },
-
   postCardCompleted: {
     opacity: 0.42,
   },
-
   postTop: {
     flexDirection: "row",
     marginBottom: 16,
   },
-
   profileCircle: {
     width: 48,
     height: 48,
@@ -949,84 +940,70 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   profileInitial: {
     fontSize: 17,
     fontWeight: "900",
     color: COLORS.white,
   },
-
   postInfo: {
     flex: 1,
     justifyContent: "center",
   },
-
   postMetaRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-
   userName: {
     fontSize: 13,
     fontWeight: "700",
     color: COLORS.gray700,
   },
-
   timeText: {
     fontSize: 11,
     color: COLORS.gray500,
   },
-
   titleRow: {
     flexDirection: "row",
     alignItems: "center",
     marginTop: 3,
   },
-
   titleTextWrap: {
     flex: 1,
     marginRight: 8,
   },
-
   postTitle: {
     fontSize: 17,
     fontWeight: "900",
     color: COLORS.black,
   },
-
   deadlineBadge: {
     backgroundColor: "#FFECEC",
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: 10,
   },
-
   deadlineText: {
     fontSize: 10,
     fontWeight: "800",
     color: COLORS.red,
   },
-
   completeBadge: {
     backgroundColor: COLORS.gray200,
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: 10,
   },
-
   completeText: {
     fontSize: 10,
     fontWeight: "800",
     color: COLORS.gray500,
   },
-
   memberGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: MEMBER_GAP,
   },
-
   memberBox: {
     width: MEMBER_BOX_WIDTH,
     minHeight: 58,
@@ -1038,63 +1015,51 @@ const styles = StyleSheet.create({
     borderColor: COLORS.gray200,
     justifyContent: "space-between",
   },
-
   memberBoxCompleted: {
     backgroundColor: "#FAFAFA",
   },
-
   memberName: {
     fontSize: 12,
     fontWeight: "800",
     color: COLORS.black,
     marginBottom: 6,
   },
-
   memberBottom: {
     gap: 3,
   },
-
   stateRow: {
     flexDirection: "row",
     alignItems: "center",
   },
-
   stateDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
     marginRight: 4,
   },
-
   greenDot: {
     backgroundColor: COLORS.green,
   },
-
   orangeDot: {
     backgroundColor: COLORS.orange,
   },
-
   grayDot: {
     backgroundColor: COLORS.gray300,
   },
-
   stateText: {
     fontSize: 9,
     fontWeight: "700",
     color: COLORS.gray700,
   },
-
   disabledText: {
     color: COLORS.gray400,
   },
-
   priceText: {
     fontSize: 12,
     fontWeight: "900",
     color: COLORS.black,
     textAlign: "right",
   },
-
   writeButton: {
     position: "absolute",
     right: 22,
@@ -1114,7 +1079,6 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 4,
   },
-
   writeText: {
     fontSize: 15,
     fontWeight: "900",
