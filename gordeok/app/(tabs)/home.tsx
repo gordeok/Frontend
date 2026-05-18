@@ -204,8 +204,13 @@ export default function HomeScreen() {
       ? params.members
       : "";
 
-  const selectedGroupIds = groupParam.split(",").filter(Boolean);
-  const selectedMemberIds = memberParam.split(",").filter(Boolean);
+  const selectedGroupIds = useMemo(() => {
+    return groupParam.split(",").filter(Boolean);
+  }, [groupParam]);
+
+  const selectedMemberIds = useMemo(() => {
+    return memberParam.split(",").filter(Boolean);
+  }, [memberParam]);
 
   const selectedGroups = useMemo(() => {
     return idolData
@@ -220,7 +225,7 @@ export default function HomeScreen() {
           favorites,
         };
       });
-  }, [groupParam, memberParam]);
+  }, [selectedGroupIds, selectedMemberIds]);
 
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
 
