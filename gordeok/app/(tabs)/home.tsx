@@ -30,6 +30,7 @@ const COLORS = {
   green: "#31C48D",
   orange: "#E7A533",
   red: "#FF6B6B",
+  beige: "#EDE8DE",
 };
 
 const idolData = [
@@ -228,6 +229,9 @@ export default function HomeScreen() {
   }, [selectedGroupIds, selectedMemberIds]);
 
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [selectedFavoriteMember, setSelectedFavoriteMember] = useState<
+    string | null
+  >(null);
 
   useEffect(() => {
     if (selectedGroups.length === 1) {
@@ -240,6 +244,7 @@ export default function HomeScreen() {
       !selectedGroups.some((group) => group.id === selectedGroupId)
     ) {
       setSelectedGroupId(null);
+      setSelectedFavoriteMember(null);
     }
   }, [selectedGroups, selectedGroupId]);
 
@@ -247,9 +252,20 @@ export default function HomeScreen() {
     return makePosts(selectedGroups);
   }, [selectedGroups]);
 
-  const filteredPosts = selectedGroupId
-    ? posts.filter((post) => post.groupId === selectedGroupId)
-    : posts;
+  const filteredPosts = posts.filter((post) => {
+    const matchesGroup = selectedGroupId
+      ? post.groupId === selectedGroupId
+      : true;
+
+    const matchesFavoriteMember = selectedFavoriteMember
+      ? post.members.some(
+          (member: any) =>
+            member.name === selectedFavoriteMember && member.state === "모집중"
+        )
+      : true;
+
+    return matchesGroup && matchesFavoriteMember;
+  });
 
   const visibleFavoriteGroups = selectedGroupId
     ? selectedGroups.filter((group) => group.id === selectedGroupId)
@@ -334,7 +350,9 @@ export default function HomeScreen() {
                       key={group.id}
                       onPress={() => {
                         if (selectedGroups.length === 1) return;
+
                         setSelectedGroupId(isSelected ? null : group.id);
+                        setSelectedFavoriteMember(null);
                       }}
                       style={styles.groupItem}
                     >
@@ -393,29 +411,72 @@ export default function HomeScreen() {
                 contentContainerStyle={styles.favoriteList}
               >
                 {visibleFavoriteGroups.flatMap((group) =>
-                  group.favorites.map((favorite) => (
-                    <Pressable
-                      key={`${group.id}-${favorite}`}
-                      style={styles.favoriteChip}
-                      onPress={() => setSelectedGroupId(group.id)}
-                    >
-                      <View style={styles.favoriteImage}>
-                        <Text style={styles.favoriteInitial}>{favorite[0]}</Text>
-                      </View>
+                  group.favorites.map((favorite) => {
+                    const isFavoriteSelected =
+                      selectedGroupId === group.id &&
+                      selectedFavoriteMember === favorite;
 
-                      <View>
-                        <Text style={styles.favoriteName}>{favorite}</Text>
-                        <Text style={styles.favoriteGroupName}>
-                          {group.name}
-                        </Text>
-                      </View>
-                    </Pressable>
-                  ))
+                    return (
+                      <Pressable
+                        key={`${group.id}-${favorite}`}
+                        style={[
+                          styles.favoriteChip,
+                          isFavoriteSelected && styles.favoriteChipSelected,
+                        ]}
+                        onPress={() => {
+                          setSelectedGroupId(group.id);
+                          setSelectedFavoriteMember((prev) =>
+                            prev === favorite && selectedGroupId === group.id
+                              ? null
+                              : favorite
+                          );
+                        }}
+                      >
+                        <View
+                          style={[
+                            styles.favoriteImage,
+                            isFavoriteSelected && styles.favoriteImageSelected,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.favoriteInitial,
+                              isFavoriteSelected &&
+                                styles.favoriteInitialSelected,
+                            ]}
+                          >
+                            {favorite[0]}
+                          </Text>
+                        </View>
+
+                        <View>
+                          <Text
+                            style={[
+                              styles.favoriteName,
+                              isFavoriteSelected &&
+                                styles.favoriteNameSelected,
+                            ]}
+                          >
+                            {favorite}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.favoriteGroupName,
+                              isFavoriteSelected &&
+                                styles.favoriteGroupNameSelected,
+                            ]}
+                          >
+                            {group.name}
+                          </Text>
+                        </View>
+                      </Pressable>
+                    );
+                  })
                 )}
               </ScrollView>
 
               <View style={styles.listHeader}>
-                <Text style={styles.listTitle}>분철 글</Text>
+                <View />
 
                 <Pressable style={styles.sortButton}>
                   <Text style={styles.sortText}>최신 등록순</Text>
@@ -428,23 +489,34 @@ export default function HomeScreen() {
               </View>
 
               <View style={styles.postList}>
-                {filteredPosts.map((post) => (
-                  <PostCard
-                    key={post.id}
-                    post={post}
-                    onPress={() =>
-                      router.push({
-                        pathname: "/divide-detail",
-                        params: {
-                          postId: post.id,
-                          postData: JSON.stringify(post),
-                          groups: groupParam,
-                          members: memberParam,
-                        },
-                      } as any)
-                    }
-                  />
-                ))}
+                {filteredPosts.length === 0 ? (
+                  <View style={styles.noPostBox}>
+                    <Text style={styles.noPostTitle}>
+                      모집중인 분철 글이 없어요
+                    </Text>
+                    <Text style={styles.noPostText}>
+                      다른 최애 멤버를 선택하거나 필터를 해제해보세요.
+                    </Text>
+                  </View>
+                ) : (
+                  filteredPosts.map((post) => (
+                    <PostCard
+                      key={post.id}
+                      post={post}
+                      onPress={() =>
+                        router.push({
+                          pathname: "/divide-detail",
+                          params: {
+                            postId: post.id,
+                            postData: JSON.stringify(post),
+                            groups: groupParam,
+                            members: memberParam,
+                          },
+                        } as any)
+                      }
+                    />
+                  ))
+                )}
               </View>
             </>
           )}
@@ -788,6 +860,23 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
   },
+  noPostBox: {
+    marginTop: 78,
+    paddingVertical: 42,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  noPostTitle: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: COLORS.black,
+    marginBottom: 7,
+  },
+  noPostText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: COLORS.gray500,
+  },
   groupList: {
     gap: 14,
     paddingBottom: 22,
@@ -858,31 +947,46 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
+  favoriteChipSelected: {
+    backgroundColor: COLORS.black,
+  },
   favoriteImage: {
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: COLORS.black,
+    backgroundColor: COLORS.beige,
     justifyContent: "center",
     alignItems: "center",
     marginRight: 8,
     overflow: "hidden",
   },
+  favoriteImageSelected: {
+    backgroundColor: COLORS.white,
+  },
   favoriteInitial: {
-    color: COLORS.white,
+    color: COLORS.black,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "900",
+  },
+  favoriteInitialSelected: {
+    color: COLORS.black,
   },
   favoriteName: {
     fontSize: 13,
     fontWeight: "900",
     color: COLORS.black,
   },
+  favoriteNameSelected: {
+    color: COLORS.white,
+  },
   favoriteGroupName: {
     fontSize: 9,
     fontWeight: "700",
     color: COLORS.gray500,
     marginTop: 1,
+  },
+  favoriteGroupNameSelected: {
+    color: COLORS.gray300,
   },
   listHeader: {
     flexDirection: "row",
