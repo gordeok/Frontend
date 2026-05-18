@@ -1,6 +1,5 @@
 # 🐥 GO르덕 Frontend
 
----
 
 ## 🛠 기술 스택
 
@@ -10,8 +9,6 @@
 | Platform | Expo |
 | Language | TypeScript |
 | Routing | Expo Router |
-| Styling | React Native StyleSheet |
-| Icon | Expo Vector Icons |
 
 ---
 
