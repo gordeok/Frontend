@@ -1,4 +1,4 @@
-// 최애 그룹 선택 화면
+// 회원가입 - 최애 그룹 선택 화면 
 
 import { useMemo, useState } from "react";
 import { View, Text, Pressable, StyleSheet, TextInput, ScrollView } from "react-native";

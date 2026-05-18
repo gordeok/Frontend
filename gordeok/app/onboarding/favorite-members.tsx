@@ -1,3 +1,5 @@
+// 회원가입 - 최애 멤버 설정 화면
+
 import { View, Text, Pressable, StyleSheet, ScrollView } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
