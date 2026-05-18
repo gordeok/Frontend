@@ -1,5 +1,3 @@
-// 알림 화면 
-
 import {
     View,
     Text,

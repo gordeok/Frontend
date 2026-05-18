@@ -1,4 +1,4 @@
-// 최애 멤버 편집 화면 
+// 최애 편집 화면
 
 import { View, Text, Pressable, StyleSheet, ScrollView } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
