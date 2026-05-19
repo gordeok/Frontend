@@ -282,6 +282,18 @@ export default function HomeScreen() {
             <Text style={styles.logo}>GO르덕</Text>
 
             <View style={styles.headerIcons}>
+              <Pressable 
+                onPress={() => router.push("/bookmark-list")}
+                hitSlop={10}
+                style={styles.iconButton}
+              >
+                <Ionicons
+                  name="bookmark-outline"
+                  size={22}
+                  color={COLORS.black}
+                />
+              </Pressable>
+
               <Pressable
                 onPress={() => router.push("/notification")}
                 hitSlop={10}
@@ -289,14 +301,6 @@ export default function HomeScreen() {
               >
                 <Ionicons
                   name="notifications-outline"
-                  size={22}
-                  color={COLORS.black}
-                />
-              </Pressable>
-
-              <Pressable style={styles.iconButton}>
-                <Ionicons
-                  name="bookmark-outline"
                   size={22}
                   color={COLORS.black}
                 />
@@ -493,9 +497,6 @@ export default function HomeScreen() {
                   <View style={styles.noPostBox}>
                     <Text style={styles.noPostTitle}>
                       모집중인 분철 글이 없어요
-                    </Text>
-                    <Text style={styles.noPostText}>
-                      다른 최애 멤버를 선택하거나 필터를 해제해보세요.
                     </Text>
                   </View>
                 ) : (
@@ -791,19 +792,23 @@ function PostCard({
 }
 
 const styles = StyleSheet.create({
+  
   safeArea: {
     flex: 1,
     backgroundColor: COLORS.white,
   },
+
   container: {
     flex: 1,
     backgroundColor: COLORS.white,
   },
+
   scrollContent: {
     paddingTop: 0,
     paddingHorizontal: 22,
     paddingBottom: 120,
   },
+
   header: {
     height: 64,
     flexDirection: "row",
@@ -811,15 +816,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 10,
   },
+
   logo: {
     fontSize: 24,
     fontWeight: "900",
     color: COLORS.black,
   },
+
   headerIcons: {
     flexDirection: "row",
     gap: 8,
   },
+
   iconButton: {
     width: 36,
     height: 36,
@@ -827,6 +835,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+
   searchBox: {
     height: 42,
     borderRadius: 13,
@@ -836,23 +845,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     marginBottom: 22,
   },
+
   searchInput: {
     flex: 1,
     marginLeft: 8,
     fontSize: 13,
     color: COLORS.black,
   },
+
   emptyBox: {
     marginTop: 90,
     alignItems: "center",
     paddingHorizontal: 20,
   },
+
   emptyTitle: {
     fontSize: 17,
     fontWeight: "900",
     color: COLORS.black,
     marginBottom: 8,
   },
+
   emptyText: {
     fontSize: 13,
     fontWeight: "600",
@@ -860,27 +873,26 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
   },
+
   noPostBox: {
     marginTop: 78,
     paddingVertical: 42,
     alignItems: "center",
     justifyContent: "center",
   },
+
   noPostTitle: {
     fontSize: 15,
     fontWeight: "900",
     color: COLORS.black,
     marginBottom: 7,
   },
-  noPostText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: COLORS.gray500,
-  },
+
   groupList: {
     gap: 14,
     paddingBottom: 22,
   },
+
   addGroupButton: {
     width: 62,
     height: 62,
@@ -890,10 +902,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 2,
   },
+
   groupItem: {
     width: 76,
     alignItems: "center",
   },
+
   groupCircle: {
     width: 64,
     height: 64,
@@ -903,11 +917,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     overflow: "hidden",
   },
+
   groupInitial: {
     fontSize: 13,
     fontWeight: "900",
     color: COLORS.black,
   },
+
   groupName: {
     marginTop: 8,
     fontSize: 11,
@@ -915,29 +931,35 @@ const styles = StyleSheet.create({
     color: COLORS.gray900,
     textAlign: "center",
   },
+
   selectedGroupName: {
     color: COLORS.black,
     fontWeight: "900",
   },
+
   favoriteHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 10,
   },
+
   sectionTitle: {
     fontSize: 15,
     fontWeight: "800",
     color: COLORS.black,
   },
+
   editText: {
     fontSize: 13,
     color: COLORS.gray500,
   },
+
   favoriteList: {
     gap: 8,
     paddingBottom: 26,
   },
+  
   favoriteChip: {
     minHeight: 38,
     borderRadius: 19,
@@ -947,9 +969,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
+
   favoriteChipSelected: {
     backgroundColor: COLORS.black,
   },
+
   favoriteImage: {
     width: 30,
     height: 30,
@@ -960,57 +984,70 @@ const styles = StyleSheet.create({
     marginRight: 8,
     overflow: "hidden",
   },
+
   favoriteImageSelected: {
     backgroundColor: COLORS.white,
   },
+
   favoriteInitial: {
     color: COLORS.black,
     fontSize: 12,
     fontWeight: "900",
   },
+
   favoriteInitialSelected: {
     color: COLORS.black,
   },
+
   favoriteName: {
     fontSize: 13,
     fontWeight: "900",
     color: COLORS.black,
   },
+
   favoriteNameSelected: {
     color: COLORS.white,
   },
+
   favoriteGroupName: {
     fontSize: 9,
     fontWeight: "700",
     color: COLORS.gray500,
     marginTop: 1,
   },
+
   favoriteGroupNameSelected: {
     color: COLORS.gray300,
   },
+
   listHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 12,
   },
+
   listTitle: {
     fontSize: 17,
     fontWeight: "900",
     color: COLORS.black,
   },
+
   sortButton: {
     flexDirection: "row",
     alignItems: "center",
   },
+
   sortText: {
     fontSize: 12,
     fontWeight: "700",
     color: COLORS.black,
   },
+
   postList: {
     gap: 14,
   },
+
   postCard: {
     backgroundColor: COLORS.white,
     borderRadius: 18,
@@ -1024,17 +1061,21 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 3,
   },
+
   postCardPressed: {
     backgroundColor: "#FAFAFA",
     transform: [{ scale: 0.99 }],
   },
+
   postCardCompleted: {
     opacity: 0.42,
   },
+
   postTop: {
     flexDirection: "row",
     marginBottom: 16,
   },
+
   profileCircle: {
     width: 48,
     height: 48,
@@ -1044,70 +1085,84 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
   profileInitial: {
     fontSize: 17,
     fontWeight: "900",
     color: COLORS.white,
   },
+
   postInfo: {
     flex: 1,
     justifyContent: "center",
   },
+
   postMetaRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
+
   userName: {
     fontSize: 13,
     fontWeight: "700",
     color: COLORS.gray700,
   },
+
   timeText: {
     fontSize: 11,
     color: COLORS.gray500,
   },
+
   titleRow: {
     flexDirection: "row",
     alignItems: "center",
     marginTop: 3,
   },
+
   titleTextWrap: {
     flex: 1,
     marginRight: 8,
   },
+
   postTitle: {
     fontSize: 17,
     fontWeight: "900",
     color: COLORS.black,
   },
+
   deadlineBadge: {
     backgroundColor: "#FFECEC",
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: 10,
   },
+
   deadlineText: {
     fontSize: 10,
     fontWeight: "800",
     color: COLORS.red,
   },
+
   completeBadge: {
     backgroundColor: COLORS.gray200,
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: 10,
   },
+
   completeText: {
     fontSize: 10,
     fontWeight: "800",
     color: COLORS.gray500,
   },
+
   memberGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: MEMBER_GAP,
   },
+
   memberBox: {
     width: MEMBER_BOX_WIDTH,
     minHeight: 58,
@@ -1119,51 +1174,63 @@ const styles = StyleSheet.create({
     borderColor: COLORS.gray200,
     justifyContent: "space-between",
   },
+
   memberBoxCompleted: {
     backgroundColor: "#FAFAFA",
   },
+
   memberName: {
     fontSize: 12,
     fontWeight: "800",
     color: COLORS.black,
     marginBottom: 6,
   },
+
   memberBottom: {
     gap: 3,
   },
+
   stateRow: {
     flexDirection: "row",
     alignItems: "center",
   },
+
   stateDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
     marginRight: 4,
   },
+
   greenDot: {
     backgroundColor: COLORS.green,
   },
+
   orangeDot: {
     backgroundColor: COLORS.orange,
   },
+
   grayDot: {
     backgroundColor: COLORS.gray300,
   },
+
   stateText: {
     fontSize: 9,
     fontWeight: "700",
     color: COLORS.gray700,
   },
+
   disabledText: {
     color: COLORS.gray400,
   },
+
   priceText: {
     fontSize: 12,
     fontWeight: "900",
     color: COLORS.black,
     textAlign: "right",
   },
+
   writeButton: {
     position: "absolute",
     right: 22,
@@ -1183,10 +1250,12 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 4,
   },
+
   writeText: {
     fontSize: 15,
     fontWeight: "900",
     color: COLORS.white,
     marginLeft: 5,
   },
+
 });

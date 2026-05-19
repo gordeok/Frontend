@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useBookmark } from "@/contexts/BookmarkContext";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -63,6 +64,7 @@ type DividePost = {
 export default function DivideDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { isBookmarked, toggleBookmark } = useBookmark();
 
   const postData = typeof params.postData === "string" ? params.postData : "";
   const groupParam = typeof params.groups === "string" ? params.groups : "";
@@ -91,6 +93,20 @@ export default function DivideDetailScreen() {
       </SafeAreaView>
     );
   }
+
+  const bookmarked = isBookmarked(post.id);
+
+  const handleBookmark = () => {
+    toggleBookmark({
+      id: post.id,
+      title: post.title,
+      sellerName: post.userName,
+      groupName: post.groupName,
+      postData: JSON.stringify(post),
+      groups: groupParam,
+      members: memberParam,
+    });
+  };
 
   const handleSelectMember = () => {
     router.push({
@@ -159,7 +175,9 @@ export default function DivideDetailScreen() {
             <Text style={styles.contentText}>{post.content}</Text>
 
             <View style={styles.countRow}>
-              <Text style={styles.countText}>북마크 11</Text>
+              <Text style={styles.countText}>
+                북마크 {bookmarked ? "12" : "11"}
+              </Text>
               <Text style={styles.countText}>조회 705</Text>
             </View>
 
@@ -214,8 +232,12 @@ export default function DivideDetailScreen() {
         </ScrollView>
 
         <View style={styles.bottomBar}>
-          <Pressable style={styles.bookmarkButton}>
-            <Ionicons name="bookmark-outline" size={28} color={COLORS.black} />
+          <Pressable style={styles.bookmarkButton} onPress={handleBookmark}>
+            <Ionicons
+              name={bookmarked ? "bookmark" : "bookmark-outline"}
+              size={28}
+              color={bookmarked ? COLORS.yellow : COLORS.black}
+            />
           </Pressable>
 
           <Pressable style={styles.selectButton} onPress={handleSelectMember}>
