@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useDividePosts, DividePost } from "@/contexts/DividePostContext";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -194,6 +195,7 @@ const MEMBER_BOX_WIDTH = (SCREEN_WIDTH - 44 - 32 - MEMBER_GAP * 2) / 3;
 export default function HomeScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { posts: createdPosts } = useDividePosts();
 
   const groupParam =
     typeof params.groups === "string" && params.groups.length > 0
@@ -249,8 +251,14 @@ export default function HomeScreen() {
   }, [selectedGroups, selectedGroupId]);
 
   const posts = useMemo(() => {
-    return makePosts(selectedGroups);
-  }, [selectedGroups]);
+    const defaultPosts = makePosts(selectedGroups);
+    const createdDisplayPosts = normalizeCreatedPosts(
+      createdPosts,
+      selectedGroups
+    );
+
+    return [...createdDisplayPosts, ...defaultPosts];
+  }, [createdPosts, selectedGroups]);
 
   const filteredPosts = posts.filter((post) => {
     const matchesGroup = selectedGroupId
@@ -282,7 +290,7 @@ export default function HomeScreen() {
             <Text style={styles.logo}>GO르덕</Text>
 
             <View style={styles.headerIcons}>
-              <Pressable 
+              <Pressable
                 onPress={() => router.push("/bookmark-list")}
                 hitSlop={10}
                 style={styles.iconButton}
@@ -525,7 +533,15 @@ export default function HomeScreen() {
 
         <Pressable
           style={styles.writeButton}
-          onPress={() => router.push("/divide-create" as any)}
+          onPress={() =>
+            router.push({
+              pathname: "/divide-create",
+              params: {
+                groups: groupParam,
+                members: memberParam,
+              },
+            } as any)
+          }
         >
           <Ionicons name="add" size={24} color={COLORS.white} />
           <Text style={styles.writeText}>글쓰기</Text>
@@ -533,6 +549,47 @@ export default function HomeScreen() {
       </View>
     </SafeAreaView>
   );
+}
+
+function normalizeCreatedPosts(createdPosts: DividePost[], selectedGroups: any[]) {
+  return createdPosts
+    .map((post) => {
+      const matchedGroup = selectedGroups.find(
+        (group) =>
+          group.id === post.groupId ||
+          group.displayName === post.groupName ||
+          group.name === post.groupName
+      );
+
+      if (!matchedGroup) return null;
+
+      return {
+        id: `created-${post.id}`,
+        groupId: matchedGroup.id,
+        groupName: matchedGroup.displayName,
+        userName: "나",
+        title: post.title,
+        albumName: post.albumName || "직접 등록한 분철",
+        time: post.createdAt,
+        date: post.createdDate || "",
+        status: "모집중",
+        completed: false,
+        content: post.content || "",
+        components: post.components || [],
+        deliveryMethod:
+          post.deliveryMethod === "GS"
+            ? "GS 반값택배"
+            : post.deliveryMethod === "CU"
+            ? "CU 반값택배"
+            : post.deliveryMethod,
+        members: post.members.map((member) => ({
+          name: member.name,
+          state: member.status ?? "모집중",
+          price: member.price,
+        })),
+      };
+    })
+    .filter(Boolean);
 }
 
 function makePosts(groups: any[]) {
@@ -553,6 +610,7 @@ function makePosts(groups: any[]) {
       status: "마감임박",
       completed: false,
       content: "덤 많이 드려요.\n재배송비는 추후 분납 예정입니다.",
+      components: ["앨범 본체", "엽서", "포스터"],
       deliveryMethod: "CU 반값택배",
       members: group.members.map((member: string, index: number) => ({
         name: member,
@@ -573,6 +631,7 @@ function makePosts(groups: any[]) {
       status: "모집중",
       completed: false,
       content: "포카 특전 위주로 분철합니다.\n하자 확인 후 보내드려요.",
+      components: ["포카", "특전", "앨범 본체"],
       deliveryMethod: "GS 반값택배",
       members: group.members.map((member: string, index: number) => ({
         name: member,
@@ -593,6 +652,7 @@ function makePosts(groups: any[]) {
       status: "모집완료",
       completed: true,
       content: "럭키드로우 특전 분철 완료되었습니다.",
+      components: ["럭키드로우 특전"],
       deliveryMethod: "일반택배",
       members: group.members.slice(0, 6).map((member: string, index: number) => ({
         name: member,
@@ -792,7 +852,6 @@ function PostCard({
 }
 
 const styles = StyleSheet.create({
-  
   safeArea: {
     flex: 1,
     backgroundColor: COLORS.white,
@@ -959,7 +1018,7 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingBottom: 26,
   },
-  
+
   favoriteChip: {
     minHeight: 38,
     borderRadius: 19,
@@ -1257,5 +1316,4 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     marginLeft: 5,
   },
-
 });

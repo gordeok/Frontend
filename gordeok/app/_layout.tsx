@@ -3,6 +3,7 @@
 import { Stack } from "expo-router";
 import { useFonts } from "expo-font";
 import { BookmarkProvider } from "@/contexts/BookmarkContext";
+import { DividePostProvider } from "@/contexts/DividePostContext";
 
 export default function RootLayout() {
   const [loaded] = useFonts({
@@ -21,12 +22,14 @@ export default function RootLayout() {
 
   return (
     <BookmarkProvider>
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          animation: "none",
-        }}
-      />
+      <DividePostProvider>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            animation: "none",
+          }}
+        />
+      </DividePostProvider>
     </BookmarkProvider>
   );
 }

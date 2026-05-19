@@ -64,6 +64,7 @@ type DividePost = {
   status: string;
   completed: boolean;
   content: string;
+  components?: string[];
   deliveryMethod: string;
   members: DivideMember[];
 };
@@ -371,18 +372,22 @@ export default function DivideDetailScreen() {
               ))}
             </View>
 
-            <View style={styles.sectionDivider} />
+            {post.components && post.components.length > 0 && (
+              <>
+                <View style={styles.sectionDivider} />
 
-            <Text style={styles.sectionTitle}>분철 구성품</Text>
+                <Text style={styles.sectionTitle}>분철 구성품</Text>
 
-            <View style={styles.itemList}>
-              {["앨범 본체", "엽서", "포스터"].map((item) => (
-                <View key={item} style={styles.itemRow}>
-                  <Ionicons name="checkmark" size={17} color={COLORS.green} />
-                  <Text style={styles.itemText}>{item}</Text>
+                <View style={styles.itemList}>
+                  {post.components.map((item) => (
+                    <View key={item} style={styles.itemRow}>
+                      <Ionicons name="checkmark" size={17} color={COLORS.green} />
+                      <Text style={styles.itemText}>{item}</Text>
+                    </View>
+                  ))}
                 </View>
-              ))}
-            </View>
+              </>
+            )}
 
             <View style={styles.sectionDivider} />
 
