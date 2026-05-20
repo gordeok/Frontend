@@ -126,39 +126,10 @@ export default function SellerProfileScreen() {
             <TouchableOpacity
               style={styles.moreButton}
               activeOpacity={0.65}
-              onPress={() => setMenuVisible((prev) => !prev)}
+              onPress={() => setMenuVisible(true)}
             >
               <Ionicons name="ellipsis-horizontal" size={17} color="#555555" />
             </TouchableOpacity>
-
-            {menuVisible && (
-              <View style={styles.moreMenu}>
-                <TouchableOpacity
-                  activeOpacity={0.75}
-                  style={styles.moreMenuItem}
-                  onPress={() => {
-                    setMenuVisible(false);
-                    console.log("사기 신고하기");
-                  }}
-                >
-                  <Text style={styles.moreMenuText}>사기 신고하기</Text>
-                  <Ionicons name="chevron-forward" size={15} color="#B5B5B5" />
-                </TouchableOpacity>
-
-                <View style={styles.moreMenuDivider} />
-
-                <TouchableOpacity
-                  activeOpacity={0.75}
-                  style={styles.moreMenuItem}
-                  onPress={() => {
-                    setMenuVisible(false);
-                    console.log("팔로우 하기");
-                  }}
-                >
-                  <Text style={styles.moreMenuText}>팔로우 하기</Text>
-                </TouchableOpacity>
-              </View>
-            )}
 
             <View style={styles.profileTop}>
               <View style={styles.profileCircle}>
@@ -273,6 +244,47 @@ export default function SellerProfileScreen() {
             </View>
           </View>
         </ScrollView>
+
+        {/* 점 3개 메뉴 */}
+        <Modal
+          visible={menuVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setMenuVisible(false)}
+        >
+          <Pressable
+            style={styles.menuOverlay}
+            onPress={() => setMenuVisible(false)}
+            onTouchMove={() => setMenuVisible(false)}
+          >
+            <Pressable style={styles.moreMenu} onPress={(e) => e.stopPropagation()}>
+              <TouchableOpacity
+                activeOpacity={0.75}
+                style={styles.moreMenuItem}
+                onPress={() => {
+                  setMenuVisible(false);
+                  console.log("사기 신고하기");
+                }}
+              >
+                <Text style={styles.moreMenuText}>사기 신고하기</Text>
+                <Ionicons name="chevron-forward" size={15} color="#B5B5B5" />
+              </TouchableOpacity>
+
+              <View style={styles.moreMenuDivider} />
+
+              <TouchableOpacity
+                activeOpacity={0.75}
+                style={styles.moreMenuItem}
+                onPress={() => {
+                  setMenuVisible(false);
+                  console.log("팔로우 하기");
+                }}
+              >
+                <Text style={styles.moreMenuText}>팔로우 하기</Text>
+              </TouchableOpacity>
+            </Pressable>
+          </Pressable>
+        </Modal>
 
         <Modal visible={scoreModalVisible} transparent animationType="fade">
           <Pressable
@@ -435,16 +447,20 @@ const styles = StyleSheet.create({
     zIndex: 30,
   },
 
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.01)",
+  },
+
   moreMenu: {
     position: "absolute",
-    top: 48,
-    right: 16,
+    top: 150,
+    right: 38,
     width: 168,
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 7,
-    zIndex: 40,
     shadowColor: "#000",
     shadowOpacity: 0.12,
     shadowRadius: 14,
