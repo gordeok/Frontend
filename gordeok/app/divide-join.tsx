@@ -97,7 +97,7 @@ import {
             keyboardShouldPersistTaps="handled"
           >
             <View style={styles.formGroup}>
-              <Text style={styles.label}>받으시는 분</Text>
+              <Text style={styles.label}>받으시는 분 *</Text>
               <TextInput
                 style={styles.input}
                 placeholder="실명으로 입력해 주세요."
@@ -109,7 +109,7 @@ import {
             </View>
   
             <View style={styles.formGroup}>
-              <Text style={styles.label}>전화번호</Text>
+              <Text style={styles.label}>전화번호 *</Text>
               <TextInput
                 style={styles.input}
                 placeholder="010-0000-0000"
@@ -124,7 +124,7 @@ import {
             <View style={styles.divider} />
   
             <View style={styles.formGroup}>
-              <Text style={styles.label}>편의점 지점명</Text>
+              <Text style={styles.label}>편의점 지점명 *</Text>
               <TextInput
                 style={styles.input}
                 placeholder="예시 ) GS 25 숙대입구점"
