@@ -1,12 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useState } from "react";
+import { router } from "expo-router";
 import {
-  Alert,
-  Pressable,
+  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
+  TouchableOpacity,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -17,84 +15,87 @@ const COLORS = {
   gray900: "#222222",
   gray700: "#666666",
   gray500: "#999999",
-  gray300: "#DDDDDD",
-  gray100: "#F8F8F8",
-  yellow: "#F7C94B",
-  yellowPressed: "#E9B931",
+  gray100: "#F6F6F6",
+  profileGray: "#F1F1F1",
+  profileText: "#555555",
   line: "#F2EDE6",
 };
 
-export default function EditProfileScreen() {
-  const router = useRouter();
-  const [nickname, setNickname] = useState("범규와이프");
-
-  const handleSave = () => {
-    Alert.alert("저장 완료", "프로필이 수정되었습니다.");
-    router.back();
-  };
+export default function ReceivedReviewsScreen() {
+  const reviews = [
+    {
+      name: "덕질왕",
+      date: "2025.04.22",
+      text: "응답도 빠르고 친절하게 거래해주셔서 너무 좋았어요. 믿을 수 있는 판매자!",
+    },
+    {
+      name: "껌규",
+      date: "2025.04.11",
+      text: "포카 상태 너무 좋아요 굿굿 감사합니다",
+    },
+    {
+      name: "꿔바로우많이두개더",
+      date: "2025.03.24",
+      text: "믿고 분철 탑니다~ 항상 빠른 응답 감사해요",
+    },
+    {
+      name: "수빈이라고 나 수빈",
+      date: "2025.03.12",
+      text: "다음에도 또 분철 타겠습니다 열어주세요~",
+    },
+    {
+      name: "강태현왜안해?",
+      date: "2025.02.14",
+      text: "투바투 분철은 역시 범규와이프님!!",
+    },
+  ];
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.container}>
         <View style={styles.header}>
-          <Pressable
-            style={({ pressed, hovered }) => [
-              styles.headerIcon,
-              (pressed || hovered) && styles.headerIconHover,
-            ]}
+          <TouchableOpacity
+            style={styles.headerIcon}
+            activeOpacity={0.7}
             onPress={() => router.back()}
           >
             <Ionicons name="chevron-back" size={24} color={COLORS.black} />
-          </Pressable>
+          </TouchableOpacity>
 
-          <Text style={styles.headerTitle}>프로필 수정</Text>
+          <Text style={styles.headerTitle}>받은 후기 목록</Text>
 
           <View style={styles.headerIcon} />
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>프로필 사진</Text>
-
-          <View style={styles.profileArea}>
-            <View style={styles.profileCircle}>
-              <Text style={styles.profileText}>범</Text>
-
-              <Pressable
-                style={({ pressed, hovered }) => [
-                  styles.cameraBadge,
-                  (pressed || hovered) && styles.cameraBadgeHover,
-                ]}
-                onPress={() => {
-                  console.log("사진 선택");
-                }}
-              >
-                <Ionicons name="image" size={13} color={COLORS.white} />
-              </Pressable>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>닉네임</Text>
-
-          <TextInput
-            style={styles.input}
-            value={nickname}
-            onChangeText={setNickname}
-            placeholder="닉네임을 입력하세요"
-            placeholderTextColor={COLORS.gray500}
-          />
-        </View>
-
-        <Pressable
-          style={({ pressed, hovered }) => [
-            styles.saveButton,
-            (pressed || hovered) && styles.saveButtonHover,
-          ]}
-          onPress={handleSave}
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.listContent}
         >
-          <Text style={styles.saveText}>저장하기</Text>
-        </Pressable>
+          <View style={styles.summaryArea}>
+            <Text style={styles.summaryTitle}>후기 {reviews.length}개</Text>
+          </View>
+
+          {reviews.map((review, index) => (
+            <View key={index} style={styles.reviewCard}>
+              <View style={styles.reviewTop}>
+                <View style={styles.profileCircle}>
+                  <Text style={styles.profileInitial}>
+                    {review.name.slice(0, 1)}
+                  </Text>
+                </View>
+
+                <View style={styles.reviewInfo}>
+                  <Text style={styles.reviewName} numberOfLines={1}>
+                    {review.name}
+                  </Text>
+                  <Text style={styles.reviewDate}>{review.date}</Text>
+                </View>
+              </View>
+
+              <Text style={styles.reviewText}>{review.text}</Text>
+            </View>
+          ))}
+        </ScrollView>
       </View>
     </SafeAreaView>
   );
@@ -122,13 +123,8 @@ const styles = StyleSheet.create({
   headerIcon: {
     width: 32,
     height: 32,
-    borderRadius: 16,
     justifyContent: "center",
     alignItems: "flex-start",
-  },
-
-  headerIconHover: {
-    opacity: 0.55,
   },
 
   headerTitle: {
@@ -137,92 +133,73 @@ const styles = StyleSheet.create({
     color: COLORS.black,
   },
 
-  card: {
+  listContent: {
+    paddingBottom: 36,
+  },
+
+  summaryArea: {
+    marginTop: 12,
+    marginBottom: 14,
+  },
+
+  summaryTitle: {
+    fontSize: 17,
+    fontWeight: "900",
+    color: COLORS.black,
+  },
+
+  reviewCard: {
     backgroundColor: COLORS.white,
     borderRadius: 18,
-    padding: 18,
-    marginTop: 14,
+    padding: 16,
+    marginBottom: 14,
     borderWidth: 1,
     borderColor: COLORS.line,
   },
 
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: "900",
-    color: COLORS.black,
-    marginBottom: 16,
-  },
-
-  profileArea: {
+  reviewTop: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 4,
+    marginBottom: 14,
   },
 
   profileCircle: {
-    width: 84,
-    height: 84,
-    borderRadius: 42,
-    backgroundColor: COLORS.yellow,
-    alignItems: "center",
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#FFF4CC",
     justifyContent: "center",
-    position: "relative",
-  },
-
-  profileText: {
-    fontSize: 32,
-    fontWeight: "900",
-    color: COLORS.black,
-  },
-
-  cameraBadge: {
-    position: "absolute",
-    right: 3,
-    bottom: 4,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: COLORS.black,
     alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: COLORS.white,
+    marginRight: 10,
   },
 
-  cameraBadgeHover: {
-    opacity: 0.75,
-    transform: [{ scale: 0.96 }],
-  },
-
-  input: {
-    height: 48,
-    borderWidth: 1,
-    borderColor: COLORS.line,
-    borderRadius: 14,
-    paddingHorizontal: 14,
+  profileInitial: {
     fontSize: 14,
-    fontWeight: "700",
-    color: COLORS.gray900,
-    backgroundColor: COLORS.gray100,
+    fontWeight: "900",
+    color: COLORS.profileText,
   },
 
-  saveButton: {
-    height: 54,
-    borderRadius: 18,
-    backgroundColor: COLORS.yellow,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 28,
+  reviewInfo: {
+    flex: 1,
   },
 
-  saveButtonHover: {
-    backgroundColor: COLORS.yellowPressed,
-    transform: [{ scale: 0.985 }],
-  },
-
-  saveText: {
-    fontSize: 15,
+  reviewName: {
+    fontSize: 14,
     fontWeight: "900",
     color: COLORS.black,
+    marginBottom: 2,
+  },
+
+  reviewDate: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: COLORS.gray500,
+  },
+
+  reviewText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: COLORS.gray700,
+    lineHeight: 20,
   },
 });

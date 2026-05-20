@@ -26,7 +26,7 @@ const COLORS = {
   line: "#F2EDE6",
 };
 
-type SaleStatus = "모집중" | "배송준비중" | "거래완료";
+type SaleStatus = "모집중" | "배송중" | "거래완료";
 
 type SaleItem = {
   id: number;
@@ -51,7 +51,7 @@ export default function SaleListScreen() {
       id: 2,
       title: "2026 MOA CON 특전 포카 분철",
       subText: "여석: 최연준, 강태현, 휴닝카이",
-      status: "배송준비중",
+      status: "배송중",
     },
   ];
 
@@ -86,7 +86,7 @@ export default function SaleListScreen() {
       };
     }
 
-    if (status === "배송준비중") {
+    if (status === "배송중") {
       return {
         box: styles.deliveryStatusBadge,
         text: styles.deliveryStatusText,
@@ -368,7 +368,7 @@ const styles = StyleSheet.create({
   },
 
   progressStatusBadge: {
-    backgroundColor: COLORS.lightYellow,
+    backgroundColor: COLORS.lightGreen,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 13,
@@ -377,7 +377,7 @@ const styles = StyleSheet.create({
   progressStatusText: {
     fontSize: 11,
     fontWeight: "900",
-    color: "#B89416",
+    color: "#009F63",
   },
 
   deliveryStatusBadge: {

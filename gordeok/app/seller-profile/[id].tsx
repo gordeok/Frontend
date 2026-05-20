@@ -561,17 +561,18 @@ const styles = StyleSheet.create({
 
   trustScore: {
     fontSize: 19,
-    fontWeight: "900",
-    color: "#111111",
-    letterSpacing: -0.2,
+    fontWeight: "800",
+    color: "black",
+    letterSpacing: -0.5,
+    marginTop: 2,
   },
 
   trustPoint: {
     fontSize: 12,
     fontWeight: "700",
     color: "#8A8A8A",
-    marginLeft: 2,
-    marginBottom: 2,
+    marginLeft: 3,
+    marginBottom: 3,
   },
 
   progressBg: {

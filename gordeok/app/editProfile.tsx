@@ -56,7 +56,7 @@ export default function EditProfileScreen() {
           <View style={styles.headerIcon} />
         </View>
 
-        <View style={styles.card}>
+        <View style={[styles.card, styles.profileCard]}>
           <Text style={styles.sectionTitle}>프로필 사진</Text>
 
           <View style={styles.profileArea}>
@@ -150,42 +150,47 @@ const styles = StyleSheet.create({
     borderColor: COLORS.line,
   },
 
+  profileCard: {
+    paddingBottom: 28,
+  },
+
   sectionTitle: {
     fontSize: 15,
     fontWeight: "900",
     color: COLORS.black,
-    marginBottom: 16,
+    marginBottom: 18,
   },
 
   profileArea: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 4,
+    paddingTop: 2,
+    paddingBottom: 8,
   },
 
   profileCircle: {
     width: 84,
     height: 84,
-    borderRadius: 42,
-    backgroundColor: COLORS.yellow,
+    borderRadius: 16,
+    backgroundColor: "#EEF1F6",
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
   },
 
   profileText: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: "900",
-    color: COLORS.black,
+    color: "#4B5563",
   },
 
   cameraBadge: {
     position: "absolute",
     right: 3,
-    bottom: 4,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    bottom: 3,
+    width: 27,
+    height: 27,
+    borderRadius: 14,
     backgroundColor: COLORS.black,
     alignItems: "center",
     justifyContent: "center",

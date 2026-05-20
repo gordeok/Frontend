@@ -27,7 +27,7 @@ const COLORS = {
   line: "#F2EDE6",
 };
 
-type PurchaseStatus = "예약중" | "배송준비중" | "거래완료";
+type PurchaseStatus = "예약중" | "배송중" | "거래완료";
 
 type PurchaseItem = {
   id: number;
@@ -55,7 +55,7 @@ export default function PurchaseListScreen() {
       title: "2026 MOA CON 특전 포카 분철",
       member: "강태현 참여",
       date: "2026.05.18",
-      status: "배송준비중",
+      status: "배송중",
     },
   ];
 
@@ -93,7 +93,7 @@ export default function PurchaseListScreen() {
       };
     }
 
-    if (status === "배송준비중") {
+    if (status === "배송중") {
       return {
         box: styles.deliveryStatusBadge,
         text: styles.deliveryStatusText,

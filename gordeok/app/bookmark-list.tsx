@@ -114,9 +114,6 @@ export default function BookmarkListScreen() {
                 color={COLORS.gray400}
               />
               <Text style={styles.emptyTitle}>저장한 북마크가 없어요</Text>
-              <Text style={styles.emptyText}>
-                관심 있는 분철 글을 저장하면 여기에 표시돼요.
-              </Text>
             </View>
           )}
         </ScrollView>
@@ -235,22 +232,15 @@ const styles = StyleSheet.create({
   emptyBox: {
     alignItems: "center",
     justifyContent: "center",
-    paddingTop: 120,
+    paddingTop: 250,
   },
 
   emptyTitle: {
     fontSize: 16,
     fontWeight: "900",
-    color: COLORS.black,
+    color: COLORS.gray500,
     marginTop: 14,
     marginBottom: 6,
   },
 
-  emptyText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: COLORS.gray500,
-    textAlign: "center",
-    lineHeight: 20,
-  },
 });
