@@ -1,6 +1,6 @@
 // 분철 상세 화면
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -8,12 +8,20 @@ import {
   Pressable,
   ScrollView,
   Dimensions,
+  Modal,
+  Animated,
+  PanResponder,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useBookmark } from "@/contexts/BookmarkContext";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+const SHEET_HALF_HEIGHT = SCREEN_HEIGHT * 0.52;
+const SHEET_EXPANDED_HEIGHT = SCREEN_HEIGHT * 0.82;
+const SHEET_HIDDEN_HEIGHT = 0;
 
 const COLORS = {
   white: "#FFFFFF",
@@ -56,6 +64,7 @@ type DividePost = {
   status: string;
   completed: boolean;
   content: string;
+  components?: string[];
   deliveryMethod: string;
   members: DivideMember[];
 };
@@ -63,6 +72,19 @@ type DividePost = {
 export default function DivideDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { isBookmarked, toggleBookmark } = useBookmark();
+
+  const [isMemberSheetOpen, setIsMemberSheetOpen] = useState(false);
+  const [selectedMemberName, setSelectedMemberName] = useState<string | null>(
+    null
+  );
+  const [isSheetExpanded, setIsSheetExpanded] = useState(false);
+
+  const sheetHeight = useRef(new Animated.Value(SHEET_HIDDEN_HEIGHT)).current;
+  const dimAnim = useRef(new Animated.Value(0)).current;
+
+  const currentSheetHeight = useRef(SHEET_HIDDEN_HEIGHT);
+  const gestureStartHeight = useRef(SHEET_HIDDEN_HEIGHT);
 
   const postData = typeof params.postData === "string" ? params.postData : "";
   const groupParam = typeof params.groups === "string" ? params.groups : "";
@@ -78,6 +100,132 @@ export default function DivideDetailScreen() {
     }
   }, [postData]);
 
+  const selectedMember = post?.members.find(
+    (member) => member.name === selectedMemberName
+  );
+
+  const isJoinEnabled = !!selectedMember;
+
+  const moveSheetTo = (toValue: number) => {
+    currentSheetHeight.current = toValue;
+    setIsSheetExpanded(toValue === SHEET_EXPANDED_HEIGHT);
+
+    Animated.spring(sheetHeight, {
+      toValue,
+      useNativeDriver: false,
+      tension: 90,
+      friction: 14,
+    }).start(() => {
+      currentSheetHeight.current = toValue;
+    });
+  };
+
+  const closeMemberSheet = () => {
+    Animated.parallel([
+      Animated.timing(sheetHeight, {
+        toValue: SHEET_HIDDEN_HEIGHT,
+        duration: 190,
+        useNativeDriver: false,
+      }),
+      Animated.timing(dimAnim, {
+        toValue: 0,
+        duration: 140,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      currentSheetHeight.current = SHEET_HIDDEN_HEIGHT;
+      gestureStartHeight.current = SHEET_HIDDEN_HEIGHT;
+      setIsSheetExpanded(false);
+      setIsMemberSheetOpen(false);
+    });
+  };
+
+  useEffect(() => {
+    if (!isMemberSheetOpen) return;
+
+    sheetHeight.setValue(SHEET_HIDDEN_HEIGHT);
+    dimAnim.setValue(0);
+    currentSheetHeight.current = SHEET_HIDDEN_HEIGHT;
+    gestureStartHeight.current = SHEET_HIDDEN_HEIGHT;
+    setIsSheetExpanded(false);
+
+    Animated.parallel([
+      Animated.spring(sheetHeight, {
+        toValue: SHEET_HALF_HEIGHT,
+        useNativeDriver: false,
+        tension: 90,
+        friction: 14,
+      }),
+      Animated.timing(dimAnim, {
+        toValue: 1,
+        duration: 160,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      currentSheetHeight.current = SHEET_HALF_HEIGHT;
+      gestureStartHeight.current = SHEET_HALF_HEIGHT;
+      setIsSheetExpanded(false);
+    });
+  }, [isMemberSheetOpen, sheetHeight, dimAnim]);
+
+  const sheetPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return Math.abs(gestureState.dy) > 4;
+      },
+
+      onPanResponderGrant: () => {
+        sheetHeight.stopAnimation((value) => {
+          gestureStartHeight.current = value;
+          currentSheetHeight.current = value;
+        });
+      },
+
+      onPanResponderMove: (_, gestureState) => {
+        const nextHeight = gestureStartHeight.current - gestureState.dy;
+
+        const limitedHeight = Math.min(
+          Math.max(nextHeight, SHEET_HIDDEN_HEIGHT),
+          SHEET_EXPANDED_HEIGHT
+        );
+
+        sheetHeight.setValue(limitedHeight);
+        currentSheetHeight.current = limitedHeight;
+      },
+
+      onPanResponderRelease: (_, gestureState) => {
+        const finalHeight = currentSheetHeight.current;
+
+        if (
+          gestureState.dy > 130 ||
+          gestureState.vy > 1.1 ||
+          finalHeight < SHEET_HALF_HEIGHT - 100
+        ) {
+          closeMemberSheet();
+          return;
+        }
+
+        if (gestureState.dy < -35 || gestureState.vy < -0.45) {
+          moveSheetTo(SHEET_EXPANDED_HEIGHT);
+          return;
+        }
+
+        if (gestureState.dy > 35 || gestureState.vy > 0.45) {
+          moveSheetTo(SHEET_HALF_HEIGHT);
+          return;
+        }
+
+        if (finalHeight > (SHEET_HALF_HEIGHT + SHEET_EXPANDED_HEIGHT) / 2) {
+          moveSheetTo(SHEET_EXPANDED_HEIGHT);
+        } else {
+          moveSheetTo(SHEET_HALF_HEIGHT);
+        }
+      },
+    })
+  ).current;
+
   if (!post) {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -92,12 +240,44 @@ export default function DivideDetailScreen() {
     );
   }
 
-  const handleSelectMember = () => {
+  const bookmarked = isBookmarked(post.id);
+
+  const handleBookmark = () => {
+    toggleBookmark({
+      id: post.id,
+      title: post.title,
+      sellerName: post.userName,
+      groupName: post.groupName,
+      postData: JSON.stringify(post),
+      groups: groupParam,
+      members: memberParam,
+    });
+  };
+
+  const handleOpenMemberSheet = () => {
+    setIsMemberSheetOpen(true);
+  };
+
+  const handleSelectMember = (member: DivideMember) => {
+    if (member.state !== "모집중") return;
+
+    setSelectedMemberName((prev) =>
+      prev === member.name ? null : member.name
+    );
+  };
+
+  const handleJoin = () => {
+    if (!selectedMember) return;
+
+    setIsMemberSheetOpen(false);
+
     router.push({
       pathname: "/divide-join",
       params: {
         postId: post.id,
         postData: JSON.stringify(post),
+        selectedMember: selectedMember.name,
+        selectedPrice: String(selectedMember.price),
         groups: groupParam,
         members: memberParam,
       },
@@ -159,7 +339,9 @@ export default function DivideDetailScreen() {
             <Text style={styles.contentText}>{post.content}</Text>
 
             <View style={styles.countRow}>
-              <Text style={styles.countText}>북마크 11</Text>
+              <Text style={styles.countText}>
+                북마크 {bookmarked ? "12" : "11"}
+              </Text>
               <Text style={styles.countText}>조회 705</Text>
             </View>
 
@@ -190,18 +372,22 @@ export default function DivideDetailScreen() {
               ))}
             </View>
 
-            <View style={styles.sectionDivider} />
+            {post.components && post.components.length > 0 && (
+              <>
+                <View style={styles.sectionDivider} />
 
-            <Text style={styles.sectionTitle}>분철 구성품</Text>
+                <Text style={styles.sectionTitle}>분철 구성품</Text>
 
-            <View style={styles.itemList}>
-              {["앨범 본체", "엽서", "포스터"].map((item) => (
-                <View key={item} style={styles.itemRow}>
-                  <Ionicons name="checkmark" size={17} color={COLORS.green} />
-                  <Text style={styles.itemText}>{item}</Text>
+                <View style={styles.itemList}>
+                  {post.components.map((item) => (
+                    <View key={item} style={styles.itemRow}>
+                      <Ionicons name="checkmark" size={17} color={COLORS.green} />
+                      <Text style={styles.itemText}>{item}</Text>
+                    </View>
+                  ))}
                 </View>
-              ))}
-            </View>
+              </>
+            )}
 
             <View style={styles.sectionDivider} />
 
@@ -214,14 +400,145 @@ export default function DivideDetailScreen() {
         </ScrollView>
 
         <View style={styles.bottomBar}>
-          <Pressable style={styles.bookmarkButton}>
-            <Ionicons name="bookmark-outline" size={28} color={COLORS.black} />
+          <Pressable style={styles.bookmarkButton} onPress={handleBookmark}>
+            <Ionicons
+              name={bookmarked ? "bookmark" : "bookmark-outline"}
+              size={28}
+              color={bookmarked ? COLORS.yellow : COLORS.black}
+            />
           </Pressable>
 
-          <Pressable style={styles.selectButton} onPress={handleSelectMember}>
+          <Pressable style={styles.selectButton} onPress={handleOpenMemberSheet}>
             <Text style={styles.selectButtonText}>분철 멤버 선택</Text>
           </Pressable>
         </View>
+
+        <Modal
+          visible={isMemberSheetOpen}
+          transparent
+          animationType="none"
+          onRequestClose={closeMemberSheet}
+        >
+          <View style={styles.modalWrap}>
+            <Animated.View style={[styles.dimBackground, { opacity: dimAnim }]}>
+              <Pressable
+                style={styles.dimPressArea}
+                onPress={closeMemberSheet}
+              />
+            </Animated.View>
+
+            <Animated.View style={[styles.memberSheet, { height: sheetHeight }]}>
+              <View
+                style={styles.sheetDragArea}
+                {...sheetPanResponder.panHandlers}
+              >
+                <View style={styles.sheetHandle} />
+              </View>
+
+              <ScrollView
+                style={styles.sheetScroll}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={[
+                  styles.sheetScrollContent,
+                  isSheetExpanded && styles.sheetScrollContentExpanded,
+                ]}
+              >
+                <View style={styles.sheetHeader}>
+                  <Text style={styles.sheetTitle}>멤버 선택</Text>
+                  <Text style={styles.sheetSubtitle}>
+                    모집 중인 멤버만 선택할 수 있어요
+                  </Text>
+                </View>
+
+                <View style={styles.sheetMemberList}>
+                  {post.members.map((member, index) => {
+                    const isSelected = selectedMemberName === member.name;
+                    const isDisabled = member.state !== "모집중";
+
+                    return (
+                      <Pressable
+                        key={`${member.name}-${index}`}
+                        disabled={isDisabled}
+                        onPress={() => handleSelectMember(member)}
+                        style={[
+                          styles.sheetMemberCard,
+                          isSelected && styles.sheetSelectedMemberCard,
+                          isDisabled && styles.sheetDisabledMemberCard,
+                        ]}
+                      >
+                        <View style={styles.sheetMemberInfo}>
+                          <Text
+                            style={[
+                              styles.sheetMemberName,
+                              isDisabled && styles.sheetDisabledText,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {member.name}
+                          </Text>
+
+                          <Text
+                            style={[
+                              styles.sheetMemberPrice,
+                              isDisabled && styles.sheetDisabledText,
+                            ]}
+                          >
+                            ₩{member.price.toLocaleString()}
+                          </Text>
+                        </View>
+
+                        <StatusBadge state={member.state} />
+
+                        <View
+                          style={[
+                            styles.radioOuter,
+                            isSelected && styles.radioOuterSelected,
+                            isDisabled && styles.radioDisabled,
+                          ]}
+                        >
+                          {isSelected && <View style={styles.radioInner} />}
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                {!isSheetExpanded && (
+                  <Pressable
+                    disabled={!isJoinEnabled}
+                    onPress={handleJoin}
+                    style={[
+                      styles.sheetJoinButton,
+                      styles.sheetJoinButtonInScroll,
+                      !isJoinEnabled && styles.sheetJoinButtonDisabled,
+                    ]}
+                  >
+                    <Text style={styles.sheetJoinButtonText}>
+                      분철 참여글 작성하기
+                    </Text>
+                  </Pressable>
+                )}
+              </ScrollView>
+
+              {isSheetExpanded && (
+                <View style={styles.sheetFixedBottom}>
+                  <Pressable
+                    disabled={!isJoinEnabled}
+                    onPress={handleJoin}
+                    style={[
+                      styles.sheetJoinButton,
+                      !isJoinEnabled && styles.sheetJoinButtonDisabled,
+                    ]}
+                  >
+                    <Text style={styles.sheetJoinButtonText}>
+                      분철 참여글 작성하기
+                    </Text>
+                  </Pressable>
+                </View>
+              )}
+            </Animated.View>
+          </View>
+        </Modal>
       </View>
     </SafeAreaView>
   );
@@ -267,7 +584,7 @@ const styles = StyleSheet.create({
   },
 
   scrollContent: {
-    paddingBottom: 120,
+    paddingBottom: 140,
   },
 
   imageBox: {
@@ -581,7 +898,7 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 18,
-    backgroundColor: "#F7F5F2",
+    backgroundColor: COLORS.white,
     borderWidth: 1,
     borderColor: COLORS.line,
     alignItems: "center",
@@ -598,9 +915,191 @@ const styles = StyleSheet.create({
   },
 
   selectButtonText: {
-    fontSize: 17,
+    fontSize: 18,
+    fontWeight: "900",
+    color: COLORS.white,
+  },
+
+  modalWrap: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+
+  dimBackground: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.35)",
+  },
+
+  dimPressArea: {
+    flex: 1,
+  },
+
+  memberSheet: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: COLORS.white,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    overflow: "hidden",
+  },
+
+  sheetDragArea: {
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.white,
+  },
+
+  sheetHandle: {
+    width: 68,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: "#EFEFEF",
+  },
+
+  sheetScroll: {
+    flex: 1,
+  },
+
+  sheetScrollContent: {
+    paddingHorizontal: 24,
+    paddingTop: 4,
+    paddingBottom: 36,
+  },
+
+  sheetScrollContentExpanded: {
+    paddingBottom: 112,
+  },
+
+  sheetHeader: {
+    marginBottom: 18,
+  },
+
+  sheetTitle: {
+    fontSize: 21,
     fontWeight: "900",
     color: COLORS.black,
+    marginBottom: 8,
+  },
+
+  sheetSubtitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: COLORS.gray400,
+  },
+
+  sheetMemberList: {
+    gap: 10,
+  },
+
+  sheetMemberCard: {
+    height: 72,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    backgroundColor: COLORS.white,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+  },
+
+  sheetSelectedMemberCard: {
+    borderWidth: 2,
+    borderColor: COLORS.yellow,
+    backgroundColor: COLORS.lightYellow,
+  },
+
+  sheetDisabledMemberCard: {
+    opacity: 0.45,
+  },
+
+  sheetMemberInfo: {
+    flex: 1,
+    justifyContent: "center",
+    marginRight: 10,
+  },
+
+  sheetMemberName: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: COLORS.black,
+    marginBottom: 4,
+  },
+
+  sheetMemberPrice: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: COLORS.gray700,
+  },
+
+  sheetDisabledText: {
+    color: COLORS.gray400,
+  },
+
+  radioOuter: {
+    width: 25,
+    height: 25,
+    borderRadius: 13,
+    borderWidth: 2,
+    borderColor: COLORS.gray200,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 10,
+  },
+
+  radioOuterSelected: {
+    borderColor: COLORS.yellow,
+    backgroundColor: COLORS.yellow,
+  },
+
+  radioDisabled: {
+    borderColor: COLORS.gray200,
+    backgroundColor: COLORS.white,
+  },
+
+  radioInner: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: COLORS.white,
+  },
+
+  sheetFixedBottom: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 34,
+    backgroundColor: COLORS.white,
+    borderTopWidth: 1,
+    borderTopColor: "#F1F1F1",
+  },
+
+  sheetJoinButton: {
+    height: 58,
+    borderRadius: 10,
+    backgroundColor: COLORS.yellow,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  sheetJoinButtonInScroll: {
+    marginTop: 16,
+    marginBottom: 10,
+  },
+
+  sheetJoinButtonDisabled: {
+    backgroundColor: COLORS.lightYellow,
+  },
+
+  sheetJoinButtonText: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: COLORS.white,
   },
 
   emptyWrap: {
