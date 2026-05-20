@@ -301,7 +301,11 @@ export default function DivideDetailScreen() {
             </View>
           </View>
 
-          <Pressable style={styles.profileSection}>
+          <Pressable style={styles.profileSection} 
+            onPress={() => router.push({
+              pathname: "/seller-profile/[id]",
+              params: { id: "1" },
+            })}>
             <View style={styles.profileCircle}>
               <Text style={styles.profileInitial}>{post.userName[0]}</Text>
             </View>

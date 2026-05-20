@@ -386,7 +386,7 @@ export default function DivideCreate() {
         >
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>사진 추가</Text>
+              <Text style={styles.sectionTitle}>사진 추가 *</Text>
               <Text style={styles.photoCount}>{photoCount} / 5</Text>
             </View>
 
@@ -425,7 +425,7 @@ export default function DivideCreate() {
 
           <View style={styles.section}>
             <View style={styles.labelRow}>
-              <Text style={styles.sectionTitle}>게시글 제목</Text>
+              <Text style={styles.sectionTitle}>게시글 제목 *</Text>
               {titleBadgeText.length > 0 && (
                 <Text
                   style={[
@@ -468,7 +468,7 @@ export default function DivideCreate() {
 
           <View style={styles.section}>
             <View style={styles.labelRow}>
-              <Text style={styles.sectionTitle}>그룹명</Text>
+              <Text style={styles.sectionTitle}>그룹명 *</Text>
               {groupBadgeText.length > 0 && (
                 <Text
                   style={[
@@ -578,7 +578,7 @@ export default function DivideCreate() {
           <View style={styles.divider} />
 
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>멤버별 가격 설정</Text>
+            <Text style={styles.sectionTitle}>멤버별 가격 설정 *</Text>
 
             {members.length === 0 ? (
               <View style={styles.emptyMemberBox}>
@@ -662,7 +662,7 @@ export default function DivideCreate() {
           <View style={styles.divider} />
 
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>배송 방법</Text>
+            <Text style={styles.sectionTitle}>배송 방법 *</Text>
 
             <View style={styles.deliveryRow}>
               <Pressable
@@ -704,7 +704,7 @@ export default function DivideCreate() {
           <View style={styles.divider} />
 
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>게시글 내용</Text>
+            <Text style={styles.sectionTitle}>게시글 내용 *</Text>
 
             <TextInput
               style={styles.contentInput}
