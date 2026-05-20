@@ -2,71 +2,136 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useState } from "react";
 import {
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+const COLORS = {
+  white: "#FFFFFF",
+  black: "#111111",
+  gray900: "#222222",
+  gray700: "#666666",
+  gray500: "#999999",
+  gray400: "#B0B0B0",
+  gray100: "#F6F6F6",
+  yellow: "#F7C94B",
+  lightYellow: "#FFF4CC",
+  green: "#31C48D",
+  lightGreen: "#E7F8EF",
+  blue: "#4C8DFF",
+  lightBlue: "#EAF2FF",
+  line: "#F2EDE6",
+};
+
+type PurchaseStatus = "예약중" | "배송준비중" | "거래완료";
+
+type PurchaseItem = {
+  id: number;
+  title: string;
+  member: string;
+  date: string;
+  status: PurchaseStatus;
+};
+
 export default function PurchaseListScreen() {
   const [selectedTab, setSelectedTab] = useState<"progress" | "done">(
-    "progress",
+    "progress"
   );
 
-  const progressList = [
+  const progressList: PurchaseItem[] = [
     {
-      title: "별의 장: TOGETHER 앨범 포카",
-      members: "여석: 최범규, 강태현, 휴닝카이",
-      status: "모집중",
+      id: 1,
+      title: "별의 장: TOGETHER 앨범 분철",
+      member: "최범규 참여",
+      date: "2026.05.20",
+      status: "예약중",
     },
     {
-      title: "2026 TXT MOA CON 포카",
-      members: "여석: 최연준, 강태현, 휴닝카이",
-      status: "모집중",
+      id: 2,
+      title: "2026 MOA CON 특전 포카 분철",
+      member: "강태현 참여",
+      date: "2026.05.18",
+      status: "배송준비중",
     },
   ];
 
-  const doneList = [
+  const doneList: PurchaseItem[] = [
     {
+      id: 3,
       title: "꿈의 장: MAGIC 앨범 포카",
-      date: "2019.11.09",
+      member: "최수빈 참여",
+      date: "2026.05.03",
+      status: "거래완료",
     },
     {
-      title: "꿈의 장: MAGIC 앨범 포카",
-      date: "2019.11.09",
+      id: 4,
+      title: "SWEET 앨범 포카 분철",
+      member: "최연준 참여",
+      date: "2026.04.27",
+      status: "거래완료",
     },
     {
-      title: "꿈의 장: MAGIC 앨범 포카",
-      date: "2019.11.09",
-    },
-    {
-      title: "꿈의 장: MAGIC 앨범 포카",
-      date: "2019.11.09",
+      id: 5,
+      title: "minisode 3: TOMORROW 앨범 분철",
+      member: "휴닝카이 참여",
+      date: "2026.04.12",
+      status: "거래완료",
     },
   ];
+
+  const currentList = selectedTab === "progress" ? progressList : doneList;
+
+  const getStatusStyle = (status: PurchaseStatus) => {
+    if (status === "거래완료") {
+      return {
+        box: styles.doneStatusBadge,
+        text: styles.doneStatusText,
+      };
+    }
+
+    if (status === "배송준비중") {
+      return {
+        box: styles.deliveryStatusBadge,
+        text: styles.deliveryStatusText,
+      };
+    }
+
+    return {
+      box: styles.progressStatusBadge,
+      text: styles.progressStatusText,
+    };
+  };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity activeOpacity={0.7} onPress={() => router.back()}>
-            <Ionicons name="chevron-back" size={26} color="#222222" />
-          </TouchableOpacity>
+          <Pressable
+            style={({ pressed, hovered }) => [
+              styles.headerIcon,
+              (pressed || hovered) && styles.headerIconHover,
+            ]}
+            onPress={() => router.back()}
+          >
+            <Ionicons name="chevron-back" size={24} color={COLORS.black} />
+          </Pressable>
 
           <Text style={styles.headerTitle}>분철 구매 목록</Text>
 
-          <View style={styles.headerRight} />
+          <View style={styles.headerIcon} />
         </View>
 
         <View style={styles.tabRow}>
-          <TouchableOpacity
-            style={[
+          <Pressable
+            style={({ pressed, hovered }) => [
               styles.tabButton,
               selectedTab === "progress" && styles.activeTabButton,
+              (pressed || hovered) && styles.tabButtonHover,
             ]}
-            activeOpacity={0.8}
             onPress={() => setSelectedTab("progress")}
           >
             <Text
@@ -77,14 +142,14 @@ export default function PurchaseListScreen() {
             >
               거래 중
             </Text>
-          </TouchableOpacity>
+          </Pressable>
 
-          <TouchableOpacity
-            style={[
+          <Pressable
+            style={({ pressed, hovered }) => [
               styles.tabButton,
               selectedTab === "done" && styles.activeTabButton,
+              (pressed || hovered) && styles.tabButtonHover,
             ]}
-            activeOpacity={0.8}
             onPress={() => setSelectedTab("done")}
           >
             <Text
@@ -95,52 +160,81 @@ export default function PurchaseListScreen() {
             >
               거래 완료
             </Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
 
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
         >
-          {selectedTab === "progress"
-            ? progressList.map((item, index) => (
-                <TouchableOpacity
-                  key={index}
-                  style={styles.progressCard}
-                  activeOpacity={0.8}
+          {currentList.length > 0 ? (
+            currentList.map((item) => {
+              const statusStyle = getStatusStyle(item.status);
+
+              return (
+                <Pressable
+                  key={item.id}
+                  style={({ pressed, hovered }) => [
+                    styles.listCard,
+                    selectedTab === "done" && styles.doneListCard,
+                    (pressed || hovered) && styles.listCardHover,
+                  ]}
                 >
-                  <View style={styles.imageBox} />
-
-                  <View style={styles.itemInfo}>
-                    <Text style={styles.itemTitle}>{item.title}</Text>
-                    <Text style={styles.itemSubText}>{item.members}</Text>
-                  </View>
-
-                  <View style={styles.statusBadge}>
-                    <Text style={styles.statusText}>{item.status}</Text>
-                  </View>
-                </TouchableOpacity>
-              ))
-            : doneList.map((item, index) => (
-                <TouchableOpacity
-                  key={index}
-                  style={styles.doneCard}
-                  activeOpacity={0.8}
-                >
-                  <View style={styles.doneTop}>
-                    <View style={styles.imageBox} />
-
-                    <View style={styles.doneInfo}>
-                      <Text style={styles.itemTitle}>{item.title}</Text>
-                      <Text style={styles.itemSubText}>{item.date}</Text>
+                  <View style={styles.cardTop}>
+                    <View style={styles.imageBox}>
+                      <Ionicons
+                        name="albums-outline"
+                        size={22}
+                        color={COLORS.black}
+                      />
                     </View>
+
+                    <View style={styles.itemInfo}>
+                      <Text style={styles.itemTitle}>{item.title}</Text>
+
+                      <View style={styles.subRow}>
+                        <Text style={styles.itemSubText}>{item.member}</Text>
+                        <View style={styles.dot} />
+                        <Text style={styles.itemSubText}>{item.date}</Text>
+                      </View>
+                    </View>
+
+                    {selectedTab === "progress" && (
+                      <View style={statusStyle.box}>
+                        <Text style={statusStyle.text}>{item.status}</Text>
+                      </View>
+                    )}
                   </View>
 
-                  <TouchableOpacity style={styles.reviewButton}>
-                    <Text style={styles.reviewButtonText}>후기 작성하기</Text>
-                  </TouchableOpacity>
-                </TouchableOpacity>
-              ))}
+                  {selectedTab === "done" && (
+                    <Pressable
+                      style={({ pressed, hovered }) => [
+                        styles.reviewButton,
+                        (pressed || hovered) && styles.reviewButtonHover,
+                      ]}
+                      onPress={() => {
+                        console.log("후기 작성하기");
+                      }}
+                    >
+                      <Text style={styles.reviewButtonText}>후기 작성하기</Text>
+                    </Pressable>
+                  )}
+                </Pressable>
+              );
+            })
+          ) : (
+            <View style={styles.emptyBox}>
+              <Ionicons
+                name="receipt-outline"
+                size={34}
+                color={COLORS.gray400}
+              />
+              <Text style={styles.emptyTitle}>구매 내역이 없어요</Text>
+              <Text style={styles.emptyText}>
+                참여한 분철이 생기면 여기에 표시돼요.
+              </Text>
+            </View>
+          )}
         </ScrollView>
       </View>
     </SafeAreaView>
@@ -150,107 +244,102 @@ export default function PurchaseListScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: COLORS.white,
   },
 
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 26,
+    backgroundColor: COLORS.white,
+    paddingHorizontal: 20,
   },
 
   header: {
-    height: 90,
+    height: 58,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
 
-  headerTitle: {
-    fontSize: 23,
-    fontWeight: "900",
-    color: "#111111",
+  headerIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: "center",
+    alignItems: "flex-start",
   },
 
-  headerRight: {
-    width: 26,
+  headerIconHover: {
+    opacity: 0.55,
+  },
+
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: COLORS.black,
   },
 
   tabRow: {
     flexDirection: "row",
-    gap: 16,
-    marginTop: 8,
-    marginBottom: 28,
+    gap: 10,
+    marginTop: 12,
+    marginBottom: 20,
   },
 
   tabButton: {
     flex: 1,
-    height: 34,
+    height: 36,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#E8E1D2",
-    backgroundColor: "#FFFFFF",
+    borderColor: COLORS.line,
+    backgroundColor: COLORS.white,
     justifyContent: "center",
     alignItems: "center",
   },
 
   activeTabButton: {
-    backgroundColor: "#EACB59",
-    borderColor: "#EACB59",
+    backgroundColor: COLORS.yellow,
+    borderColor: COLORS.yellow,
+  },
+
+  tabButtonHover: {
+    opacity: 0.82,
   },
 
   tabText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#777777",
+    fontSize: 13,
+    fontWeight: "900",
+    color: COLORS.gray700,
   },
 
   activeTabText: {
-    color: "#FFFFFF",
+    color: COLORS.white,
+    fontWeight: "900",
   },
 
   listContent: {
-    paddingBottom: 40,
+    paddingBottom: 36,
   },
 
-  progressCard: {
-    minHeight: 106,
-    backgroundColor: "#FFFFFF",
+  listCard: {
+    backgroundColor: COLORS.white,
     borderRadius: 18,
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-    marginBottom: 24,
-    flexDirection: "row",
-    alignItems: "center",
-
-    shadowColor: "#000000",
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    shadowOffset: {
-      width: 0,
-      height: 5,
-    },
-    elevation: 3,
+    padding: 14,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: COLORS.line,
   },
 
-  doneCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 18,
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-    marginBottom: 22,
-
-    shadowColor: "#000000",
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    shadowOffset: {
-      width: 0,
-      height: 5,
-    },
-    elevation: 3,
+  doneListCard: {
+    paddingBottom: 12,
   },
 
-  doneTop: {
+  listCardHover: {
+    opacity: 0.86,
+    transform: [{ scale: 0.995 }],
+  },
+
+  cardTop: {
+    minHeight: 50,
     flexDirection: "row",
     alignItems: "center",
   },
@@ -259,58 +348,124 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 12,
-    backgroundColor: "#F8EFCF",
+    backgroundColor: COLORS.lightYellow,
+    justifyContent: "center",
+    alignItems: "center",
   },
 
   itemInfo: {
     flex: 1,
-    marginLeft: 14,
-  },
-
-  doneInfo: {
-    flex: 1,
-    marginLeft: 14,
+    marginLeft: 12,
+    paddingRight: 10,
   },
 
   itemTitle: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "900",
-    color: "#222222",
-    marginBottom: 9,
+    color: COLORS.gray900,
+    lineHeight: 21,
+    marginBottom: 4,
+  },
+
+  subRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
   },
 
   itemSubText: {
     fontSize: 12,
-    color: "#777777",
+    fontWeight: "600",
+    color: COLORS.gray500,
+    lineHeight: 17,
   },
 
-  statusBadge: {
-    backgroundColor: "#DDF3E4",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 12,
-    marginLeft: 8,
-  },
-
-  statusText: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#299A56",
+  dot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: COLORS.gray400,
+    marginHorizontal: 6,
   },
 
   reviewButton: {
-    height: 50,
-    borderRadius: 20,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: COLORS.white,
     borderWidth: 1,
-    borderColor: "#E8E1D2",
+    borderColor: COLORS.line,
     justifyContent: "center",
     alignItems: "center",
-    marginTop: 16,
+    marginTop: 14,
+  },
+
+  reviewButtonHover: {
+    backgroundColor: COLORS.gray100,
+    opacity: 0.9,
   },
 
   reviewButtonText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: COLORS.gray700,
+  },
+
+  progressStatusBadge: {
+    backgroundColor: COLORS.lightYellow,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 13,
+  },
+
+  progressStatusText: {
+    fontSize: 11,
+    fontWeight: "900",
+    color: "#B89416",
+  },
+
+  deliveryStatusBadge: {
+    backgroundColor: COLORS.lightBlue,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 13,
+  },
+
+  deliveryStatusText: {
+    fontSize: 11,
+    fontWeight: "900",
+    color: COLORS.blue,
+  },
+
+  doneStatusBadge: {
+    backgroundColor: COLORS.lightGreen,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 13,
+  },
+
+  doneStatusText: {
+    fontSize: 11,
+    fontWeight: "900",
+    color: COLORS.green,
+  },
+
+  emptyBox: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 100,
+  },
+
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: COLORS.black,
+    marginTop: 14,
+    marginBottom: 6,
+  },
+
+  emptyText: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#777777",
+    color: COLORS.gray500,
   },
 });

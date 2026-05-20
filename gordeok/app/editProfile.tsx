@@ -2,86 +2,118 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
-    Alert,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+const COLORS = {
+  white: "#FFFFFF",
+  black: "#111111",
+  gray900: "#222222",
+  gray700: "#666666",
+  gray500: "#999999",
+  gray300: "#DDDDDD",
+  gray100: "#F6F6F6",
+  yellow: "#F7C94B",
+  lightYellow: "#FFF4CC",
+  line: "#F2EDE6",
+};
 
 export default function EditProfileScreen() {
   const router = useRouter();
   const [nickname, setNickname] = useState("범규와이프");
 
   const handleSave = () => {
-    Alert.alert("저장 완료", "프로필이 수정되었습니다.");
-    router.back();
+    Alert.alert("저장 완료", "프로필이 수정되었습니다.", [
+      {
+        text: "확인",
+        style: "default",
+      },
+    ]);
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* 상단 헤더 */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={26} color="#222" />
-        </TouchableOpacity>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Pressable
+            style={({ pressed, hovered }) => [
+              styles.headerIcon,
+              (pressed || hovered) && styles.headerIconHover,
+            ]}
+            onPress={() => router.back()}
+          >
+            <Ionicons name="chevron-back" size={24} color={COLORS.black} />
+          </Pressable>
 
-        <Text style={styles.headerTitle}>프로필 수정</Text>
+          <Text style={styles.headerTitle}>프로필 수정</Text>
 
-        <View style={styles.headerRight} />
-      </View>
+          <View style={styles.headerIcon} />
+        </View>
 
-      {/* 프로필 사진 변경 박스 */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>프로필 사진 변경</Text>
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>프로필 사진</Text>
 
-        <View style={styles.profileArea}>
-          <View style={styles.profileCircle}>
-            <Text style={styles.profileText}>범</Text>
+          <View style={styles.profileArea}>
+            <View style={styles.profileCircle}>
+              <Text style={styles.profileText}>범</Text>
 
-            <TouchableOpacity
-              style={styles.cameraBadge}
-              activeOpacity={0.7}
-              onPress={() => {
-                console.log("사진 선택");
-              }}
-            >
-              <Ionicons name="image" size={11} color="#fff" />
-            </TouchableOpacity>
+              <Pressable
+                style={({ pressed, hovered }) => [
+                  styles.cameraBadge,
+                  (pressed || hovered) && styles.cameraBadgeHover,
+                ]}
+                onPress={() => {
+                  console.log("사진 선택");
+                }}
+              >
+                <Ionicons name="image" size={13} color={COLORS.white} />
+              </Pressable>
+            </View>
           </View>
         </View>
+
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>닉네임</Text>
+
+          <TextInput
+            style={styles.input}
+            value={nickname}
+            onChangeText={setNickname}
+            placeholder="닉네임을 입력하세요"
+            placeholderTextColor={COLORS.gray500}
+          />
+        </View>
+
+        <Pressable
+          style={({ pressed, hovered }) => [
+            styles.saveButton,
+            (pressed || hovered) && styles.saveButtonHover,
+          ]}
+          onPress={handleSave}
+        >
+          <Text style={styles.saveButtonText}>저장하기</Text>
+        </Pressable>
       </View>
-
-      {/* 닉네임 박스 */}
-      <View style={styles.nicknameCard}>
-        <Text style={styles.label}>닉네임</Text>
-
-        <TextInput
-          style={styles.input}
-          value={nickname}
-          onChangeText={setNickname}
-          placeholder="닉네임을 입력하세요"
-          placeholderTextColor="#B5B5B5"
-        />
-      </View>
-
-      {/* 저장 버튼 */}
-      <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-        <Text style={styles.saveText}>저장하기</Text>
-      </TouchableOpacity>
     </SafeAreaView>
   );
 }
 
-const YELLOW = "#EFD46D";
-
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: COLORS.white,
+  },
+
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 24,
+    backgroundColor: COLORS.white,
+    paddingHorizontal: 20,
   },
 
   header: {
@@ -91,55 +123,51 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
 
-  backBtn: {
-    width: 40,
-    height: 40,
+  headerIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: "center",
+    alignItems: "flex-start",
+  },
+
+  headerIconHover: {
+    opacity: 0.55,
   },
 
   headerTitle: {
-    fontSize: 19,
-    fontWeight: "800",
-    color: "#111111",
-  },
-
-  headerRight: {
-    width: 40,
+    fontSize: 18,
+    fontWeight: "900",
+    color: COLORS.black,
   },
 
   card: {
+    backgroundColor: COLORS.white,
+    borderRadius: 18,
+    padding: 18,
     marginTop: 14,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    paddingTop: 20,
-    paddingBottom: 26,
-    paddingHorizontal: 18,
     borderWidth: 1,
-    borderColor: "#F3F3F3",
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
+    borderColor: COLORS.line,
   },
 
-  cardTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#777777",
-    marginBottom: 12,
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: COLORS.black,
+    marginBottom: 16,
   },
 
   profileArea: {
     alignItems: "center",
     justifyContent: "center",
+    paddingVertical: 4,
   },
 
   profileCircle: {
-    width: 82,
-    height: 82,
-    borderRadius: 41,
-    backgroundColor: YELLOW,
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: COLORS.yellow,
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
@@ -148,68 +176,57 @@ const styles = StyleSheet.create({
   profileText: {
     fontSize: 32,
     fontWeight: "900",
-    color: "#2B2B2B",
+    color: COLORS.black,
   },
 
   cameraBadge: {
     position: "absolute",
-    right: 6,
-    bottom: 7,
-    width: 16,
-    height: 16,
-    borderRadius: 3,
-    backgroundColor: "#333333",
+    right: 3,
+    bottom: 4,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: COLORS.black,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 2,
+    borderColor: COLORS.white,
   },
 
-  nicknameCard: {
-    marginTop: 16,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: "#F3F3F3",
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
-  },
-
-  label: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#777777",
-    marginBottom: 10,
+  cameraBadgeHover: {
+    opacity: 0.75,
+    transform: [{ scale: 0.96 }],
   },
 
   input: {
-    height: 42,
+    height: 48,
     borderWidth: 1,
-    borderColor: "#E4E0D8",
-    borderRadius: 12,
+    borderColor: COLORS.line,
+    borderRadius: 14,
     paddingHorizontal: 14,
     fontSize: 14,
     fontWeight: "700",
-    color: "#222222",
-    backgroundColor: "#FFFFFF",
+    color: COLORS.gray900,
+    backgroundColor: COLORS.gray100,
   },
 
   saveButton: {
-    marginTop: 44,
-    height: 54,
-    borderRadius: 15,
-    backgroundColor: YELLOW,
+    height: 58,
+    borderRadius: 10,
+    backgroundColor: COLORS.yellow,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#D8B94B",
+    marginTop: 28,
   },
 
-  saveText: {
-    fontSize: 16,
+  saveButtonHover: {
+    opacity: 0.82,
+    transform: [{ scale: 0.99 }],
+  },
+
+  saveButtonText: {
+    fontSize: 18,
     fontWeight: "800",
-    color: "#FFFFFF",
+    color: COLORS.white,
   },
 });
