@@ -3,148 +3,155 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
 import {
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  FlatList,
+  Pressable,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 
-const categories = ["전체", "오프동행", "포카교환", "자유게시판", "질문게시판"];
+const categories = ["전체", "포카교환", "오프동행", "질문게시판", "자유게시판"];
 
 const posts = [
   {
-    id: 1,
+    id: "1",
+    category: "오프동행",
     name: "김하영",
-    category: "오프동행",
-    categoryColor: "#DDE7FF",
-    categoryText: "#5A73D8",
+    time: "2시간 전",
+    title: "BTS 콘서트 같이 가실 분 구해요!",
+    content: "오늘 저녁 6시 잠실 올림픽공원 콘서트 같이 가실 분 구해요.",
+    color: "#EAF1FF",
+    textColor: "#356EEA",
   },
   {
-    id: 2,
-    name: "하영이",
+    id: "2",
     category: "포카교환",
-    categoryColor: "#F7EDB7",
-    categoryText: "#B89A1E",
+    name: "하영이",
+    time: "2시간 전",
+    title: "정국 포카를 지민 포카로 교환 원해요",
+    content: "앨범 포카 정국 보유 중이고 지민 포카랑 교환하고 싶어요.",
+    color: "#FFF6CC",
+    textColor: "#B99A00",
   },
   {
-    id: 3,
-    name: "기먕영",
+    id: "3",
     category: "자유게시판",
-    categoryColor: "#DCEEDB",
-    categoryText: "#5F8B5C",
+    name: "기마영",
+    time: "2시간 전",
+    title: "이번 앨범 컨셉 너무 예쁜 것 같아요",
+    content: "포카랑 포스터 디자인 다 잘 나온 것 같아서 만족 중이에요.",
+    color: "#E7F6EA",
+    textColor: "#3A8B4C",
   },
   {
-    id: 4,
+    id: "4",
+    category: "질문게시판",
     name: "하용",
-    category: "오프동행",
-    categoryColor: "#DDE7FF",
-    categoryText: "#5A73D8",
+    time: "2시간 전",
+    title: "분철 참여할 때 확인해야 할 게 뭐가 있나요?",
+    content: "처음 분철 타보는데 입금 전 꼭 확인해야 하는 점 알려주세요.",
+    color: "#F1E8FF",
+    textColor: "#7A4FD8",
   },
 ];
 
 export default function CommunityScreen() {
-  const [selectedTab, setSelectedTab] = useState("전체");
+  const [selectedCategory, setSelectedCategory] = useState("전체");
+
+  const filteredPosts =
+    selectedCategory === "전체"
+      ? posts
+      : posts.filter((post) => post.category === selectedCategory);
 
   return (
-    <View style={styles.container}>
-      {/* 헤더 */}
+    <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>커뮤니티</Text>
       </View>
 
-      {/* 탭 메뉴 */}
-      <View style={styles.tabContainer}>
-        {categories.map((tab) => (
-          <TouchableOpacity
-            key={tab}
-            style={[
-              styles.tabButton,
-              selectedTab === tab && styles.activeTabButton,
-            ]}
-            onPress={() => setSelectedTab(tab)}
+      <View style={styles.categoryWrap}>
+        {categories.map((category) => (
+          <Pressable
+            key={category}
+            style={styles.categoryButton}
+            onPress={() => setSelectedCategory(category)}
           >
             <Text
               style={[
-                styles.tabText,
-                selectedTab === tab && styles.activeTabText,
+                styles.categoryText,
+                selectedCategory === category && styles.categoryTextActive,
               ]}
             >
-              {tab}
+              {category}
             </Text>
-          </TouchableOpacity>
+
+            {selectedCategory === category && (
+              <View style={styles.activeLine} />
+            )}
+          </Pressable>
         ))}
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* 사기꾼 명단 */}
-        <TouchableOpacity style={styles.noticeBox} activeOpacity={0.8}>
-          <Text style={styles.noticeTitle}>사기꾼 명단</Text>
+      <Pressable
+        style={({ pressed }) => [styles.sortWrap, pressed && { opacity: 0.6 }]}
+        onPress={() => {
+          console.log("최신등록순 클릭");
+        }}
+      >
+        <Text style={styles.sortText}>최신 등록순</Text>
+        <Ionicons name="swap-vertical" size={15} color="#111" />
+      </Pressable>
 
-          <View style={styles.noticeRow}>
-            <Text style={styles.noticeText}>신고받은 사용자 확인하기</Text>
-
-            <Ionicons name="chevron-forward" size={15} color="#B44D47" />
-          </View>
-        </TouchableOpacity>
-
-        {/* 정렬 */}
-        <View style={styles.sortContainer}>
-          <Text style={styles.sortText}>최신 등록순 ↕</Text>
-        </View>
-
-        {/* 게시글 */}
-        {posts.map((post) => (
-          <TouchableOpacity key={post.id} style={styles.postCard}>
-            {/* 프로필 */}
+      <FlatList
+        data={filteredPosts}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.listContent}
+        renderItem={({ item }) => (
+          <Pressable style={styles.postBox}>
             <View style={styles.profileRow}>
-              <View style={styles.profileImage} />
+              <View style={styles.profileCircle} />
 
               <View>
-                <Text style={styles.name}>{post.name}</Text>
-                <Text style={styles.time}>2시간 전</Text>
+                <Text style={styles.name}>{item.name}</Text>
+                <Text style={styles.time}>{item.time}</Text>
               </View>
             </View>
 
-            {/* 카테고리 */}
-            <View
-              style={[
-                styles.categoryBadge,
-                { backgroundColor: post.categoryColor },
-              ]}
-            >
-              <Text style={[styles.categoryText, { color: post.categoryText }]}>
-                {post.category}
+            <View style={styles.titleRow}>
+              <View style={[styles.badge, { backgroundColor: item.color }]}>
+                <Text style={[styles.badgeText, { color: item.textColor }]}>
+                  {item.category}
+                </Text>
+              </View>
+
+              <Text style={styles.title} numberOfLines={1}>
+                {item.title}
               </Text>
             </View>
 
-            {/* 제목 */}
-            <Text style={styles.postTitle}>
-              BTS 콘서트 같이 가실 분 구해요!
+            <Text style={styles.content} numberOfLines={1}>
+              {item.content}
             </Text>
 
-            {/* 내용 */}
-            <Text style={styles.postContent} numberOfLines={1}>
-              오늘 저녁 6시 잠실 올림픽공원 콘서트 같이 가실 분...
-            </Text>
+            <Text style={styles.info}>좋아요 24 댓글 7 조회수 156</Text>
+          </Pressable>
+        )}
+      />
 
-            {/* 하단 정보 */}
-            <View style={styles.infoRow}>
-              <Text style={styles.infoText}>♡ 24</Text>
-              <Text style={styles.infoText}>💬 7</Text>
-              <Text style={styles.infoText}>👁 156</Text>
-            </View>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {/* 글쓰기 버튼 */}
-      <TouchableOpacity style={styles.writeButton}>
-        <Ionicons name="add" size={18} color="white" />
-
-        <Text style={styles.writeButtonText}>글쓰기</Text>
-      </TouchableOpacity>
-    </View>
+      <Pressable
+        style={({ pressed }) => [
+          styles.writeButton,
+          pressed && { opacity: 0.75, transform: [{ scale: 0.97 }] },
+        ]}
+        onPress={() => {
+          console.log("글쓰기 버튼 클릭");
+        }}
+      >
+        <Ionicons name="add" size={24} color="#FFFFFF" />
+        <Text style={styles.writeText}>글쓰기</Text>
+      </Pressable>
+    </SafeAreaView>
   );
 }
 
@@ -154,103 +161,81 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
   },
 
-  /* 헤더 */
   header: {
-    paddingTop: 68,
-    paddingBottom: 22,
+    height: 80,
+    justifyContent: "flex-end",
     alignItems: "center",
+    paddingBottom: 20,
     borderBottomWidth: 1,
-    borderBottomColor: "#EFEFEF",
+    borderBottomColor: "#EEEEEE",
   },
 
   headerTitle: {
-    fontSize: 24,
-    fontWeight: "700",
+    fontSize: 28,
+    fontWeight: "800",
     color: "#111111",
   },
 
-  /* 탭 */
-  tabContainer: {
+  categoryWrap: {
+    height: 39,
     flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 14,
-    height: 54,
     borderBottomWidth: 1,
-    borderBottomColor: "#F2F2F2",
+    borderBottomColor: "#EEEEEE",
   },
 
-  tabButton: {
+  categoryButton: {
+    flex: 1,
+    alignItems: "center",
     justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 10,
+    position: "relative",
     height: "100%",
-    marginRight: 8,
   },
 
-  activeTabButton: {
-    borderBottomWidth: 3,
-    borderBottomColor: "#D7B847",
-  },
-
-  tabText: {
-    fontSize: 14,
-    color: "#888888",
-    fontWeight: "500",
-  },
-
-  activeTabText: {
-    color: "#D7B847",
-    fontWeight: "700",
-  },
-
-  /* 공지 */
-  noticeBox: {
-    backgroundColor: "#F4E5E5",
-    marginHorizontal: 20,
-    marginTop: 16,
-    borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-  },
-
-  noticeTitle: {
-    fontSize: 13,
-    color: "#7A5B5B",
-    marginBottom: 8,
+  categoryText: {
+    fontSize: 15,
     fontWeight: "600",
+    color: "#777777",
   },
 
-  noticeRow: {
+  categoryTextActive: {
+    color: "#C8A900",
+    fontWeight: "800",
+  },
+
+  activeLine: {
+    position: "absolute",
+    bottom: 0,
+    width: "70%",
+    height: 4,
+    backgroundColor: "#D4B72C",
+  },
+
+  sortWrap: {
+    height: 40,
     flexDirection: "row",
+    justifyContent: "flex-end",
     alignItems: "center",
-  },
-
-  noticeText: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#B44D47",
-    marginRight: 2,
-  },
-
-  /* 정렬 */
-  sortContainer: {
-    alignItems: "flex-end",
-    paddingHorizontal: 22,
-    marginTop: 16,
-    marginBottom: 4,
+    paddingHorizontal: 28,
+    gap: 3,
+    borderBottomWidth: 1,
+    borderBottomColor: "#EEEEEE",
   },
 
   sortText: {
-    fontSize: 13,
-    color: "#555",
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#111111",
   },
 
-  /* 게시글 */
-  postCard: {
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-    borderTopWidth: 1,
-    borderTopColor: "#F3F3F3",
+  listContent: {
+    paddingBottom: 75,
+  },
+
+  postBox: {
+    paddingHorizontal: 24,
+    paddingVertical: 13,
+    borderBottomWidth: 1,
+    borderBottomColor: "#EEEEEE",
   },
 
   profileRow: {
@@ -259,91 +244,83 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
 
-  profileImage: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: "#E6B3B3",
-    marginRight: 10,
+  profileCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#E8A7A7",
+    marginRight: 14,
   },
 
   name: {
-    fontSize: 15,
-    fontWeight: "700",
+    fontSize: 13,
+    fontWeight: "800",
     color: "#222222",
   },
 
   time: {
-    fontSize: 12,
-    color: "#9A9A9A",
-    marginTop: 2,
-  },
-
-  categoryBadge: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 7,
-    marginBottom: 8,
-  },
-
-  categoryText: {
     fontSize: 11,
-    fontWeight: "600",
+    color: "#888888",
+    marginTop: 3,
   },
 
-  postTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#111111",
-    marginBottom: 6,
-  },
-
-  postContent: {
-    fontSize: 14,
-    color: "#8C8C8C",
-    marginBottom: 10,
-  },
-
-  infoRow: {
+  titleRow: {
     flexDirection: "row",
     alignItems: "center",
+    marginBottom: 5,
   },
 
-  infoText: {
-    fontSize: 12,
-    color: "#888888",
+  badge: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 7,
     marginRight: 10,
   },
 
-  /* 글쓰기 버튼 */
-  writeButton: {
-    position: "absolute",
-    right: 22,
-    bottom: 18,
-    backgroundColor: "#D7B847",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 16,
-    height: 46,
-    borderRadius: 24,
-
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    shadowOffset: {
-      width: 0,
-      height: 3,
-    },
-
-    elevation: 4,
+  badgeText: {
+    fontSize: 10,
+    fontWeight: "700",
   },
 
-  writeButtonText: {
-    color: "white",
-    fontSize: 15,
-    fontWeight: "700",
-    marginLeft: 2,
+  title: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#111111",
+  },
+
+  content: {
+    fontSize: 13,
+    color: "#888888",
+    marginBottom: 12,
+  },
+
+  info: {
+    fontSize: 11,
+    color: "#999999",
+  },
+
+  writeButton: {
+    position: "absolute",
+    right: 28,
+    bottom: 15,
+    backgroundColor: "#E7C85A",
+    borderRadius: 25,
+    paddingVertical: 11,
+    paddingHorizontal: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 5,
+    elevation: 5,
+  },
+
+  writeText: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    marginLeft: 4,
   },
 });
