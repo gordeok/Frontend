@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useDividePosts, DividePost } from "@/contexts/DividePostContext";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -194,6 +195,7 @@ const MEMBER_BOX_WIDTH = (SCREEN_WIDTH - 44 - 32 - MEMBER_GAP * 2) / 3;
 export default function HomeScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { posts: createdPosts } = useDividePosts();
 
   const groupParam =
     typeof params.groups === "string" && params.groups.length > 0
@@ -249,8 +251,14 @@ export default function HomeScreen() {
   }, [selectedGroups, selectedGroupId]);
 
   const posts = useMemo(() => {
-    return makePosts(selectedGroups);
-  }, [selectedGroups]);
+    const defaultPosts = makePosts(selectedGroups);
+    const createdDisplayPosts = normalizeCreatedPosts(
+      createdPosts,
+      selectedGroups
+    );
+
+    return [...createdDisplayPosts, ...defaultPosts];
+  }, [createdPosts, selectedGroups]);
 
   const filteredPosts = posts.filter((post) => {
     const matchesGroup = selectedGroupId
@@ -283,20 +291,24 @@ export default function HomeScreen() {
 
             <View style={styles.headerIcons}>
               <Pressable
+                onPress={() => router.push("/bookmark-list")}
+                hitSlop={10}
+                style={styles.iconButton}
+              >
+                <Ionicons
+                  name="bookmark-outline"
+                  size={22}
+                  color={COLORS.black}
+                />
+              </Pressable>
+
+              <Pressable
                 onPress={() => router.push("/notification")}
                 hitSlop={10}
                 style={styles.iconButton}
               >
                 <Ionicons
                   name="notifications-outline"
-                  size={22}
-                  color={COLORS.black}
-                />
-              </Pressable>
-
-              <Pressable style={styles.iconButton}>
-                <Ionicons
-                  name="bookmark-outline"
                   size={22}
                   color={COLORS.black}
                 />
@@ -494,9 +506,6 @@ export default function HomeScreen() {
                     <Text style={styles.noPostTitle}>
                       모집중인 분철 글이 없어요
                     </Text>
-                    <Text style={styles.noPostText}>
-                      다른 최애 멤버를 선택하거나 필터를 해제해보세요.
-                    </Text>
                   </View>
                 ) : (
                   filteredPosts.map((post) => (
@@ -524,7 +533,15 @@ export default function HomeScreen() {
 
         <Pressable
           style={styles.writeButton}
-          onPress={() => router.push("/divide-create" as any)}
+          onPress={() =>
+            router.push({
+              pathname: "/divide-create",
+              params: {
+                groups: groupParam,
+                members: memberParam,
+              },
+            } as any)
+          }
         >
           <Ionicons name="add" size={24} color={COLORS.white} />
           <Text style={styles.writeText}>글쓰기</Text>
@@ -532,6 +549,47 @@ export default function HomeScreen() {
       </View>
     </SafeAreaView>
   );
+}
+
+function normalizeCreatedPosts(createdPosts: DividePost[], selectedGroups: any[]) {
+  return createdPosts
+    .map((post) => {
+      const matchedGroup = selectedGroups.find(
+        (group) =>
+          group.id === post.groupId ||
+          group.displayName === post.groupName ||
+          group.name === post.groupName
+      );
+
+      if (!matchedGroup) return null;
+
+      return {
+        id: `created-${post.id}`,
+        groupId: matchedGroup.id,
+        groupName: matchedGroup.displayName,
+        userName: "나",
+        title: post.title,
+        albumName: post.albumName || "직접 등록한 분철",
+        time: post.createdAt,
+        date: post.createdDate || "",
+        status: "모집중",
+        completed: false,
+        content: post.content || "",
+        components: post.components || [],
+        deliveryMethod:
+          post.deliveryMethod === "GS"
+            ? "GS 반값택배"
+            : post.deliveryMethod === "CU"
+            ? "CU 반값택배"
+            : post.deliveryMethod,
+        members: post.members.map((member) => ({
+          name: member.name,
+          state: member.status ?? "모집중",
+          price: member.price,
+        })),
+      };
+    })
+    .filter(Boolean);
 }
 
 function makePosts(groups: any[]) {
@@ -552,6 +610,7 @@ function makePosts(groups: any[]) {
       status: "마감임박",
       completed: false,
       content: "덤 많이 드려요.\n재배송비는 추후 분납 예정입니다.",
+      components: ["앨범 본체", "엽서", "포스터"],
       deliveryMethod: "CU 반값택배",
       members: group.members.map((member: string, index: number) => ({
         name: member,
@@ -572,6 +631,7 @@ function makePosts(groups: any[]) {
       status: "모집중",
       completed: false,
       content: "포카 특전 위주로 분철합니다.\n하자 확인 후 보내드려요.",
+      components: ["포카", "특전", "앨범 본체"],
       deliveryMethod: "GS 반값택배",
       members: group.members.map((member: string, index: number) => ({
         name: member,
@@ -592,6 +652,7 @@ function makePosts(groups: any[]) {
       status: "모집완료",
       completed: true,
       content: "럭키드로우 특전 분철 완료되었습니다.",
+      components: ["럭키드로우 특전"],
       deliveryMethod: "일반택배",
       members: group.members.slice(0, 6).map((member: string, index: number) => ({
         name: member,
@@ -795,15 +856,18 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.white,
   },
+
   container: {
     flex: 1,
     backgroundColor: COLORS.white,
   },
+
   scrollContent: {
     paddingTop: 0,
     paddingHorizontal: 22,
     paddingBottom: 120,
   },
+
   header: {
     height: 64,
     flexDirection: "row",
@@ -811,15 +875,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 10,
   },
+
   logo: {
     fontSize: 24,
     fontWeight: "900",
     color: COLORS.black,
   },
+
   headerIcons: {
     flexDirection: "row",
     gap: 8,
   },
+
   iconButton: {
     width: 36,
     height: 36,
@@ -827,6 +894,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+
   searchBox: {
     height: 42,
     borderRadius: 13,
@@ -836,23 +904,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     marginBottom: 22,
   },
+
   searchInput: {
     flex: 1,
     marginLeft: 8,
     fontSize: 13,
     color: COLORS.black,
   },
+
   emptyBox: {
     marginTop: 90,
     alignItems: "center",
     paddingHorizontal: 20,
   },
+
   emptyTitle: {
     fontSize: 17,
     fontWeight: "900",
     color: COLORS.black,
     marginBottom: 8,
   },
+
   emptyText: {
     fontSize: 13,
     fontWeight: "600",
@@ -860,27 +932,26 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
   },
+
   noPostBox: {
     marginTop: 78,
     paddingVertical: 42,
     alignItems: "center",
     justifyContent: "center",
   },
+
   noPostTitle: {
     fontSize: 15,
     fontWeight: "900",
     color: COLORS.black,
     marginBottom: 7,
   },
-  noPostText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: COLORS.gray500,
-  },
+
   groupList: {
     gap: 14,
     paddingBottom: 22,
   },
+
   addGroupButton: {
     width: 62,
     height: 62,
@@ -890,10 +961,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 2,
   },
+
   groupItem: {
     width: 76,
     alignItems: "center",
   },
+
   groupCircle: {
     width: 64,
     height: 64,
@@ -903,11 +976,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     overflow: "hidden",
   },
+
   groupInitial: {
     fontSize: 13,
     fontWeight: "900",
     color: COLORS.black,
   },
+
   groupName: {
     marginTop: 8,
     fontSize: 11,
@@ -915,29 +990,35 @@ const styles = StyleSheet.create({
     color: COLORS.gray900,
     textAlign: "center",
   },
+
   selectedGroupName: {
     color: COLORS.black,
     fontWeight: "900",
   },
+
   favoriteHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 10,
   },
+
   sectionTitle: {
     fontSize: 15,
     fontWeight: "800",
     color: COLORS.black,
   },
+
   editText: {
     fontSize: 13,
     color: COLORS.gray500,
   },
+
   favoriteList: {
     gap: 8,
     paddingBottom: 26,
   },
+
   favoriteChip: {
     minHeight: 38,
     borderRadius: 19,
@@ -947,9 +1028,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
+
   favoriteChipSelected: {
     backgroundColor: COLORS.black,
   },
+
   favoriteImage: {
     width: 30,
     height: 30,
@@ -960,57 +1043,70 @@ const styles = StyleSheet.create({
     marginRight: 8,
     overflow: "hidden",
   },
+
   favoriteImageSelected: {
     backgroundColor: COLORS.white,
   },
+
   favoriteInitial: {
     color: COLORS.black,
     fontSize: 12,
     fontWeight: "900",
   },
+
   favoriteInitialSelected: {
     color: COLORS.black,
   },
+
   favoriteName: {
     fontSize: 13,
     fontWeight: "900",
     color: COLORS.black,
   },
+
   favoriteNameSelected: {
     color: COLORS.white,
   },
+
   favoriteGroupName: {
     fontSize: 9,
     fontWeight: "700",
     color: COLORS.gray500,
     marginTop: 1,
   },
+
   favoriteGroupNameSelected: {
     color: COLORS.gray300,
   },
+
   listHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 12,
   },
+
   listTitle: {
     fontSize: 17,
     fontWeight: "900",
     color: COLORS.black,
   },
+
   sortButton: {
     flexDirection: "row",
     alignItems: "center",
   },
+
   sortText: {
     fontSize: 12,
     fontWeight: "700",
     color: COLORS.black,
   },
+
   postList: {
     gap: 14,
   },
+
   postCard: {
     backgroundColor: COLORS.white,
     borderRadius: 18,
@@ -1024,17 +1120,21 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 3,
   },
+
   postCardPressed: {
     backgroundColor: "#FAFAFA",
     transform: [{ scale: 0.99 }],
   },
+
   postCardCompleted: {
     opacity: 0.42,
   },
+
   postTop: {
     flexDirection: "row",
     marginBottom: 16,
   },
+
   profileCircle: {
     width: 48,
     height: 48,
@@ -1044,70 +1144,84 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
   profileInitial: {
     fontSize: 17,
     fontWeight: "900",
     color: COLORS.white,
   },
+
   postInfo: {
     flex: 1,
     justifyContent: "center",
   },
+
   postMetaRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
+
   userName: {
     fontSize: 13,
     fontWeight: "700",
     color: COLORS.gray700,
   },
+
   timeText: {
     fontSize: 11,
     color: COLORS.gray500,
   },
+
   titleRow: {
     flexDirection: "row",
     alignItems: "center",
     marginTop: 3,
   },
+
   titleTextWrap: {
     flex: 1,
     marginRight: 8,
   },
+
   postTitle: {
     fontSize: 17,
     fontWeight: "900",
     color: COLORS.black,
   },
+
   deadlineBadge: {
     backgroundColor: "#FFECEC",
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: 10,
   },
+
   deadlineText: {
     fontSize: 10,
     fontWeight: "800",
     color: COLORS.red,
   },
+
   completeBadge: {
     backgroundColor: COLORS.gray200,
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: 10,
   },
+
   completeText: {
     fontSize: 10,
     fontWeight: "800",
     color: COLORS.gray500,
   },
+
   memberGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: MEMBER_GAP,
   },
+
   memberBox: {
     width: MEMBER_BOX_WIDTH,
     minHeight: 58,
@@ -1119,51 +1233,63 @@ const styles = StyleSheet.create({
     borderColor: COLORS.gray200,
     justifyContent: "space-between",
   },
+
   memberBoxCompleted: {
     backgroundColor: "#FAFAFA",
   },
+
   memberName: {
     fontSize: 12,
     fontWeight: "800",
     color: COLORS.black,
     marginBottom: 6,
   },
+
   memberBottom: {
     gap: 3,
   },
+
   stateRow: {
     flexDirection: "row",
     alignItems: "center",
   },
+
   stateDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
     marginRight: 4,
   },
+
   greenDot: {
     backgroundColor: COLORS.green,
   },
+
   orangeDot: {
     backgroundColor: COLORS.orange,
   },
+
   grayDot: {
     backgroundColor: COLORS.gray300,
   },
+
   stateText: {
     fontSize: 9,
     fontWeight: "700",
     color: COLORS.gray700,
   },
+
   disabledText: {
     color: COLORS.gray400,
   },
+
   priceText: {
     fontSize: 12,
     fontWeight: "900",
     color: COLORS.black,
     textAlign: "right",
   },
+
   writeButton: {
     position: "absolute",
     right: 22,
@@ -1183,6 +1309,7 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 4,
   },
+
   writeText: {
     fontSize: 15,
     fontWeight: "900",

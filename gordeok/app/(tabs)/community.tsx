@@ -1,3 +1,5 @@
+// 커뮤니티 목록
+
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
 import {
