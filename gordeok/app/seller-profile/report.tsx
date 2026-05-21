@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import {
   Alert,
@@ -21,103 +21,66 @@ const COLORS = {
   white: "#FFFFFF",
   black: "#111111",
   gray900: "#222222",
+  gray800: "#333333",
   gray700: "#666666",
   gray500: "#999999",
   gray400: "#B8B8B8",
-  gray100: "#F7F7F7",
+  gray100: "#F8F8F8",
+  red: "#E35252",
   yellow: "#F7C94B",
-  line: "#EEEEEE",
+  line: "#F1F1F1",
 };
 
 const SCREEN_PADDING = 22;
-const STORAGE_KEY = "communityPosts";
+const STORAGE_KEY = "fraudReports";
 
-const categories = ["포카교환", "오프동행", "질문게시판", "자유게시판"];
-
-const CATEGORY_BADGE_COLORS: Record<
-  string,
-  {
-    backgroundColor: string;
-    textColor: string;
-  }
-> = {
-  포카교환: {
-    backgroundColor: "#FFF5D6",
-    textColor: "#B58900",
-  },
-  질문게시판: {
-    backgroundColor: "#F1E8FF",
-    textColor: "#7A4FD8",
-  },
-  오프동행: {
-    backgroundColor: "#E7F6EA",
-    textColor: "#3A8B4C",
-  },
-  자유게시판: {
-    backgroundColor: "#FFEAF3",
-    textColor: "#D64F8B",
-  },
-};
-
-type CommunityPost = {
+type FraudReport = {
   id: string;
-  category: string;
-  name: string;
-  profileText: string;
-  profileColor: string;
-  time: string;
+  sellerId: string;
+  sellerName: string;
+  title: string;
+  content: string;
+  photoCount: number;
+  status: "접수완료";
   createdAt: number;
-  title: string;
-  content: string;
-  likes: number;
-  comments: number;
-  views: number;
-  photoCount: number;
 };
 
-type CreateCommunityPostPayload = {
-  category: string;
+type CreateFraudReportPayload = {
+  sellerId: string;
+  sellerName: string;
   title: string;
   content: string;
   photoCount: number;
 };
 
-function getCategoryBadgeColor(category: string) {
-  return (
-    CATEGORY_BADGE_COLORS[category] ?? {
-      backgroundColor: "#F2F2F2",
-      textColor: "#666666",
-    }
-  );
-}
-
-function createCommunityPost(payload: CreateCommunityPostPayload): CommunityPost {
+function createFraudReport(payload: CreateFraudReportPayload): FraudReport {
   return {
     id: String(Date.now()),
-    category: payload.category,
-    name: "범규와이프",
-    profileText: "범",
-    profileColor: "#FFF1C6",
-    time: "방금 전",
-    createdAt: Date.now(),
+    sellerId: payload.sellerId,
+    sellerName: payload.sellerName,
     title: payload.title,
     content: payload.content,
-    likes: 0,
-    comments: 0,
-    views: 0,
     photoCount: payload.photoCount,
+    status: "접수완료",
+    createdAt: Date.now(),
   };
 }
 
-export default function CommunityCreateScreen() {
-  const [selectedCategory, setSelectedCategory] = useState("포카교환");
+export default function SellerReportScreen() {
+  const { sellerId, sellerName } = useLocalSearchParams<{
+    sellerId?: string;
+    sellerName?: string;
+  }>();
+
+  const reportSellerId = String(sellerId ?? "");
+  const reportSellerName = String(sellerName ?? "판매자");
+
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [photoCount, setPhotoCount] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const canSubmit = title.trim().length > 0 && content.trim().length > 0;
-  const selectedCategoryColor = getCategoryBadgeColor(selectedCategory);
 
   const handleCancel = () => {
     Keyboard.dismiss();
@@ -156,24 +119,25 @@ export default function CommunityCreateScreen() {
     try {
       setIsSubmitting(true);
 
-      const newPost = createCommunityPost({
-        category: selectedCategory,
+      const newReport = createFraudReport({
+        sellerId: reportSellerId,
+        sellerName: reportSellerName,
         title: trimmedTitle,
         content: trimmedContent,
         photoCount,
       });
 
-      const savedPosts = await AsyncStorage.getItem(STORAGE_KEY);
-      const parsedPosts: CommunityPost[] = savedPosts
-        ? JSON.parse(savedPosts)
+      const savedReports = await AsyncStorage.getItem(STORAGE_KEY);
+      const parsedReports: FraudReport[] = savedReports
+        ? JSON.parse(savedReports)
         : [];
 
       await AsyncStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify([newPost, ...parsedPosts])
+        JSON.stringify([newReport, ...parsedReports])
       );
 
-      Alert.alert("등록 완료", "게시글이 등록되었습니다.", [
+      Alert.alert("신고 접수 완료", "사기 신고가 접수되었습니다.", [
         {
           text: "확인",
           onPress: () => router.back(),
@@ -183,11 +147,12 @@ export default function CommunityCreateScreen() {
       /*
         나중에 백엔드 연동 시 여기만 교체하면 됨.
 
-        await fetch("백엔드주소/community", {
+        await fetch("백엔드주소/reports/fraud", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            category: selectedCategory,
+            sellerId: reportSellerId,
+            sellerName: reportSellerName,
             title: trimmedTitle,
             content: trimmedContent,
             photoCount,
@@ -195,7 +160,7 @@ export default function CommunityCreateScreen() {
         });
       */
     } catch (error) {
-      Alert.alert("오류", "게시글 등록 중 문제가 발생했어요.");
+      Alert.alert("오류", "신고 접수 중 문제가 발생했어요.");
     } finally {
       setIsSubmitting(false);
     }
@@ -216,7 +181,7 @@ export default function CommunityCreateScreen() {
             <Text style={styles.cancelText}>취소</Text>
           </TouchableOpacity>
 
-          <Text style={styles.headerTitle}>글쓰기</Text>
+          <Text style={styles.headerTitle}>사기 신고</Text>
 
           <TouchableOpacity
             activeOpacity={0.75}
@@ -233,7 +198,7 @@ export default function CommunityCreateScreen() {
                 (!canSubmit || isSubmitting) && styles.submitTextDisabled,
               ]}
             >
-              등록
+              신고
             </Text>
           </TouchableOpacity>
         </View>
@@ -245,84 +210,44 @@ export default function CommunityCreateScreen() {
           keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.section}>
-            <Text style={styles.label}>카테고리</Text>
+          <View style={styles.targetSection}>
+            <View style={styles.targetBox}>
+              <View style={styles.targetIconBox}>
+                <Ionicons name="warning-outline" size={18} color={COLORS.red} />
+              </View>
 
-            <View style={styles.categoryRow}>
-              {categories.map((category) => {
-                const isSelected = selectedCategory === category;
-                const categoryColor = getCategoryBadgeColor(category);
-
-                return (
-                  <Pressable
-                    key={category}
-                    onPress={() => setSelectedCategory(category)}
-                    style={[
-                      styles.categoryButton,
-                      isSelected && {
-                        backgroundColor: categoryColor.backgroundColor,
-                        borderColor: categoryColor.backgroundColor,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.categoryText,
-                        isSelected && {
-                          color: categoryColor.textColor,
-                          fontWeight: "900",
-                        },
-                      ]}
-                    >
-                      {category}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+              <View style={styles.targetTextBox}>
+                <Text style={styles.targetLabel}>신고 대상</Text>
+                <Text style={styles.targetName}>{reportSellerName}</Text>
+              </View>
             </View>
           </View>
 
-          <View style={styles.section}>
+          <View style={styles.inputSection}>
             <Text style={styles.label}>제목</Text>
 
             <TextInput
               value={title}
               onChangeText={setTitle}
-              placeholder="제목을 입력해주세요"
+              placeholder="신고 제목을 입력해주세요"
               placeholderTextColor={COLORS.gray400}
               style={styles.titleInput}
               maxLength={60}
               returnKeyType="next"
             />
 
-            <Text style={styles.titleCount}>{title.length} / 60</Text>
+            <Text style={styles.countText}>{title.length} / 60</Text>
           </View>
 
           <View style={styles.contentSection}>
-            <View style={styles.labelRow}>
-              <Text style={styles.label}>내용</Text>
-
-              <View
-                style={[
-                  styles.selectedBadge,
-                  { backgroundColor: selectedCategoryColor.backgroundColor },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.selectedBadgeText,
-                    { color: selectedCategoryColor.textColor },
-                  ]}
-                >
-                  {selectedCategory}
-                </Text>
-              </View>
-            </View>
+            <Text style={styles.label}>내용</Text>
 
             <TextInput
               value={content}
               onChangeText={setContent}
-              placeholder="내용을 입력해주세요"
+              placeholder={
+                "신고 내용을 자세히 입력해주세요.\n예) 입금 후 연락 두절, 허위 상품 판매 등"
+              }
               placeholderTextColor={COLORS.gray400}
               style={styles.contentInput}
               multiline
@@ -336,7 +261,10 @@ export default function CommunityCreateScreen() {
           <View style={styles.photoSection}>
             <View style={styles.photoHeader}>
               <View>
-                <Text style={styles.photoTitle}>사진 추가</Text>
+                <Text style={styles.label}>사진 추가</Text>
+                <Text style={styles.photoGuide}>
+                  채팅 내역, 입금 내역 등을 첨부해주세요
+                </Text>
               </View>
 
               <Text style={styles.photoCount}>{photoCount} / 5</Text>
@@ -347,8 +275,14 @@ export default function CommunityCreateScreen() {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.photoRow}
             >
-              <Pressable onPress={handleAddPhoto} style={styles.addPhotoBox}>
-                <Ionicons name="add" size={30} color={COLORS.gray500} />
+              <Pressable
+                onPress={handleAddPhoto}
+                style={({ pressed }) => [
+                  styles.addPhotoBox,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Ionicons name="add" size={25} color={COLORS.gray500} />
               </Pressable>
 
               {Array.from({ length: photoCount }).map((_, index) => (
@@ -357,15 +291,21 @@ export default function CommunityCreateScreen() {
                   style={styles.photoPreviewBox}
                   onPress={handleRemovePhoto}
                 >
-                  <Text style={styles.photoPreviewText}>{index + 1}</Text>
+                  <Ionicons name="image-outline" size={25} color={COLORS.red} />
 
                   <View style={styles.removePhotoButton}>
-                    <Ionicons name="close" size={13} color={COLORS.white} />
+                    <Ionicons name="close" size={12} color={COLORS.white} />
                   </View>
                 </Pressable>
               ))}
-
             </ScrollView>
+          </View>
+
+          <View style={styles.warningBox}>
+            <Text style={styles.warningText}>
+              허위 신고 또는 과장된 내용 작성 시 서비스 이용이 제한될 수
+              있습니다. 정확한 확인을 위해 증거 이미지를 첨부해주세요.
+            </Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -385,7 +325,7 @@ const styles = StyleSheet.create({
   },
 
   header: {
-    height: 64,
+    height: 60,
     paddingHorizontal: SCREEN_PADDING,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.line,
@@ -396,16 +336,16 @@ const styles = StyleSheet.create({
   },
 
   headerSideButton: {
-    width: 60,
+    width: 58,
     height: 36,
     justifyContent: "center",
     alignItems: "flex-start",
   },
 
   cancelText: {
-    fontSize: 15,
+    fontSize: 14,
     color: COLORS.gray500,
-    fontWeight: "800",
+    fontWeight: "700",
   },
 
   headerTitle: {
@@ -413,29 +353,29 @@ const styles = StyleSheet.create({
     left: 90,
     right: 90,
     textAlign: "center",
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: "900",
     color: COLORS.black,
   },
 
   submitButton: {
-    minWidth: 56,
-    height: 34,
-    paddingHorizontal: 15,
-    borderRadius: 17,
-    backgroundColor: COLORS.yellow,
+    minWidth: 52,
+    height: 32,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    backgroundColor: COLORS.red,
     justifyContent: "center",
     alignItems: "center",
   },
 
   submitButtonDisabled: {
-    backgroundColor: "#E6E6E6",
+    backgroundColor: "#E8E8E8",
   },
 
   submitText: {
     color: COLORS.white,
-    fontSize: 14,
-    fontWeight: "900",
+    fontSize: 13,
+    fontWeight: "800",
   },
 
   submitTextDisabled: {
@@ -451,176 +391,194 @@ const styles = StyleSheet.create({
     paddingBottom: 42,
   },
 
-  section: {
+  targetSection: {
     paddingHorizontal: SCREEN_PADDING,
-    paddingTop: 20,
-    paddingBottom: 20,
+    paddingTop: 18,
+    paddingBottom: 18,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.line,
     backgroundColor: COLORS.white,
   },
 
-  label: {
-    fontSize: 14,
-    color: COLORS.gray900,
-    fontWeight: "900",
-    marginBottom: 14,
-  },
-
-  categoryRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-
-  categoryButton: {
-    flex: 1,
-    height: 38,
-    borderRadius: 19,
+  targetBox: {
+    minHeight: 60,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 15,
+    backgroundColor: "#FFF6F6",
     borderWidth: 1,
-    borderColor: COLORS.line,
-    backgroundColor: COLORS.gray100,
-    justifyContent: "center",
+    borderColor: "#FFD2D2",
+    flexDirection: "row",
     alignItems: "center",
   },
 
-  categoryText: {
+  targetIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#FFEAEA",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 11,
+  },
+
+  targetTextBox: {
+    flex: 1,
+  },
+
+  targetLabel: {
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "700",
     color: COLORS.gray500,
+    marginBottom: 4,
   },
 
-  titleInput: {
-    minHeight: 34,
-    fontSize: 18,
-    fontWeight: "800",
-    color: COLORS.black,
-    padding: 0,
+  targetName: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: COLORS.red,
   },
 
-  titleCount: {
-    alignSelf: "flex-end",
-    marginTop: 8,
-    fontSize: 12,
-    fontWeight: "600",
-    color: COLORS.gray400,
+  inputSection: {
+    paddingHorizontal: SCREEN_PADDING,
+    paddingTop: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.line,
   },
 
   contentSection: {
     minHeight: 270,
     paddingHorizontal: SCREEN_PADDING,
     paddingTop: 20,
-    paddingBottom: 16,
+    paddingBottom: 14,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.line,
-    backgroundColor: COLORS.white,
   },
 
-  labelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-
-  selectedBadge: {
-    minHeight: 24,
-    paddingHorizontal: 9,
-    borderRadius: 12,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 14,
-  },
-
-  selectedBadgeText: {
-    fontSize: 11,
+  label: {
+    fontSize: 16,
     fontWeight: "900",
+    color: COLORS.gray900,
+    marginBottom: 9,
+  },
+
+  titleInput: {
+    minHeight: 32,
+    paddingVertical: 0,
+    paddingHorizontal: 0,
+    fontSize: 16,
+    fontWeight: "600",
+    color: COLORS.black,
+    letterSpacing: -0.2,
   },
 
   contentInput: {
-    minHeight: 178,
+    minHeight: 174,
+    paddingVertical: 0,
+    paddingHorizontal: 0,
     fontSize: 15,
     fontWeight: "500",
-    color: COLORS.gray700,
-    lineHeight: 24,
-    padding: 0,
+    color: COLORS.gray800,
+    lineHeight: 23,
+    letterSpacing: -0.15,
   },
 
   countText: {
     alignSelf: "flex-end",
-    fontSize: 12,
+    marginTop: 8,
+    fontSize: 11,
     fontWeight: "600",
     color: COLORS.gray400,
-    marginTop: 10,
   },
 
   photoSection: {
     paddingHorizontal: SCREEN_PADDING,
     paddingTop: 20,
+    paddingBottom: 4,
   },
 
   photoHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    marginBottom: 16,
+    marginBottom: 14,
   },
 
-  photoTitle: {
-    fontSize: 14,
-    fontWeight: "900",
-    color: COLORS.gray900,
+  photoGuide: {
+    marginTop: -4,
+    fontSize: 12,
+    fontWeight: "500",
+    color: COLORS.gray500,
   },
 
   photoCount: {
-    fontSize: 13,
-    fontWeight: "800",
+    marginTop: 2,
+    fontSize: 12,
+    fontWeight: "700",
     color: COLORS.gray500,
   },
 
   photoRow: {
     flexDirection: "row",
-    gap: 12,
+    gap: 10,
     paddingRight: SCREEN_PADDING,
   },
 
   addPhotoBox: {
-    width: 82,
-    height: 82,
-    borderRadius: 18,
+    width: 78,
+    height: 78,
+    borderRadius: 16,
     backgroundColor: COLORS.gray100,
     borderWidth: 1,
-    borderColor: COLORS.line,
+    borderColor: "#E9E9E9",
     justifyContent: "center",
     alignItems: "center",
   },
 
   photoPreviewBox: {
-    width: 82,
-    height: 82,
-    borderRadius: 18,
-    backgroundColor: "#FFF8E1",
+    width: 78,
+    height: 78,
+    borderRadius: 16,
+    backgroundColor: "#FFF6F6",
     borderWidth: 1,
-    borderColor: "#F2D77A",
+    borderColor: "#FFD8D8",
     justifyContent: "center",
     alignItems: "center",
     position: "relative",
   },
 
-  photoPreviewText: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#B58900",
-  },
-
   removePhotoButton: {
     position: "absolute",
-    right: 7,
-    top: 7,
-    width: 20,
-    height: 20,
+    right: 6,
+    top: 6,
+    width: 19,
+    height: 19,
     borderRadius: 10,
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: "rgba(0,0,0,0.42)",
     justifyContent: "center",
     alignItems: "center",
   },
 
+  warningBox: {
+    marginHorizontal: SCREEN_PADDING,
+    marginTop: 22,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.yellow,
+    backgroundColor: "#FFFBEA",
+  },
+
+  warningText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#9A7200",
+    lineHeight: 19,
+  },
+
+  pressed: {
+    opacity: 0.75,
+  },
 });

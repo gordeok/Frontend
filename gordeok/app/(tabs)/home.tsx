@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useDividePosts, DividePost } from "@/contexts/DividePostContext";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -192,20 +193,73 @@ const idolData = [
 const MEMBER_GAP = 8;
 const MEMBER_BOX_WIDTH = (SCREEN_WIDTH - 44 - 32 - MEMBER_GAP * 2) / 3;
 
+const FAVORITE_GROUPS_KEY = "GO_REUDEOK_FAVORITE_GROUPS";
+const FAVORITE_MEMBERS_KEY = "GO_REUDEOK_FAVORITE_MEMBERS";
+
 export default function HomeScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { posts: createdPosts } = useDividePosts();
 
-  const groupParam =
+  const routeGroupParam =
     typeof params.groups === "string" && params.groups.length > 0
       ? params.groups
       : "";
 
-  const memberParam =
+  const routeMemberParam =
     typeof params.members === "string" && params.members.length > 0
       ? params.members
       : "";
+
+  const [savedGroupParam, setSavedGroupParam] = useState("");
+  const [savedMemberParam, setSavedMemberParam] = useState("");
+  const [isFavoriteLoaded, setIsFavoriteLoaded] = useState(false);
+
+  const groupParam = routeGroupParam || savedGroupParam;
+  const memberParam = routeMemberParam || savedMemberParam;
+
+  useEffect(() => {
+    const loadFavorites = async () => {
+      try {
+        const savedGroups = await AsyncStorage.getItem(FAVORITE_GROUPS_KEY);
+        const savedMembers = await AsyncStorage.getItem(FAVORITE_MEMBERS_KEY);
+
+        if (!routeGroupParam && savedGroups) {
+          setSavedGroupParam(savedGroups);
+        }
+
+        if (!routeMemberParam && savedMembers) {
+          setSavedMemberParam(savedMembers);
+        }
+      } catch (error) {
+        console.log("최애 정보 불러오기 실패", error);
+      } finally {
+        setIsFavoriteLoaded(true);
+      }
+    };
+
+    loadFavorites();
+  }, [routeGroupParam, routeMemberParam]);
+
+  useEffect(() => {
+    const saveFavorites = async () => {
+      try {
+        if (routeGroupParam) {
+          await AsyncStorage.setItem(FAVORITE_GROUPS_KEY, routeGroupParam);
+          setSavedGroupParam(routeGroupParam);
+        }
+
+        if (routeMemberParam) {
+          await AsyncStorage.setItem(FAVORITE_MEMBERS_KEY, routeMemberParam);
+          setSavedMemberParam(routeMemberParam);
+        }
+      } catch (error) {
+        console.log("최애 정보 저장 실패", error);
+      }
+    };
+
+    saveFavorites();
+  }, [routeGroupParam, routeMemberParam]);
 
   const selectedGroupIds = useMemo(() => {
     return groupParam.split(",").filter(Boolean);
@@ -279,6 +333,8 @@ export default function HomeScreen() {
     ? selectedGroups.filter((group) => group.id === selectedGroupId)
     : selectedGroups;
 
+  const shouldShowEmpty = isFavoriteLoaded && selectedGroups.length === 0;
+
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.container}>
@@ -325,12 +381,16 @@ export default function HomeScreen() {
             />
           </View>
 
-          {selectedGroups.length === 0 ? (
+          {shouldShowEmpty ? (
             <View style={styles.emptyBox}>
               <Text style={styles.emptyTitle}>선택한 최애 그룹이 없어요</Text>
               <Text style={styles.emptyText}>
                 온보딩에서 그룹과 최애 멤버를 선택하면 여기에 표시돼요.
               </Text>
+            </View>
+          ) : selectedGroups.length === 0 ? (
+            <View style={styles.emptyBox}>
+              <Text style={styles.emptyTitle}>최애 정보를 불러오는 중이에요</Text>
             </View>
           ) : (
             <>
