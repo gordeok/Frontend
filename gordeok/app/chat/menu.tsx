@@ -327,11 +327,13 @@ export default function ChatMenuScreen() {
   };
 
   const moveToChatListAfterLeave = () => {
+    const targetId = typeof chatRoomId === "string" ? chatRoomId : "1";
+
     router.replace({
-      pathname: "/(tabs)/chats",
-      params: {
-        removedChatRoomId: typeof chatRoomId === "string" ? chatRoomId : "1",
-      },
+        pathname: "/(tabs)/chats",
+        params: {
+          removedChatRoomId: targetId,
+        },
     });
   };
 
