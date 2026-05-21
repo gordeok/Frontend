@@ -16,24 +16,20 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-
 const SHEET_HEIGHT = SCREEN_HEIGHT * 0.52;
 
 const COLORS = {
   white: "#FFFFFF",
   black: "#111111",
-  gray900: "#222222",
   gray700: "#666666",
   gray500: "#999999",
-  gray400: "#B8B8B8",
-  gray300: "#DDDDDD",
-  gray200: "#EEEEEE",
   gray100: "#F8F8F8",
   yellow: "#F7C94B",
   green: "#DDF7EB",
   greenText: "#24A466",
   blue: "#E7F4FF",
   blueText: "#2383C4",
+  red: "#D94A4A",
   line: "#EFEFEF",
 };
 
@@ -101,18 +97,20 @@ const members: Member[] = [
     initialColor: "#999999",
     receiver: "이지현",
     phone: "010-1111-2222",
-    store: "GS25 청량리역점",
+    store: "없음",
     request: "없음",
   },
 ];
 
 export default function ChatMenuScreen() {
-  const { chatRoomId, role, title, status } = useLocalSearchParams<{
-    chatRoomId?: string;
-    role?: string;
-    title?: string;
-    status?: string;
-  }>();
+  const { chatRoomId, role, title, status, reviewSubmitted } =
+    useLocalSearchParams<{
+      chatRoomId?: string;
+      role?: string;
+      title?: string;
+      status?: string;
+      reviewSubmitted?: string;
+    }>();
 
   const isSeller = role !== "buyer";
 
@@ -139,6 +137,16 @@ export default function ChatMenuScreen() {
 
   const sellerMeId = "1";
   const buyerMeId = "2";
+
+  const isTradeCompleted = tradeStatus === "거래 완료";
+
+  const sortedMembers = isSeller
+    ? members
+    : [...members].sort((a, b) => {
+        if (a.id === buyerMeId) return -1;
+        if (b.id === buyerMeId) return 1;
+        return 0;
+      });
 
   const getIsMe = (member: Member) => {
     if (isSeller) return member.id === sellerMeId;
@@ -285,15 +293,13 @@ export default function ChatMenuScreen() {
         title: roomTitle,
         tradeEvent: "completed",
         status: nextStatus,
+        reviewSubmitted:
+          typeof reviewSubmitted === "string" ? reviewSubmitted : "false",
       },
     });
   };
 
-  const moveToChatListAfterCancel = () => {
-    const nextStatus: TradeStatus = "거래 취소";
-
-    setTradeStatus(nextStatus);
-
+  const moveToChatListAfterLeave = () => {
     router.replace({
       pathname: "/(tabs)/chats",
       params: {
@@ -311,12 +317,17 @@ export default function ChatMenuScreen() {
       {
         text: "예",
         style: "destructive",
-        onPress: moveToChatListAfterCancel,
+        onPress: () => {
+          setTradeStatus("거래 취소");
+          moveToChatListAfterLeave();
+        },
       },
     ]);
   };
 
   const handleCompleteTrade = () => {
+    if (isTradeCompleted) return;
+
     Alert.alert("거래 완료", "거래를 완료하시겠습니까?", [
       {
         text: "아니오",
@@ -325,6 +336,20 @@ export default function ChatMenuScreen() {
       {
         text: "예",
         onPress: moveToChatWithCompletedStatus,
+      },
+    ]);
+  };
+
+  const handleLeaveChatRoom = () => {
+    Alert.alert("채팅방 나가기", "이 채팅방을 나가시겠습니까?", [
+      {
+        text: "취소",
+        style: "cancel",
+      },
+      {
+        text: "나가기",
+        style: "destructive",
+        onPress: moveToChatListAfterLeave,
       },
     ]);
   };
@@ -376,7 +401,7 @@ export default function ChatMenuScreen() {
             </View>
           </View>
 
-          {isSeller ? (
+          {isSeller && (
             <View style={styles.tradeButtonRow}>
               <TouchableOpacity
                 style={[styles.tradeButton, styles.cancelButton]}
@@ -387,21 +412,26 @@ export default function ChatMenuScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.tradeButton, styles.completeButton]}
-                activeOpacity={0.8}
+                style={[
+                  styles.tradeButton,
+                  isTradeCompleted
+                    ? styles.completeButtonDisabled
+                    : styles.completeButton,
+                ]}
+                activeOpacity={isTradeCompleted ? 1 : 0.8}
+                disabled={isTradeCompleted}
                 onPress={handleCompleteTrade}
               >
-                <Text style={styles.completeButtonText}>거래 완료</Text>
+                <Text
+                  style={[
+                    styles.completeButtonText,
+                    isTradeCompleted && styles.completeButtonTextDisabled,
+                  ]}
+                >
+                  거래 완료
+                </Text>
               </TouchableOpacity>
             </View>
-          ) : (
-            <TouchableOpacity
-              style={styles.leaveButton}
-              activeOpacity={0.8}
-              onPress={handleCancelTrade}
-            >
-              <Text style={styles.leaveButtonText}>참여 취소</Text>
-            </TouchableOpacity>
           )}
         </View>
 
@@ -410,10 +440,8 @@ export default function ChatMenuScreen() {
             대화상대 <Text style={styles.countText}>{members.length}</Text>
           </Text>
 
-          {members.map((member, index) => {
+          {sortedMembers.map((member, index) => {
             const isMe = getIsMe(member);
-            const showProfileMeBadge = isMe && !member.isSeller;
-            const showNameMeBadge = isMe && member.isSeller;
 
             return (
               <View key={member.id}>
@@ -435,12 +463,6 @@ export default function ChatMenuScreen() {
                       </Text>
                     </View>
 
-                    {showProfileMeBadge && (
-                      <View style={styles.meFloatingBadge}>
-                        <Text style={styles.meFloatingText}>나</Text>
-                      </View>
-                    )}
-
                     {member.isSeller && (
                       <View style={styles.crownFloatingBadge}>
                         <MaterialCommunityIcons
@@ -458,7 +480,7 @@ export default function ChatMenuScreen() {
                         {member.nickname}
                       </Text>
 
-                      {showNameMeBadge && (
+                      {isMe && (
                         <View style={styles.nameMeBadge}>
                           <Text style={styles.nameMeBadgeText}>나</Text>
                         </View>
@@ -479,11 +501,28 @@ export default function ChatMenuScreen() {
                   )}
                 </View>
 
-                {index !== members.length - 1 && <View style={styles.divider} />}
+                {index !== sortedMembers.length - 1 && (
+                  <View style={styles.divider} />
+                )}
               </View>
             );
           })}
         </View>
+
+        {!isSeller && (
+          <TouchableOpacity
+            style={styles.leaveRoomCard}
+            activeOpacity={0.78}
+            onPress={handleLeaveChatRoom}
+          >
+            <View style={styles.leaveRoomLeft}>
+              <Ionicons name="exit-outline" size={22} color={COLORS.red} />
+              <Text style={styles.leaveRoomText}>채팅방 나가기</Text>
+            </View>
+
+            <Ionicons name="chevron-forward" size={22} color={COLORS.red} />
+          </TouchableOpacity>
+        )}
       </ScrollView>
 
       <BuyerInfoBottomSheet
@@ -552,10 +591,7 @@ function BuyerInfoBottomSheet({
                 style={[styles.sheetProfile, { backgroundColor: member.color }]}
               >
                 <Text
-                  style={[
-                    styles.sheetInitial,
-                    { color: member.initialColor },
-                  ]}
+                  style={[styles.sheetInitial, { color: member.initialColor }]}
                 >
                   {member.initial}
                 </Text>
@@ -629,7 +665,7 @@ const styles = StyleSheet.create({
   },
   tradeTop: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
   },
   thumbnail: {
     width: 56,
@@ -637,7 +673,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "#FFE07A",
     marginRight: 13,
-    marginTop: 2,
   },
   tradeInfo: {
     flex: 1,
@@ -645,7 +680,7 @@ const styles = StyleSheet.create({
   },
   titleRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
   },
   tradeTitle: {
     flex: 1,
@@ -658,7 +693,6 @@ const styles = StyleSheet.create({
   },
   statusBadge: {
     flexShrink: 0,
-    marginTop: 2,
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 14,
@@ -698,7 +732,7 @@ const styles = StyleSheet.create({
     color: COLORS.gray500,
   },
   buyerInfoBox: {
-    marginTop: 9,
+    marginTop: 5,
     flexDirection: "row",
     alignItems: "center",
   },
@@ -731,6 +765,9 @@ const styles = StyleSheet.create({
   completeButton: {
     backgroundColor: COLORS.yellow,
   },
+  completeButtonDisabled: {
+    backgroundColor: "#E1E1E1",
+  },
   cancelButtonText: {
     fontSize: 14,
     fontWeight: "800",
@@ -741,18 +778,8 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: COLORS.white,
   },
-  leaveButton: {
-    marginTop: 16,
-    height: 38,
-    borderRadius: 8,
-    backgroundColor: COLORS.yellow,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  leaveButtonText: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: COLORS.white,
+  completeButtonTextDisabled: {
+    color: COLORS.gray500,
   },
   memberCard: {
     backgroundColor: COLORS.white,
@@ -760,6 +787,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingTop: 17,
     paddingBottom: 6,
+    marginBottom: 14,
   },
   sectionTitle: {
     fontSize: 15,
@@ -792,24 +820,6 @@ const styles = StyleSheet.create({
   memberInitial: {
     fontSize: 20,
     fontWeight: "900",
-  },
-  meFloatingBadge: {
-    position: "absolute",
-    right: 3,
-    top: 14,
-    width: 29,
-    height: 29,
-    borderRadius: 15,
-    backgroundColor: "#B5B5B5",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: COLORS.white,
-  },
-  meFloatingText: {
-    fontSize: 13,
-    fontWeight: "900",
-    color: COLORS.white,
   },
   crownFloatingBadge: {
     position: "absolute",
@@ -874,6 +884,25 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: COLORS.line,
     marginLeft: 79,
+  },
+  leaveRoomCard: {
+    height: 58,
+    borderRadius: 16,
+    backgroundColor: COLORS.white,
+    paddingHorizontal: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  leaveRoomLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  leaveRoomText: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: COLORS.red,
+    marginLeft: 12,
   },
   sheetModal: {
     flex: 1,

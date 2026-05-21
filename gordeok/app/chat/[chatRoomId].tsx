@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Keyboard,
-  KeyboardAvoidingView,
   LayoutAnimation,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -32,11 +31,9 @@ if (
 const COLORS = {
   white: "#FFFFFF",
   black: "#111111",
-  gray900: "#222222",
   gray700: "#666666",
   gray500: "#999999",
   gray400: "#B8B8B8",
-  gray300: "#DDDDDD",
   gray200: "#EEEEEE",
   gray100: "#F7F7F7",
   yellow: "#F7C94B",
@@ -45,6 +42,7 @@ const COLORS = {
 };
 
 const DEFAULT_PANEL_HEIGHT = 300;
+const INPUT_BAR_HEIGHT = 55;
 
 type TradeStatus =
   | "모집 중"
@@ -61,7 +59,6 @@ type Message = {
   text?: string;
   time?: string;
   nickname?: string;
-  member?: string;
   initial?: string;
   color?: string;
   initialColor?: string;
@@ -104,7 +101,6 @@ const baseMessages: Message[] = [
     id: "7",
     type: "other",
     nickname: "닝구르트",
-    member: "닝닝",
     initial: "닝",
     color: "#FFF3CD",
     initialColor: "#D98B00",
@@ -115,7 +111,6 @@ const baseMessages: Message[] = [
     id: "8",
     type: "other",
     nickname: "윈터러버",
-    member: "윈터",
     initial: "윈",
     color: "#DDF7EB",
     initialColor: "#1E8E61",
@@ -127,28 +122,39 @@ const baseMessages: Message[] = [
 export default function ChatRoomDetailScreen() {
   const insets = useSafeAreaInsets();
 
-  const { chatRoomId, role, title, tradeEvent, status } =
-    useLocalSearchParams<{
-      chatRoomId: string;
-      role?: string;
-      title?: string;
-      tradeEvent?: string;
-      status?: string;
-    }>();
+  const {
+    chatRoomId,
+    role,
+    title,
+    tradeEvent,
+    status,
+    reviewSubmitted,
+  } = useLocalSearchParams<{
+    chatRoomId: string;
+    role?: string;
+    title?: string;
+    tradeEvent?: string;
+    status?: string;
+    reviewSubmitted?: string;
+  }>();
 
   const isSeller = role !== "buyer";
+  const isBuyer = !isSeller;
 
   const scrollRef = useRef<ScrollView | null>(null);
   const inputRef = useRef<TextInput | null>(null);
   const startDragY = useRef(0);
   const appliedTradeEvent = useRef<string | null>(null);
-  const openPlusAfterKeyboardHide = useRef(false);
+
+  const lastKeyboardHeight = useRef(DEFAULT_PANEL_HEIGHT);
+  const openedPlusFromKeyboard = useRef(false);
 
   const [messages, setMessages] = useState<Message[]>(baseMessages);
   const [inputText, setInputText] = useState("");
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
-  const [keyboardHeight, setKeyboardHeight] = useState(DEFAULT_PANEL_HEIGHT);
   const [isPlusOpen, setIsPlusOpen] = useState(false);
+  const [isReturningKeyboard, setIsReturningKeyboard] = useState(false);
 
   const roomTitle =
     typeof title === "string" && title.length > 0
@@ -163,14 +169,27 @@ export default function ChatRoomDetailScreen() {
       ? status
       : "모집 중";
 
+  const isCompleted = currentStatus === "거래 완료";
+  const isReviewSubmitted = reviewSubmitted === "true";
+
+  const keyboardSpace = Math.max(keyboardHeight - insets.bottom, 0);
+
   const plusPanelHeight = Math.max(
-    keyboardHeight - insets.bottom,
+    lastKeyboardHeight.current - insets.bottom,
     DEFAULT_PANEL_HEIGHT
   );
 
-  const runLayout = () => {
+  const bottomSpace = isKeyboardVisible
+    ? keyboardSpace
+    : isPlusOpen || isReturningKeyboard
+    ? plusPanelHeight
+    : 0;
+
+  const scrollExtraSpace = isKeyboardVisible || isPlusOpen ? bottomSpace : 0;
+
+  const runLayout = (duration = 210) => {
     LayoutAnimation.configureNext({
-      duration: 210,
+      duration,
       create: {
         type: LayoutAnimation.Types.easeInEaseOut,
         property: LayoutAnimation.Properties.opacity,
@@ -194,52 +213,46 @@ export default function ChatRoomDetailScreen() {
   useEffect(() => {
     scrollToBottom(120);
 
-    const keyboardShowEvent =
+    const showEvent =
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const keyboardHideEvent =
+    const hideEvent =
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
 
-    const keyboardShowListener = Keyboard.addListener(keyboardShowEvent, (e) => {
-      const height = e.endCoordinates?.height ?? DEFAULT_PANEL_HEIGHT;
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      const nextHeight = e.endCoordinates?.height ?? DEFAULT_PANEL_HEIGHT;
 
       if (Keyboard.scheduleLayoutAnimation && Platform.OS === "ios") {
         Keyboard.scheduleLayoutAnimation(e);
+      } else {
+        runLayout(210);
       }
 
-      setKeyboardHeight(height);
+      lastKeyboardHeight.current = nextHeight;
+      setKeyboardHeight(nextHeight);
       setIsKeyboardVisible(true);
+      setIsReturningKeyboard(false);
 
       if (isPlusOpen) {
         setIsPlusOpen(false);
       }
-
-      scrollToBottom(80);
     });
 
-    const keyboardHideListener = Keyboard.addListener(keyboardHideEvent, (e) => {
+    const hideSub = Keyboard.addListener(hideEvent, (e) => {
       if (Keyboard.scheduleLayoutAnimation && Platform.OS === "ios") {
         Keyboard.scheduleLayoutAnimation(e);
+      } else {
+        runLayout(210);
       }
 
       setIsKeyboardVisible(false);
-
-      if (openPlusAfterKeyboardHide.current) {
-        openPlusAfterKeyboardHide.current = false;
-
-        runLayout();
-        setIsPlusOpen(true);
-        scrollToBottom(80);
-        return;
-      }
-
-      scrollToBottom(80);
+      setKeyboardHeight(0);
     });
 
     return () => {
-      keyboardShowListener.remove();
-      keyboardHideListener.remove();
+      showSub.remove();
+      hideSub.remove();
     };
-  }, [isPlusOpen, insets.bottom]);
+  }, [isPlusOpen]);
 
   useEffect(() => {
     if (!tradeEvent) return;
@@ -256,17 +269,50 @@ export default function ChatRoomDetailScreen() {
 
     if (!text) return;
 
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `trade-${Date.now()}`,
-        type: "trade",
-        text,
-      },
-    ]);
+    setMessages((prev) => {
+      const alreadyExists = prev.some(
+        (message) => message.type === "trade" && message.text === text
+      );
 
-    scrollToBottom(80);
+      if (alreadyExists) return prev;
+
+      return [
+        ...prev,
+        {
+          id: `trade-${Date.now()}`,
+          type: "trade",
+          text,
+        },
+      ];
+    });
+
+    scrollToBottom(100);
   }, [tradeEvent]);
+
+  useEffect(() => {
+    if (currentStatus !== "거래 완료") return;
+
+    setMessages((prev) => {
+      const alreadyExists = prev.some(
+        (message) =>
+          message.type === "trade" &&
+          message.text === "거래가 완료되었습니다."
+      );
+
+      if (alreadyExists) return prev;
+
+      return [
+        ...prev,
+        {
+          id: `trade-completed-${Date.now()}`,
+          type: "trade",
+          text: "거래가 완료되었습니다.",
+        },
+      ];
+    });
+
+    scrollToBottom(100);
+  }, [currentStatus]);
 
   const handleBack = () => {
     if (currentStatus === "거래 완료") {
@@ -274,6 +320,7 @@ export default function ChatRoomDetailScreen() {
         pathname: "/(tabs)/chats",
         params: {
           completedChatRoomId: chatRoomId,
+          reviewSubmittedChatRoomId: isReviewSubmitted ? chatRoomId : "",
         },
       });
       return;
@@ -290,6 +337,7 @@ export default function ChatRoomDetailScreen() {
         role: isSeller ? "seller" : "buyer",
         title: roomTitle,
         status: currentStatus,
+        reviewSubmitted: isReviewSubmitted ? "true" : "false",
       },
     });
   };
@@ -297,36 +345,65 @@ export default function ChatRoomDetailScreen() {
   const closePlusMenu = () => {
     if (!isPlusOpen) return;
 
-    runLayout();
+    runLayout(210);
+    openedPlusFromKeyboard.current = false;
+    setIsReturningKeyboard(false);
     setIsPlusOpen(false);
-    scrollToBottom(50);
   };
 
   const handlePlusPress = () => {
     if (isPlusOpen) {
-      closePlusMenu();
+      const shouldReturnKeyboard = openedPlusFromKeyboard.current;
+
+      runLayout(210);
+      setIsPlusOpen(false);
+
+      if (shouldReturnKeyboard) {
+        setIsReturningKeyboard(true);
+
+        requestAnimationFrame(() => {
+          inputRef.current?.focus();
+        });
+
+        scrollToBottom(140);
+      } else {
+        openedPlusFromKeyboard.current = false;
+        setIsReturningKeyboard(false);
+        scrollToBottom(80);
+      }
+
       return;
     }
 
     if (isKeyboardVisible) {
-      openPlusAfterKeyboardHide.current = true;
+      openedPlusFromKeyboard.current = true;
+
+      runLayout(210);
+      setIsPlusOpen(true);
       inputRef.current?.blur();
       Keyboard.dismiss();
+
+      scrollToBottom(100);
       return;
     }
 
-    runLayout();
+    openedPlusFromKeyboard.current = false;
+    setIsReturningKeyboard(false);
+
+    runLayout(210);
     setIsPlusOpen(true);
-    scrollToBottom(70);
+    scrollToBottom(100);
   };
 
   const handleInputFocus = () => {
     if (isPlusOpen) {
-      runLayout();
+      runLayout(210);
       setIsPlusOpen(false);
     }
 
-    scrollToBottom(80);
+    openedPlusFromKeyboard.current = false;
+    setIsReturningKeyboard(false);
+    scrollToBottom(100);
   };
 
   const handleSend = () => {
@@ -341,7 +418,7 @@ export default function ChatRoomDetailScreen() {
 
     setMessages((prev) => [...prev, newMessage]);
     setInputText("");
-    scrollToBottom(70);
+    scrollToBottom(90);
   };
 
   const handleImagePress = () => {
@@ -357,6 +434,27 @@ export default function ChatRoomDetailScreen() {
       params: {
         chatRoomId,
         role,
+      },
+    });
+  };
+
+  const handleDeliveryStatusPress = () => {
+    closePlusMenu();
+
+    Alert.alert(
+      "배송 현황 확인",
+      "나중에 배송사와 운송장 번호를 받아와 배송 조회 URL로 연결하면 돼."
+    );
+  };
+
+  const handleReviewPress = () => {
+    router.push({
+      pathname: "/chat/review-write",
+      params: {
+        chatRoomId,
+        role,
+        title: roomTitle,
+        status: currentStatus,
       },
     });
   };
@@ -388,10 +486,7 @@ export default function ChatRoomDetailScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
-      <KeyboardAvoidingView
-        style={styles.screen}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+      <View style={styles.screen}>
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.headerIcon}
@@ -418,15 +513,15 @@ export default function ChatRoomDetailScreen() {
           <ScrollView
             ref={scrollRef}
             style={styles.chatArea}
-            contentContainerStyle={styles.chatContent}
+            contentContainerStyle={[
+              styles.chatContent,
+              {
+                paddingBottom: INPUT_BAR_HEIGHT + 10 + scrollExtraSpace,
+              },
+            ]}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             scrollEventThrottle={16}
-            onContentSizeChange={() => {
-              if (isPlusOpen || isKeyboardVisible) {
-                scrollToBottom(40);
-              }
-            }}
             onScrollBeginDrag={handleScrollBeginDrag}
             onScrollEndDrag={handleScrollEndDrag}
           >
@@ -443,7 +538,17 @@ export default function ChatRoomDetailScreen() {
 
               if (message.type === "trade") {
                 return (
-                  <TradeMessage key={message.id} text={message.text ?? ""} />
+                  <TradeMessage
+                    key={message.id}
+                    text={message.text ?? ""}
+                    showReviewButton={
+                      isBuyer &&
+                      isCompleted &&
+                      message.text === "거래가 완료되었습니다."
+                    }
+                    reviewSubmitted={isReviewSubmitted}
+                    onReviewPress={handleReviewPress}
+                  />
                 );
               }
 
@@ -476,7 +581,75 @@ export default function ChatRoomDetailScreen() {
           </ScrollView>
         </View>
 
-        <View style={styles.inputSection}>
+        {isPlusOpen && (
+          <View style={[styles.bottomPanel, { height: plusPanelHeight }]}>
+            <View style={styles.plusMenu}>
+              <TouchableOpacity
+                style={styles.plusMenuItem}
+                activeOpacity={0.75}
+                onPress={handleImagePress}
+              >
+                <View
+                  style={[
+                    styles.plusMenuIcon,
+                    { backgroundColor: "#FFD8CE" },
+                  ]}
+                >
+                  <Ionicons
+                    name="image-outline"
+                    size={21}
+                    color={COLORS.black}
+                  />
+                </View>
+                <Text style={styles.plusMenuText}>사진 / 동영상</Text>
+              </TouchableOpacity>
+
+              {isSeller ? (
+                <TouchableOpacity
+                  style={styles.plusMenuItem}
+                  activeOpacity={0.75}
+                  onPress={handleTrackingPress}
+                >
+                  <View
+                    style={[
+                      styles.plusMenuIcon,
+                      { backgroundColor: "#DCEEFF" },
+                    ]}
+                  >
+                    <Ionicons
+                      name="cube-outline"
+                      size={21}
+                      color={COLORS.black}
+                    />
+                  </View>
+                  <Text style={styles.plusMenuText}>운송장 번호 공유</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={styles.plusMenuItem}
+                  activeOpacity={0.75}
+                  onPress={handleDeliveryStatusPress}
+                >
+                  <View
+                    style={[
+                      styles.plusMenuIcon,
+                      { backgroundColor: "#DCEEFF" },
+                    ]}
+                  >
+                    <Ionicons
+                      name="cube-outline"
+                      size={21}
+                      color={COLORS.black}
+                    />
+                  </View>
+                  <Text style={styles.plusMenuText}>배송 현황 확인</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        )}
+
+        <View style={[styles.inputSection, { bottom: bottomSpace }]}>
           <View style={styles.inputRow}>
             <TouchableOpacity
               style={styles.plusButton}
@@ -509,55 +682,7 @@ export default function ChatRoomDetailScreen() {
             </TouchableOpacity>
           </View>
         </View>
-
-        {isPlusOpen && (
-          <View style={[styles.bottomPanel, { height: plusPanelHeight }]}>
-            <View style={styles.plusMenu}>
-              <TouchableOpacity
-                style={styles.plusMenuItem}
-                activeOpacity={0.75}
-                onPress={handleImagePress}
-              >
-                <View
-                  style={[
-                    styles.plusMenuIcon,
-                    { backgroundColor: "#FFD8CE" },
-                  ]}
-                >
-                  <Ionicons
-                    name="image-outline"
-                    size={21}
-                    color={COLORS.black}
-                  />
-                </View>
-                <Text style={styles.plusMenuText}>사진 / 동영상</Text>
-              </TouchableOpacity>
-
-              {isSeller && (
-                <TouchableOpacity
-                  style={styles.plusMenuItem}
-                  activeOpacity={0.75}
-                  onPress={handleTrackingPress}
-                >
-                  <View
-                    style={[
-                      styles.plusMenuIcon,
-                      { backgroundColor: "#DCEEFF" },
-                    ]}
-                  >
-                    <Ionicons
-                      name="cube-outline"
-                      size={21}
-                      color={COLORS.black}
-                    />
-                  </View>
-                  <Text style={styles.plusMenuText}>운송장 번호 공유</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-        )}
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -572,11 +697,42 @@ function SystemMessage({ text }: { text: string }) {
   );
 }
 
-function TradeMessage({ text }: { text: string }) {
+function TradeMessage({
+  text,
+  showReviewButton,
+  reviewSubmitted,
+  onReviewPress,
+}: {
+  text: string;
+  showReviewButton?: boolean;
+  reviewSubmitted?: boolean;
+  onReviewPress?: () => void;
+}) {
   return (
     <View style={styles.tradeOuterWrap}>
       <View style={styles.tradeLine} />
       <Text style={styles.tradeMessageText}>{text}</Text>
+
+      {showReviewButton && (
+        <TouchableOpacity
+          style={[
+            styles.reviewButton,
+            reviewSubmitted && styles.reviewButtonDisabled,
+          ]}
+          activeOpacity={reviewSubmitted ? 1 : 0.85}
+          disabled={reviewSubmitted}
+          onPress={onReviewPress}
+        >
+          <Text
+            style={[
+              styles.reviewButtonText,
+              reviewSubmitted && styles.reviewButtonTextDisabled,
+            ]}
+          >
+            {reviewSubmitted ? "거래 후기 작성 완료" : "거래 후기 작성하기"}
+          </Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -654,6 +810,7 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: COLORS.white,
+    position: "relative",
   },
   header: {
     height: 58,
@@ -663,6 +820,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    backgroundColor: COLORS.white,
+    zIndex: 10,
   },
   headerIcon: {
     width: 42,
@@ -687,7 +846,6 @@ const styles = StyleSheet.create({
   chatContent: {
     paddingHorizontal: 16,
     paddingTop: 16,
-    paddingBottom: 8,
   },
   dateWrap: {
     alignItems: "center",
@@ -733,6 +891,26 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "500",
     color: COLORS.gray500,
+    marginBottom: 14,
+  },
+  reviewButton: {
+    width: "78%",
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: COLORS.yellow,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reviewButtonText: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: COLORS.white,
+  },
+  reviewButtonDisabled: {
+    backgroundColor: "#E8D38E",
+  },
+  reviewButtonTextDisabled: {
+    color: COLORS.white,
   },
   myMessageWrap: {
     alignItems: "flex-end",
@@ -837,12 +1015,16 @@ const styles = StyleSheet.create({
     marginBottom: 3,
   },
   inputSection: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    backgroundColor: COLORS.white,
     borderTopWidth: 1,
     borderTopColor: COLORS.line,
-    backgroundColor: COLORS.white,
     paddingHorizontal: 16,
     paddingTop: 7,
     paddingBottom: 7,
+    zIndex: 30,
   },
   inputRow: {
     flexDirection: "row",
@@ -874,8 +1056,14 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   bottomPanel: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: COLORS.white,
-    overflow: "hidden",
+    borderTopWidth: 1,
+    borderTopColor: COLORS.line,
+    zIndex: 20,
   },
   plusMenu: {
     flex: 1,

@@ -17,7 +17,6 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 type ChatTab = "divide" | "note";
-
 type UserRole = "seller" | "buyer";
 
 type DivideRoom = {
@@ -31,6 +30,7 @@ type DivideRoom = {
   status?: "progress" | "done";
   color: "yellow" | "purple" | "pink" | "gray";
   role: UserRole;
+  reviewSubmitted?: boolean;
 };
 
 type NoteRoom = {
@@ -49,7 +49,6 @@ const COLORS = {
   gray700: "#666666",
   gray500: "#999999",
   gray400: "#B5B5B5",
-  gray200: "#EEEEEE",
   yellow: "#F3C24F",
   red: "#FF5A5A",
   line: "#EEEEEE",
@@ -70,18 +69,7 @@ const initialDivideRooms: DivideRoom[] = [
     status: "progress",
     color: "yellow",
     role: "seller",
-  },
-  {
-    id: 2,
-    title: "뉴진스 Get Up EP",
-    organizer: "포카매니아",
-    memberCount: "3/5명",
-    lastMessage: "배송지 주소 보내드릴게요~",
-    time: "오전 11:02",
-    unreadCount: 1,
-    status: "progress",
-    color: "purple",
-    role: "buyer",
+    reviewSubmitted: false,
   },
   {
     id: 3,
@@ -94,18 +82,20 @@ const initialDivideRooms: DivideRoom[] = [
     status: "progress",
     color: "pink",
     role: "buyer",
+    reviewSubmitted: false,
   },
   {
     id: 4,
     title: "세븐틴 FML 미니 10집",
     organizer: "캐럿하우스",
     memberCount: "13/13명",
-    lastMessage: "분철이 완료되었어요.",
+    lastMessage: "거래가 완료되었습니다.",
     time: "05.08",
     unreadCount: 0,
     status: "done",
     color: "gray",
     role: "buyer",
+    reviewSubmitted: false,
   },
 ];
 
@@ -137,24 +127,6 @@ const initialNoteRooms: NoteRoom[] = [
     time: "오전 10:18",
     unreadCount: 1,
   },
-  {
-    id: 104,
-    title: "아이브 포카 판매",
-    boardName: "판매 게시판",
-    userName: "포카정리중",
-    lastMessage: "입금 확인되면 바로 보내드릴게요.",
-    time: "어제",
-    unreadCount: 0,
-  },
-  {
-    id: 105,
-    title: "보넥도 럭드 분철 문의",
-    boardName: "질문 게시판",
-    userName: "고르덕러",
-    lastMessage: "자리 남아있어요!",
-    time: "05.16",
-    unreadCount: 0,
-  },
 ];
 
 async function leaveDivideRoomApi(chatRoomId: number) {
@@ -168,10 +140,12 @@ async function leaveNoteRoomApi(noteRoomId: number) {
 export default function ChatsScreen() {
   const router = useRouter();
 
-  const { removedChatRoomId, completedChatRoomId } = useLocalSearchParams<{
-    removedChatRoomId?: string;
-    completedChatRoomId?: string;
-  }>();
+  const { removedChatRoomId, completedChatRoomId, reviewSubmittedChatRoomId } =
+    useLocalSearchParams<{
+      removedChatRoomId?: string;
+      completedChatRoomId?: string;
+      reviewSubmittedChatRoomId?: string;
+    }>();
 
   const [selectedTab, setSelectedTab] = useState<ChatTab>("divide");
   const [divideRooms, setDivideRooms] =
@@ -183,6 +157,7 @@ export default function ChatsScreen() {
   const openedRowKey = useRef<string | null>(null);
   const removedIdRef = useRef<string | null>(null);
   const completedIdRef = useRef<string | null>(null);
+  const reviewSubmittedIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!removedChatRoomId) return;
@@ -220,6 +195,27 @@ export default function ChatsScreen() {
     );
   }, [completedChatRoomId]);
 
+  useEffect(() => {
+    if (!reviewSubmittedChatRoomId) return;
+    if (reviewSubmittedChatRoomId.length === 0) return;
+    if (reviewSubmittedIdRef.current === reviewSubmittedChatRoomId) return;
+
+    reviewSubmittedIdRef.current = reviewSubmittedChatRoomId;
+
+    const targetId = Number(reviewSubmittedChatRoomId);
+
+    setDivideRooms((prev) =>
+      prev.map((room) =>
+        room.id === targetId
+          ? {
+              ...room,
+              reviewSubmitted: true,
+            }
+          : room
+      )
+    );
+  }, [reviewSubmittedChatRoomId]);
+
   const closeOpenedRow = () => {
     if (openedRowKey.current) {
       swipeRefs.current[openedRowKey.current]?.close();
@@ -247,6 +243,7 @@ export default function ChatsScreen() {
         role: room.role,
         title: room.title,
         status: room.status === "done" ? "거래 완료" : "모집 중",
+        reviewSubmitted: room.reviewSubmitted ? "true" : "false",
       },
     });
   };
@@ -284,7 +281,10 @@ export default function ChatsScreen() {
             setDivideRooms((prev) => prev.filter((item) => item.id !== room.id));
             closeOpenedRow();
           } catch (error) {
-            Alert.alert("오류", "채팅방 나가기에 실패했어요. 다시 시도해주세요.");
+            Alert.alert(
+              "오류",
+              "채팅방 나가기에 실패했어요. 다시 시도해주세요."
+            );
           }
         },
       },
@@ -307,7 +307,10 @@ export default function ChatsScreen() {
             setNoteRooms((prev) => prev.filter((item) => item.id !== room.id));
             closeOpenedRow();
           } catch (error) {
-            Alert.alert("오류", "쪽지 나가기에 실패했어요. 다시 시도해주세요.");
+            Alert.alert(
+              "오류",
+              "쪽지 나가기에 실패했어요. 다시 시도해주세요."
+            );
           }
         },
       },
@@ -460,7 +463,9 @@ function TabButton({
       activeOpacity={0.8}
       onPress={onPress}
     >
-      <Text style={active ? styles.activeTabText : styles.tabText}>{title}</Text>
+      <Text style={active ? styles.activeTabText : styles.tabText}>
+        {title}
+      </Text>
       {active && <View style={styles.activeLine} />}
     </TouchableOpacity>
   );
@@ -790,7 +795,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.line,
-    paddingHorizontal: 25,
+    paddingHorizontal: SCREEN_PADDING,
     paddingVertical: 15,
   },
   pressedItem: {
