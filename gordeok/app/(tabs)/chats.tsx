@@ -1,5 +1,5 @@
-import { useRouter } from "expo-router";
-import React, { useRef, useState } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Animated,
@@ -18,6 +18,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 type ChatTab = "divide" | "note";
 
+type UserRole = "seller" | "buyer";
+
 type DivideRoom = {
   id: number;
   title: string;
@@ -28,6 +30,7 @@ type DivideRoom = {
   unreadCount: number;
   status?: "progress" | "done";
   color: "yellow" | "purple" | "pink" | "gray";
+  role: UserRole;
 };
 
 type NoteRoom = {
@@ -66,6 +69,7 @@ const initialDivideRooms: DivideRoom[] = [
     unreadCount: 3,
     status: "progress",
     color: "yellow",
+    role: "seller",
   },
   {
     id: 2,
@@ -77,6 +81,7 @@ const initialDivideRooms: DivideRoom[] = [
     unreadCount: 1,
     status: "progress",
     color: "purple",
+    role: "buyer",
   },
   {
     id: 3,
@@ -88,6 +93,7 @@ const initialDivideRooms: DivideRoom[] = [
     unreadCount: 1,
     status: "progress",
     color: "pink",
+    role: "buyer",
   },
   {
     id: 4,
@@ -99,6 +105,7 @@ const initialDivideRooms: DivideRoom[] = [
     unreadCount: 0,
     status: "done",
     color: "gray",
+    role: "buyer",
   },
 ];
 
@@ -151,31 +158,20 @@ const initialNoteRooms: NoteRoom[] = [
 ];
 
 async function leaveDivideRoomApi(chatRoomId: number) {
-  // 백엔드 연결 시 여기만 실제 API로 교체
-  // await fetch(`${API_URL}/api/chatrooms/${chatRoomId}/leave`, {
-  //   method: "DELETE",
-  //   headers: {
-  //     Authorization: `Bearer ${accessToken}`,
-  //   },
-  // });
-
   return true;
 }
 
 async function leaveNoteRoomApi(noteRoomId: number) {
-  // 백엔드 연결 시 여기만 실제 API로 교체
-  // await fetch(`${API_URL}/api/notes/${noteRoomId}/leave`, {
-  //   method: "DELETE",
-  //   headers: {
-  //     Authorization: `Bearer ${accessToken}`,
-  //   },
-  // });
-
   return true;
 }
 
 export default function ChatsScreen() {
   const router = useRouter();
+
+  const { removedChatRoomId, completedChatRoomId } = useLocalSearchParams<{
+    removedChatRoomId?: string;
+    completedChatRoomId?: string;
+  }>();
 
   const [selectedTab, setSelectedTab] = useState<ChatTab>("divide");
   const [divideRooms, setDivideRooms] =
@@ -185,6 +181,44 @@ export default function ChatsScreen() {
 
   const swipeRefs = useRef<Record<string, Swipeable | null>>({});
   const openedRowKey = useRef<string | null>(null);
+  const removedIdRef = useRef<string | null>(null);
+  const completedIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!removedChatRoomId) return;
+    if (removedIdRef.current === removedChatRoomId) return;
+
+    removedIdRef.current = removedChatRoomId;
+
+    const targetId = Number(removedChatRoomId);
+
+    setDivideRooms((prev) => prev.filter((room) => room.id !== targetId));
+    setNoteRooms((prev) => prev.filter((room) => room.id !== targetId));
+  }, [removedChatRoomId]);
+
+  useEffect(() => {
+    if (!completedChatRoomId) return;
+    if (completedIdRef.current === completedChatRoomId) return;
+
+    completedIdRef.current = completedChatRoomId;
+
+    const targetId = Number(completedChatRoomId);
+
+    setDivideRooms((prev) =>
+      prev.map((room) =>
+        room.id === targetId
+          ? {
+              ...room,
+              status: "done",
+              unreadCount: 0,
+              lastMessage: "거래가 완료되었습니다.",
+              time: "방금",
+              color: "gray",
+            }
+          : room
+      )
+    );
+  }, [completedChatRoomId]);
 
   const closeOpenedRow = () => {
     if (openedRowKey.current) {
@@ -206,7 +240,15 @@ export default function ChatsScreen() {
       return;
     }
 
-    router.push(`/chat/${room.id}`);
+    router.push({
+      pathname: "/chat/[chatRoomId]",
+      params: {
+        chatRoomId: String(room.id),
+        role: room.role,
+        title: room.title,
+        status: room.status === "done" ? "거래 완료" : "모집 중",
+      },
+    });
   };
 
   const handlePressNoteRoom = (room: NoteRoom) => {
@@ -215,7 +257,15 @@ export default function ChatsScreen() {
       return;
     }
 
-    router.push(`/chat/${room.id}`);
+    router.push({
+      pathname: "/chat/[chatRoomId]",
+      params: {
+        chatRoomId: String(room.id),
+        role: "buyer",
+        title: room.title,
+        type: "note",
+      },
+    });
   };
 
   const handleLeaveDivideRoom = (room: DivideRoom) => {
@@ -499,10 +549,15 @@ function DivideRoomItem({
             {room.title}
           </Text>
 
-          <Text style={styles.timeText}>{room.time}</Text>
+          <Text style={[styles.timeText, isDone && styles.doneText]}>
+            {room.time}
+          </Text>
         </View>
 
-        <Text style={styles.metaText} numberOfLines={1}>
+        <Text
+          style={[styles.metaText, isDone && styles.doneText]}
+          numberOfLines={1}
+        >
           {room.organizer} · {room.memberCount}
         </Text>
 
@@ -623,29 +678,24 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
-
   safeArea: {
     flex: 1,
     backgroundColor: COLORS.white,
   },
-
   container: {
     flex: 1,
     backgroundColor: COLORS.white,
   },
-
   header: {
     height: 64,
     paddingHorizontal: SCREEN_PADDING,
     justifyContent: "center",
   },
-
   headerTitle: {
     fontSize: 24,
     fontWeight: "800",
     color: COLORS.black,
   },
-
   tabContainer: {
     height: 48,
     paddingHorizontal: SCREEN_PADDING,
@@ -654,25 +704,21 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORS.line,
   },
-
   tabButton: {
     marginRight: 36,
     paddingBottom: 12,
     position: "relative",
   },
-
   tabText: {
     fontSize: 15,
     fontWeight: "700",
     color: COLORS.gray400,
   },
-
   activeTabText: {
     fontSize: 15,
     fontWeight: "800",
     color: COLORS.black,
   },
-
   activeLine: {
     position: "absolute",
     left: -2,
@@ -682,21 +728,17 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: COLORS.yellow,
   },
-
   listWrap: {
     flex: 1,
     position: "relative",
   },
-
   listContent: {
     paddingTop: 8,
     paddingBottom: 100,
   },
-
   emptyListContent: {
     flexGrow: 1,
   },
-
   closeOverlay: {
     position: "absolute",
     top: 0,
@@ -705,23 +747,19 @@ const styles = StyleSheet.create({
     bottom: 0,
     backgroundColor: "transparent",
   },
-
   swipeContainer: {
     width: "100%",
     backgroundColor: COLORS.red,
     overflow: "hidden",
   },
-
   swipeChildren: {
     width: "100%",
     backgroundColor: COLORS.white,
   },
-
   rightActionWrap: {
     width: LEAVE_WIDTH,
     backgroundColor: COLORS.red,
   },
-
   leaveButton: {
     flex: 1,
     width: LEAVE_WIDTH,
@@ -729,7 +767,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
   leaveText: {
     width: LEAVE_WIDTH,
     textAlign: "center",
@@ -737,7 +774,6 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: COLORS.white,
   },
-
   divideItem: {
     minHeight: 98,
     flexDirection: "row",
@@ -748,25 +784,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: SCREEN_PADDING,
     paddingVertical: 16,
   },
-
   noteItem: {
     minHeight: 90,
     justifyContent: "center",
     backgroundColor: COLORS.white,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.line,
-    paddingHorizontal: 28,
+    paddingHorizontal: 25,
     paddingVertical: 15,
   },
-
   pressedItem: {
     opacity: 0.72,
   },
-
   doneItem: {
     opacity: 0.55,
   },
-
   albumIcon: {
     width: 54,
     height: 54,
@@ -775,7 +807,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 14,
   },
-
   albumIconCircle: {
     width: 29,
     height: 29,
@@ -784,71 +815,55 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
   albumIconDot: {
     width: 7,
     height: 7,
     borderRadius: 4,
   },
-
   yellowIcon: {
     backgroundColor: "#FFF8DE",
   },
-
   yellowCircle: {
     borderColor: "#E3B600",
   },
-
   yellowDot: {
     backgroundColor: "#E3B600",
   },
-
   purpleIcon: {
     backgroundColor: "#F0F0FF",
   },
-
   purpleCircle: {
     borderColor: "#6A6FD6",
   },
-
   purpleDot: {
     backgroundColor: "#6A6FD6",
   },
-
   pinkIcon: {
     backgroundColor: "#FFF0F5",
   },
-
   pinkCircle: {
     borderColor: "#E23D6B",
   },
-
   pinkDot: {
     backgroundColor: "#E23D6B",
   },
-
   grayIcon: {
     backgroundColor: "#EFEFEF",
   },
-
   grayCircle: {
     borderColor: "#A9A9A9",
   },
-
   grayDot: {
     backgroundColor: "#A9A9A9",
   },
-
   chatContent: {
     flex: 1,
     minWidth: 0,
   },
-
   topRow: {
     flexDirection: "row",
     alignItems: "center",
   },
-
   chatTitle: {
     flex: 1,
     fontSize: 16,
@@ -856,26 +871,22 @@ const styles = StyleSheet.create({
     color: COLORS.black,
     marginRight: 10,
   },
-
   timeText: {
     fontSize: 12,
     fontWeight: "500",
     color: "#B6B6B6",
   },
-
   metaText: {
     marginTop: 5,
     fontSize: 13,
     fontWeight: "500",
     color: "#9D9D9D",
   },
-
   bottomRow: {
     marginTop: 5,
     flexDirection: "row",
     alignItems: "center",
   },
-
   lastMessage: {
     flex: 1,
     fontSize: 14,
@@ -883,7 +894,6 @@ const styles = StyleSheet.create({
     color: "#777777",
     marginRight: 10,
   },
-
   unreadBadge: {
     minWidth: 25,
     height: 25,
@@ -893,13 +903,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
   unreadText: {
     fontSize: 13,
     fontWeight: "800",
     color: COLORS.white,
   },
-
   doneBadge: {
     height: 28,
     paddingHorizontal: 11,
@@ -908,27 +916,22 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
   doneBadgeText: {
     fontSize: 13,
     fontWeight: "800",
     color: COLORS.white,
   },
-
   doneText: {
     color: "#9A9A9A",
   },
-
   noteContent: {
     flex: 1,
     minWidth: 0,
   },
-
   noteTopRow: {
     flexDirection: "row",
     alignItems: "center",
   },
-
   noteTitle: {
     flex: 1,
     fontSize: 16,
@@ -936,20 +939,17 @@ const styles = StyleSheet.create({
     color: COLORS.black,
     marginRight: 10,
   },
-
   noteMetaText: {
     marginTop: 5,
     fontSize: 13,
     fontWeight: "500",
     color: COLORS.gray500,
   },
-
   noteBottomRow: {
     marginTop: 5,
     flexDirection: "row",
     alignItems: "center",
   },
-
   noteMessage: {
     flex: 1,
     fontSize: 14,
@@ -957,14 +957,12 @@ const styles = StyleSheet.create({
     color: COLORS.gray700,
     marginRight: 10,
   },
-
   emptyState: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     paddingBottom: 80,
   },
-
   emptyText: {
     fontSize: 14,
     fontWeight: "600",

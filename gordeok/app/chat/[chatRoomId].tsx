@@ -1,576 +1,647 @@
-// 채팅방 화면
-
-import React, { useRef, useState } from "react";
-
+import { Ionicons } from "@expo/vector-icons";
+import { router, useLocalSearchParams } from "expo-router";
+import { useEffect, useRef, useState } from "react";
 import {
+  Alert,
+  Keyboard,
   KeyboardAvoidingView,
+  LayoutAnimation,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
+  UIManager,
   View,
 } from "react-native";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
-import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+if (
+  Platform.OS === "android" &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
-type MemberStatus = "paid" | "reserved" | "empty";
-type MemberRole = "seller" | "buyer";
-
-type RoomMember = {
-  id: number;
-  nickname: string;
-  memberName: string;
-  role: MemberRole;
-  status: MemberStatus;
+const COLORS = {
+  white: "#FFFFFF",
+  black: "#111111",
+  gray900: "#222222",
+  gray700: "#666666",
+  gray500: "#999999",
+  gray400: "#B8B8B8",
+  gray300: "#DDDDDD",
+  gray200: "#EEEEEE",
+  gray100: "#F7F7F7",
+  yellow: "#F7C94B",
+  yellowLight: "#FFF6D8",
+  line: "#F0F0F0",
 };
 
-type ChatMessage =
-  | {
-      id: number;
-      type: "system";
-      content: string;
-    }
-  | {
-      id: number;
-      type: "text";
-      senderId: number;
-      senderName: string;
-      senderRole: MemberRole;
-      memberName: string;
-      content: string;
-      time: string;
-      isMine: boolean;
-      showProfile: boolean;
-      variant?: "normal" | "account";
-    };
+const DEFAULT_PANEL_HEIGHT = 300;
 
-const MY_USER_ID = 2;
-const YELLOW = "#F0CF63";
+type TradeStatus =
+  | "모집 중"
+  | "모집 완료"
+  | "배송 중"
+  | "거래 완료"
+  | "거래 취소";
 
-const dummyRoom = {
-  id: 1,
-  title: "에스파 Drama 정규 1집",
-  status: "예약 진행중",
-  date: "2026년 5월 11일 월요일",
-  members: [
-    {
-      id: 1,
-      nickname: "분철의달인",
-      memberName: "카리나",
-      role: "seller",
-      status: "paid",
-    },
-    {
-      id: 2,
-      nickname: "나",
-      memberName: "카리나",
-      role: "buyer",
-      status: "paid",
-    },
-    {
-      id: 3,
-      nickname: "윈터러버",
-      memberName: "윈터",
-      role: "buyer",
-      status: "paid",
-    },
-    {
-      id: 4,
-      nickname: "닝구르트",
-      memberName: "닝닝",
-      role: "buyer",
-      status: "reserved",
-    },
-    {
-      id: 5,
-      nickname: "지젤최고",
-      memberName: "지젤",
-      role: "buyer",
-      status: "empty",
-    },
-  ] as RoomMember[],
+type MessageType = "system" | "me" | "other" | "image" | "trade";
+
+type Message = {
+  id: string;
+  type: MessageType;
+  text?: string;
+  time?: string;
+  nickname?: string;
+  member?: string;
+  initial?: string;
+  color?: string;
+  initialColor?: string;
 };
 
-const dummyMessages: ChatMessage[] = [
+const baseMessages: Message[] = [
   {
-    id: 1,
+    id: "1",
     type: "system",
-    content: "분철의달인 님이 단톡방을 만들었어요",
+    text: "분철의달인 님이 단톡방을 만들었어요",
   },
   {
-    id: 2,
-    type: "text",
-    senderId: 1,
-    senderName: "분철의달인",
-    senderRole: "seller",
-    memberName: "카리나",
-    content:
-      "안녕하세요! Drama 분철 참여해주셔서\n감사합니다 🙌 아래 계좌로 입금 부탁드려요.",
+    id: "2",
+    type: "system",
+    text: "윈터러버 님이 단톡방에 들어왔어요",
+  },
+  {
+    id: "3",
+    type: "system",
+    text: "닝구르트 님이 단톡방에 들어왔어요",
+  },
+  {
+    id: "4",
+    type: "me",
+    text: "안녕하세요! Drama 분철 참여해주셔서 감사합니다 🙌 아래 계좌로 입금 부탁드려요.",
     time: "2:01 PM",
-    isMine: false,
-    showProfile: true,
   },
   {
-    id: 3,
-    type: "text",
-    senderId: 1,
-    senderName: "분철의달인",
-    senderRole: "seller",
-    memberName: "카리나",
-    content:
-      "입금 계좌\n카카오뱅크 3333-01-1234567\n예금주: 김○철\n입금 시 닉네임 + 멤버명 기재",
-    time: "2:02 PM",
-    isMine: false,
-    showProfile: false,
-    variant: "account",
+    id: "5",
+    type: "me",
+    text: "입금 계좌\n카카오뱅크: 3333-01-1234567\n예금주: 김○철\n입금 시 닉네임 + 멤버명 기재",
+    time: "2:01 PM",
   },
   {
-    id: 4,
-    type: "text",
-    senderId: MY_USER_ID,
-    senderName: "나",
-    senderRole: "buyer",
-    memberName: "카리나",
-    content: "카리나 슬롯 입금 완료했어요!",
-    time: "2:14 PM",
-    isMine: true,
-    showProfile: false,
+    id: "6",
+    type: "image",
+    time: "2:22 PM",
   },
   {
-    id: 5,
-    type: "text",
-    senderId: 3,
-    senderName: "윈터러버",
-    senderRole: "buyer",
-    memberName: "윈터",
-    content: "저도 윈터 슬롯 방금 보냈습니다 :)",
+    id: "7",
+    type: "other",
+    nickname: "닝구르트",
+    member: "닝닝",
+    initial: "닝",
+    color: "#FFF3CD",
+    initialColor: "#D98B00",
+    text: "카리나 슬롯 입금 완료했어요!",
+    time: "2:10 PM",
+  },
+  {
+    id: "8",
+    type: "other",
+    nickname: "윈터러버",
+    member: "윈터",
+    initial: "윈",
+    color: "#DDF7EB",
+    initialColor: "#1E8E61",
+    text: "저도 윈터 슬롯 방금 보냈습니다 :)",
     time: "2:18 PM",
-    isMine: false,
-    showProfile: true,
   },
 ];
 
-export default function ChatRoomScreen() {
-  const router = useRouter();
-  const { chatRoomId } = useLocalSearchParams();
+export default function ChatRoomDetailScreen() {
+  const insets = useSafeAreaInsets();
 
-  const [showMenu, setShowMenu] = useState(false);
-  const [showDetailMenu, setShowDetailMenu] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>(dummyMessages);
+  const { chatRoomId, role, title, tradeEvent, status } =
+    useLocalSearchParams<{
+      chatRoomId: string;
+      role?: string;
+      title?: string;
+      tradeEvent?: string;
+      status?: string;
+    }>();
+
+  const isSeller = role !== "buyer";
+
+  const scrollRef = useRef<ScrollView | null>(null);
+  const inputRef = useRef<TextInput | null>(null);
+  const startDragY = useRef(0);
+  const appliedTradeEvent = useRef<string | null>(null);
+  const openPlusAfterKeyboardHide = useRef(false);
+
+  const [messages, setMessages] = useState<Message[]>(baseMessages);
   const [inputText, setInputText] = useState("");
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(DEFAULT_PANEL_HEIGHT);
+  const [isPlusOpen, setIsPlusOpen] = useState(false);
 
-  const scrollViewRef = useRef<ScrollView>(null);
+  const roomTitle =
+    typeof title === "string" && title.length > 0
+      ? title
+      : "에스파 Drama 정규 1집";
 
-  const scrollToBottom = () => {
+  const currentStatus: TradeStatus =
+    status === "모집 완료" ||
+    status === "배송 중" ||
+    status === "거래 완료" ||
+    status === "거래 취소"
+      ? status
+      : "모집 중";
+
+  const plusPanelHeight = Math.max(
+    keyboardHeight - insets.bottom,
+    DEFAULT_PANEL_HEIGHT
+  );
+
+  const runLayout = () => {
+    LayoutAnimation.configureNext({
+      duration: 210,
+      create: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+        property: LayoutAnimation.Properties.opacity,
+      },
+      update: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+      },
+      delete: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+        property: LayoutAnimation.Properties.opacity,
+      },
+    });
+  };
+
+  const scrollToBottom = (delay = 70) => {
     setTimeout(() => {
-      scrollViewRef.current?.scrollToEnd({ animated: true });
-    }, 100);
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }, delay);
+  };
+
+  useEffect(() => {
+    scrollToBottom(120);
+
+    const keyboardShowEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const keyboardHideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const keyboardShowListener = Keyboard.addListener(keyboardShowEvent, (e) => {
+      const height = e.endCoordinates?.height ?? DEFAULT_PANEL_HEIGHT;
+
+      if (Keyboard.scheduleLayoutAnimation && Platform.OS === "ios") {
+        Keyboard.scheduleLayoutAnimation(e);
+      }
+
+      setKeyboardHeight(height);
+      setIsKeyboardVisible(true);
+
+      if (isPlusOpen) {
+        setIsPlusOpen(false);
+      }
+
+      scrollToBottom(80);
+    });
+
+    const keyboardHideListener = Keyboard.addListener(keyboardHideEvent, (e) => {
+      if (Keyboard.scheduleLayoutAnimation && Platform.OS === "ios") {
+        Keyboard.scheduleLayoutAnimation(e);
+      }
+
+      setIsKeyboardVisible(false);
+
+      if (openPlusAfterKeyboardHide.current) {
+        openPlusAfterKeyboardHide.current = false;
+
+        runLayout();
+        setIsPlusOpen(true);
+        scrollToBottom(80);
+        return;
+      }
+
+      scrollToBottom(80);
+    });
+
+    return () => {
+      keyboardShowListener.remove();
+      keyboardHideListener.remove();
+    };
+  }, [isPlusOpen, insets.bottom]);
+
+  useEffect(() => {
+    if (!tradeEvent) return;
+    if (appliedTradeEvent.current === tradeEvent) return;
+
+    appliedTradeEvent.current = tradeEvent;
+
+    const text =
+      tradeEvent === "completed"
+        ? "거래가 완료되었습니다."
+        : tradeEvent === "canceled"
+        ? "거래가 취소되었습니다."
+        : "";
+
+    if (!text) return;
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `trade-${Date.now()}`,
+        type: "trade",
+        text,
+      },
+    ]);
+
+    scrollToBottom(80);
+  }, [tradeEvent]);
+
+  const handleBack = () => {
+    if (currentStatus === "거래 완료") {
+      router.replace({
+        pathname: "/(tabs)/chats",
+        params: {
+          completedChatRoomId: chatRoomId,
+        },
+      });
+      return;
+    }
+
+    router.back();
+  };
+
+  const handleOpenMenu = () => {
+    router.push({
+      pathname: "/chat/menu",
+      params: {
+        chatRoomId,
+        role: isSeller ? "seller" : "buyer",
+        title: roomTitle,
+        status: currentStatus,
+      },
+    });
+  };
+
+  const closePlusMenu = () => {
+    if (!isPlusOpen) return;
+
+    runLayout();
+    setIsPlusOpen(false);
+    scrollToBottom(50);
+  };
+
+  const handlePlusPress = () => {
+    if (isPlusOpen) {
+      closePlusMenu();
+      return;
+    }
+
+    if (isKeyboardVisible) {
+      openPlusAfterKeyboardHide.current = true;
+      inputRef.current?.blur();
+      Keyboard.dismiss();
+      return;
+    }
+
+    runLayout();
+    setIsPlusOpen(true);
+    scrollToBottom(70);
+  };
+
+  const handleInputFocus = () => {
+    if (isPlusOpen) {
+      runLayout();
+      setIsPlusOpen(false);
+    }
+
+    scrollToBottom(80);
   };
 
   const handleSend = () => {
     if (!inputText.trim()) return;
 
-    const newMessage: ChatMessage = {
-      id: Date.now(),
-      type: "text",
-      senderId: MY_USER_ID,
-      senderName: "나",
-      senderRole: "buyer",
-      memberName: "카리나",
-      content: inputText,
-      time: "방금",
-      isMine: true,
-      showProfile: false,
+    const newMessage: Message = {
+      id: Date.now().toString(),
+      type: "me",
+      text: inputText.trim(),
+      time: "지금",
     };
 
-    setMessages((prevMessages) => [...prevMessages, newMessage]);
+    setMessages((prev) => [...prev, newMessage]);
     setInputText("");
-    setShowMenu(false);
-    scrollToBottom();
+    scrollToBottom(70);
+  };
+
+  const handleImagePress = () => {
+    Alert.alert("사진 / 동영상", "프론트 시연용 버튼입니다.");
+    closePlusMenu();
+  };
+
+  const handleTrackingPress = () => {
+    closePlusMenu();
+
+    router.push({
+      pathname: "/chat/tracking-share",
+      params: {
+        chatRoomId,
+        role,
+      },
+    });
+  };
+
+  const handleChatAreaTouch = () => {
+    closePlusMenu();
+  };
+
+  const handleScrollBeginDrag = (
+    event: NativeSyntheticEvent<NativeScrollEvent>
+  ) => {
+    startDragY.current = event.nativeEvent.contentOffset.y;
+
+    if (isPlusOpen) {
+      closePlusMenu();
+    }
+  };
+
+  const handleScrollEndDrag = (
+    event: NativeSyntheticEvent<NativeScrollEvent>
+  ) => {
+    const endY = event.nativeEvent.contentOffset.y;
+
+    if (endY < startDragY.current - 8) {
+      Keyboard.dismiss();
+      closePlusMenu();
+    }
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top"]}>
+    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
       <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={0}
+        style={styles.screen}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()}>
-            <Ionicons name="arrow-back" size={28} color="#666" />
+          <TouchableOpacity
+            style={styles.headerIcon}
+            activeOpacity={0.7}
+            onPress={handleBack}
+          >
+            <Ionicons name="chevron-back" size={26} color={COLORS.black} />
           </TouchableOpacity>
 
-          <Text style={styles.title} numberOfLines={1}>
-            {dummyRoom.title}
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {roomTitle}
           </Text>
 
-          <TouchableOpacity onPress={() => setShowDetailMenu(true)}>
-            <Ionicons name="menu" size={30} color="#666" />
+          <TouchableOpacity
+            style={styles.headerIcon}
+            activeOpacity={0.7}
+            onPress={handleOpenMenu}
+          >
+            <Ionicons name="menu" size={24} color={COLORS.gray700} />
           </TouchableOpacity>
         </View>
 
-        <View style={styles.statusContainer}>
-          <View style={styles.statusTopRow}>
-            <Text style={styles.statusLabel}>현재 상태</Text>
-
-            <View style={styles.statusBadge}>
-              <Text style={styles.statusBadgeText}>{dummyRoom.status}</Text>
+        <View style={styles.chatPressArea} onTouchStart={handleChatAreaTouch}>
+          <ScrollView
+            ref={scrollRef}
+            style={styles.chatArea}
+            contentContainerStyle={styles.chatContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            scrollEventThrottle={16}
+            onContentSizeChange={() => {
+              if (isPlusOpen || isKeyboardVisible) {
+                scrollToBottom(40);
+              }
+            }}
+            onScrollBeginDrag={handleScrollBeginDrag}
+            onScrollEndDrag={handleScrollEndDrag}
+          >
+            <View style={styles.dateWrap}>
+              <Text style={styles.dateText}>2026년 5월 11일 월요일</Text>
             </View>
 
+            {messages.map((message) => {
+              if (message.type === "system") {
+                return (
+                  <SystemMessage key={message.id} text={message.text ?? ""} />
+                );
+              }
+
+              if (message.type === "trade") {
+                return (
+                  <TradeMessage key={message.id} text={message.text ?? ""} />
+                );
+              }
+
+              if (message.type === "me") {
+                return (
+                  <MyMessage
+                    key={message.id}
+                    text={message.text ?? ""}
+                    time={message.time}
+                  />
+                );
+              }
+
+              if (message.type === "image") {
+                return <ImageMessage key={message.id} time={message.time} />;
+              }
+
+              return (
+                <OtherMessage
+                  key={message.id}
+                  nickname={message.nickname ?? ""}
+                  initial={message.initial ?? ""}
+                  color={message.color ?? COLORS.gray200}
+                  initialColor={message.initialColor ?? COLORS.gray700}
+                  text={message.text ?? ""}
+                  time={message.time}
+                />
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        <View style={styles.inputSection}>
+          <View style={styles.inputRow}>
             <TouchableOpacity
-              style={styles.detailButton}
-              onPress={() => setShowDetailMenu(true)}
+              style={styles.plusButton}
+              activeOpacity={0.7}
+              onPress={handlePlusPress}
             >
-              <Text style={styles.detailText}>자세히 보기 ›</Text>
+              <Ionicons
+                name={isPlusOpen ? "close" : "add"}
+                size={27}
+                color={COLORS.gray700}
+              />
+            </TouchableOpacity>
+
+            <TextInput
+              ref={inputRef}
+              style={styles.input}
+              placeholder="메시지를 입력하세요"
+              placeholderTextColor={COLORS.gray400}
+              value={inputText}
+              onChangeText={setInputText}
+              onFocus={handleInputFocus}
+            />
+
+            <TouchableOpacity
+              style={styles.sendButton}
+              activeOpacity={0.8}
+              onPress={handleSend}
+            >
+              <Ionicons name="send" size={19} color={COLORS.black} />
             </TouchableOpacity>
           </View>
-
-          <View style={styles.memberRow}>
-            {dummyRoom.members
-              .filter((member) => member.role !== "seller")
-              .map((member) => (
-                <MemberChip key={member.id} member={member} />
-              ))}
-          </View>
         </View>
 
-        <ScrollView
-          ref={scrollViewRef}
-          style={styles.chatArea}
-          contentContainerStyle={styles.chatContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          onContentSizeChange={scrollToBottom}
-        >
-          <View style={styles.dateContainer}>
-            <Text style={styles.dateText}>{dummyRoom.date}</Text>
+        {isPlusOpen && (
+          <View style={[styles.bottomPanel, { height: plusPanelHeight }]}>
+            <View style={styles.plusMenu}>
+              <TouchableOpacity
+                style={styles.plusMenuItem}
+                activeOpacity={0.75}
+                onPress={handleImagePress}
+              >
+                <View
+                  style={[
+                    styles.plusMenuIcon,
+                    { backgroundColor: "#FFD8CE" },
+                  ]}
+                >
+                  <Ionicons
+                    name="image-outline"
+                    size={21}
+                    color={COLORS.black}
+                  />
+                </View>
+                <Text style={styles.plusMenuText}>사진 / 동영상</Text>
+              </TouchableOpacity>
+
+              {isSeller && (
+                <TouchableOpacity
+                  style={styles.plusMenuItem}
+                  activeOpacity={0.75}
+                  onPress={handleTrackingPress}
+                >
+                  <View
+                    style={[
+                      styles.plusMenuIcon,
+                      { backgroundColor: "#DCEEFF" },
+                    ]}
+                  >
+                    <Ionicons
+                      name="cube-outline"
+                      size={21}
+                      color={COLORS.black}
+                    />
+                  </View>
+                  <Text style={styles.plusMenuText}>운송장 번호 공유</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
-
-          {messages.map((message) => (
-            <ChatMessageItem key={message.id} message={message} />
-          ))}
-        </ScrollView>
-
-        {showMenu && <PlusMenu />}
-
-        <View style={styles.inputArea}>
-          <TouchableOpacity
-            style={styles.iconButton}
-            onPress={() => setShowMenu(!showMenu)}
-          >
-            <Ionicons
-              name={showMenu ? "close" : "add"}
-              size={32}
-              color="#666"
-            />
-          </TouchableOpacity>
-
-          <TextInput
-            placeholder="메시지를 입력하세요"
-            placeholderTextColor="#999"
-            style={styles.input}
-            value={inputText}
-            onChangeText={setInputText}
-            onFocus={scrollToBottom}
-            returnKeyType="send"
-            onSubmitEditing={handleSend}
-          />
-
-          <TouchableOpacity style={styles.sendButton} onPress={handleSend}>
-            <Ionicons name="send" size={20} color="black" />
-          </TouchableOpacity>
-        </View>
-
-        {showDetailMenu && (
-          <DetailMenu room={dummyRoom} onClose={() => setShowDetailMenu(false)} />
         )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-function MemberChip({ member }: { member: RoomMember }) {
-  const chipStyle =
-    member.status === "paid"
-      ? styles.greenChip
-      : member.status === "reserved"
-      ? styles.brownChip
-      : styles.grayChip;
-
-  const dotStyle =
-    member.status === "paid"
-      ? styles.greenDot
-      : member.status === "reserved"
-      ? styles.brownDot
-      : styles.grayDot;
-
-  const textStyle =
-    member.status === "paid"
-      ? styles.greenChipText
-      : member.status === "reserved"
-      ? styles.brownChipText
-      : styles.grayChipText;
-
+function SystemMessage({ text }: { text: string }) {
   return (
-    <View style={chipStyle}>
-      <View style={dotStyle} />
-      <Text style={textStyle}>{member.memberName}</Text>
+    <View style={styles.systemWrap}>
+      <View style={styles.systemBubble}>
+        <Text style={styles.systemText}>{text}</Text>
+      </View>
     </View>
   );
 }
 
-function ChatMessageItem({ message }: { message: ChatMessage }) {
-  if (message.type === "system") {
-    return <Text style={styles.systemText}>{message.content}</Text>;
-  }
-
-  if (message.isMine) {
-    return (
-      <View style={styles.myMessageWrapper}>
-        <Text style={styles.myTimeText}>{message.time}</Text>
-
-        <View style={styles.rightMessage}>
-          <Text style={styles.myMessageText}>{message.content}</Text>
-        </View>
-      </View>
-    );
-  }
-
+function TradeMessage({ text }: { text: string }) {
   return (
-    <View style={styles.otherMessageContainer}>
-      {message.showProfile ? (
-        <ProfileIcon message={message} />
-      ) : (
-        <View style={styles.profileBlank} />
-      )}
+    <View style={styles.tradeOuterWrap}>
+      <View style={styles.tradeLine} />
+      <Text style={styles.tradeMessageText}>{text}</Text>
+    </View>
+  );
+}
 
-      <View style={styles.messageContent}>
-        {message.showProfile && (
-          <View style={styles.nameRow}>
-            <Text style={styles.username}>{message.senderName}</Text>
-
-            {message.senderRole === "seller" && (
-              <View style={styles.sellerBadge}>
-                <Text style={styles.sellerBadgeText}>판매자</Text>
-              </View>
-            )}
-          </View>
-        )}
-
-        <View style={styles.messageRow}>
-          <View style={styles.leftMessage}>
-            {message.variant === "account" ? (
-              <AccountMessage content={message.content} />
-            ) : (
-              <Text style={styles.messageText}>{message.content}</Text>
-            )}
-          </View>
-
-          {message.variant !== "account" && (
-            <Text style={styles.timeText}>{message.time}</Text>
-          )}
+function MyMessage({ text, time }: { text: string; time?: string }) {
+  return (
+    <View style={styles.myMessageWrap}>
+      <View style={styles.myMessageRow}>
+        {time && <Text style={styles.myTime}>{time}</Text>}
+        <View style={styles.myBubble}>
+          <Text style={styles.myBubbleText}>{text}</Text>
         </View>
       </View>
     </View>
   );
 }
 
-function ProfileIcon({
-  message,
+function ImageMessage({ time }: { time?: string }) {
+  return (
+    <View style={styles.myMessageWrap}>
+      <View style={styles.myMessageRow}>
+        {time && <Text style={styles.myTime}>{time}</Text>}
+        <View style={styles.imageBubble}>
+          <View style={styles.imageCircle}>
+            <View style={styles.imageDot} />
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function OtherMessage({
+  nickname,
+  initial,
+  color,
+  initialColor,
+  text,
+  time,
 }: {
-  message: Extract<ChatMessage, { type: "text" }>;
-}) {
-  if (message.senderRole === "seller") {
-    return (
-      <View style={styles.profileCircle}>
-        <Text style={styles.profileText}>♛</Text>
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.buyerProfileCircle}>
-      <Text style={styles.buyerProfileText}>
-        {message.memberName.slice(0, 1)}
-      </Text>
-    </View>
-  );
-}
-
-function AccountMessage({ content }: { content: string }) {
-  const lines = content.split("\n");
-
-  return (
-    <>
-      <Text style={styles.boldText}>{lines[0]}</Text>
-
-      <Text style={styles.messageText}>
-        {lines[1]}
-        {"\n"}
-        {lines[2]}
-      </Text>
-
-      <Text style={styles.orangeText}>{lines[3]}</Text>
-    </>
-  );
-}
-
-function PlusMenu() {
-  return (
-    <View style={styles.plusMenu}>
-      <View style={styles.menuRow}>
-        <View style={styles.menuItem}>
-          <View style={styles.pinkCircle}>
-            <Ionicons name="image-outline" size={34} color="black" />
-          </View>
-          <Text style={styles.menuText}>사진 / 동영상</Text>
-        </View>
-
-        <View style={styles.menuItem}>
-          <View style={styles.yellowCircle}>
-            <Ionicons name="wallet-outline" size={34} color="black" />
-          </View>
-          <Text style={styles.menuText}>계좌 공유</Text>
-        </View>
-
-        <View style={styles.menuItem}>
-          <View style={styles.greenCircle}>
-            <Ionicons name="location-outline" size={34} color="black" />
-          </View>
-          <Text style={styles.menuText}>주소 공유</Text>
-        </View>
-
-        <View style={styles.menuItem}>
-          <View style={styles.blueCircle}>
-            <Ionicons name="cube-outline" size={34} color="black" />
-          </View>
-          <Text style={styles.menuText}>운송장 번호 공유</Text>
-        </View>
-      </View>
-    </View>
-  );
-}
-
-function DetailMenu({
-  room,
-  onClose,
-}: {
-  room: typeof dummyRoom;
-  onClose: () => void;
+  nickname: string;
+  initial: string;
+  color: string;
+  initialColor: string;
+  text: string;
+  time?: string;
 }) {
   return (
-    <View style={styles.detailMenuContainer}>
-      <View style={styles.detailHeader}>
-        <TouchableOpacity onPress={onClose}>
-          <Ionicons name="arrow-back" size={28} color="#666" />
-        </TouchableOpacity>
-
-        <Text style={styles.detailTitle}>메뉴</Text>
-
-        <View style={{ width: 28 }} />
-      </View>
-
-      <View style={styles.albumCard}>
-        <View style={styles.albumIcon}>
-          <Text style={styles.albumIconText}>♛</Text>
-        </View>
-
-        <Text style={styles.albumTitle}>{room.title}</Text>
-      </View>
-
-      <View style={styles.memberCard}>
-        <Text style={styles.memberTitle}>
-          대화상대 <Text style={styles.memberCount}>{room.members.length}</Text>
-        </Text>
-
-        {room.members.map((member, index) => (
-          <DetailMemberItem
-            key={member.id}
-            member={member}
-            isLast={index === room.members.length - 1}
-          />
-        ))}
-      </View>
-
-      <TouchableOpacity style={styles.exitButton}>
-        <View style={styles.exitLeft}>
-          <Ionicons name="log-out-outline" size={26} color="#B44D47" />
-          <Text style={styles.exitText}>채팅방 나가기</Text>
-        </View>
-
-        <Ionicons name="chevron-forward" size={26} color="#B44D47" />
-      </TouchableOpacity>
-    </View>
-  );
-}
-
-function DetailMemberItem({
-  member,
-  isLast,
-}: {
-  member: RoomMember;
-  isLast: boolean;
-}) {
-  return (
-    <View style={isLast ? styles.memberItemNoBorder : styles.memberItem}>
-      <DetailProfileIcon member={member} />
-
-      <View style={styles.memberInfo}>
-        <View style={styles.memberNameRow}>
-          <Text style={styles.memberName}>{member.nickname}</Text>
-
-          {member.role === "seller" && (
-            <View style={styles.menuSellerBadge}>
-              <Text style={styles.menuSellerBadgeText}>판매자</Text>
-            </View>
-          )}
-        </View>
-
-        <Text style={styles.memberSub}>{member.memberName}</Text>
-      </View>
-    </View>
-  );
-}
-
-function DetailProfileIcon({ member }: { member: RoomMember }) {
-  if (member.role === "seller") {
-    return (
-      <View style={styles.memberProfileYellow}>
-        <Text style={styles.memberProfileText}>♛</Text>
-      </View>
-    );
-  }
-
-  if (member.status === "paid") {
-    return (
-      <View style={styles.memberProfileGreen}>
-        <Text style={styles.memberProfileGreenText}>
-          {member.memberName.slice(0, 1)}
+    <View style={styles.otherMessageWrap}>
+      <View style={[styles.profileCircle, { backgroundColor: color }]}>
+        <Text style={[styles.profileInitial, { color: initialColor }]}>
+          {initial}
         </Text>
       </View>
-    );
-  }
 
-  if (member.status === "reserved") {
-    return (
-      <View style={styles.memberProfileBrown}>
-        <Text style={styles.memberProfileBrownText}>
-          {member.memberName.slice(0, 1)}
-        </Text>
+      <View style={styles.otherContent}>
+        <Text style={styles.nickname}>{nickname}</Text>
+
+        <View style={styles.otherBubbleRow}>
+          <View style={styles.otherBubble}>
+            <Text style={styles.otherBubbleText}>{text}</Text>
+          </View>
+          {time && <Text style={styles.otherTime}>{time}</Text>}
+        </View>
       </View>
-    );
-  }
-
-  return (
-    <View style={styles.memberProfileGray}>
-      <Text style={styles.memberProfileGrayText}>
-        {member.memberName.slice(0, 1)}
-      </Text>
     </View>
   );
 }
@@ -578,630 +649,261 @@ function DetailProfileIcon({ member }: { member: RoomMember }) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#F7F5EF",
+    backgroundColor: COLORS.white,
   },
-
-  container: {
+  screen: {
     flex: 1,
-    backgroundColor: "#F7F5EF",
+    backgroundColor: COLORS.white,
   },
-
   header: {
-    height: 78,
-    backgroundColor: "white",
+    height: 58,
+    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.line,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 22,
-    borderBottomWidth: 1,
-    borderBottomColor: "#EFEFEF",
   },
-
-  title: {
+  headerIcon: {
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerTitle: {
     flex: 1,
-    fontSize: 21,
-    fontWeight: "bold",
-    color: "black",
     textAlign: "center",
-    marginHorizontal: 12,
+    fontSize: 17,
+    fontWeight: "800",
+    color: COLORS.black,
   },
-
-  statusContainer: {
-    backgroundColor: "#FFFBEA",
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-    borderBottomWidth: 1,
-    borderBottomColor: "#EFE6BD",
+  chatPressArea: {
+    flex: 1,
   },
-
-  statusTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  statusLabel: {
-    fontSize: 15,
-    fontWeight: "bold",
-    color: "#555",
-  },
-
-  statusBadge: {
-    backgroundColor: YELLOW,
-    paddingHorizontal: 18,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginLeft: 15,
-  },
-
-  statusBadgeText: {
-    fontWeight: "bold",
-    fontSize: 14,
-    color: "black",
-  },
-
-  detailButton: {
-    marginLeft: "auto",
-  },
-
-  detailText: {
-    color: "#777",
-    fontSize: 14,
-  },
-
-  memberRow: {
-    flexDirection: "row",
-    marginTop: 18,
-  },
-
-  greenChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#EAF7EE",
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 20,
-    marginRight: 10,
-  },
-
-  greenDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#4CAF7A",
-    marginRight: 6,
-  },
-
-  greenChipText: {
-    color: "#4CAF7A",
-    fontWeight: "bold",
-    fontSize: 13,
-  },
-
-  brownChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFF5E8",
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 20,
-    marginRight: 10,
-  },
-
-  brownDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#B67A2E",
-    marginRight: 6,
-  },
-
-  brownChipText: {
-    color: "#B67A2E",
-    fontWeight: "bold",
-    fontSize: 13,
-  },
-
-  grayChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F2F2F2",
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 20,
-    marginRight: 10,
-  },
-
-  grayDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#BDBDBD",
-    marginRight: 6,
-  },
-
-  grayChipText: {
-    color: "#BDBDBD",
-    fontWeight: "bold",
-    fontSize: 13,
-  },
-
   chatArea: {
     flex: 1,
-    paddingHorizontal: 20,
+    backgroundColor: COLORS.white,
   },
-
   chatContent: {
-    paddingTop: 20,
-    paddingBottom: 2,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
   },
-
-  dateContainer: {
+  dateWrap: {
     alignItems: "center",
-    marginBottom: 12,
+    marginBottom: 13,
   },
-
   dateText: {
-    backgroundColor: "#E5E5E5",
-    paddingHorizontal: 18,
-    paddingVertical: 8,
-    borderRadius: 20,
-    fontSize: 13,
-    color: "#666",
+    fontSize: 12,
+    color: COLORS.gray500,
+    fontWeight: "500",
   },
-
+  systemWrap: {
+    alignItems: "center",
+    marginTop: 6,
+    marginBottom: 4,
+  },
+  systemBubble: {
+    maxWidth: "88%",
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "#F3F3F3",
+  },
   systemText: {
     textAlign: "center",
-    color: "#777",
-    fontSize: 14,
-    marginBottom: 28,
+    fontSize: 11.5,
+    color: COLORS.gray500,
+    lineHeight: 16,
+    fontWeight: "500",
   },
-
-  otherMessageContainer: {
-    flexDirection: "row",
-    marginBottom: 18,
-  },
-
-  profileCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 15,
-    backgroundColor: "#FFFBEA",
-    borderWidth: 1,
-    borderColor: "#F0E5B0",
+  tradeOuterWrap: {
+    alignItems: "center",
     justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-  },
-
-  profileBlank: {
-    width: 48,
-    marginRight: 12,
-  },
-
-  profileText: {
-    fontSize: 24,
-    color: "#B18A27",
-  },
-
-  buyerProfileCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 15,
-    backgroundColor: "#F0FFF7",
-    borderWidth: 1,
-    borderColor: "#BEEBD1",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-  },
-
-  buyerProfileText: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#3E9F72",
-  },
-
-  messageContent: {
-    flex: 1,
-  },
-
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 6,
-  },
-
-  username: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 6,
-  },
-
-  sellerBadge: {
-    backgroundColor: "#FFF1B8",
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 7,
-    marginLeft: 8,
-    marginBottom: 6,
-  },
-
-  sellerBadgeText: {
-    color: "#A56700",
-    fontSize: 12,
-    fontWeight: "bold",
-  },
-
-  messageRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-  },
-
-  leftMessage: {
-    backgroundColor: "white",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 18,
-    maxWidth: "82%",
-  },
-
-  messageText: {
-    color: "black",
-    fontSize: 15,
-    lineHeight: 24,
-  },
-
-  boldText: {
-    color: "black",
-    fontSize: 16,
-    fontWeight: "bold",
-    marginBottom: 8,
-  },
-
-  orangeText: {
-    color: "#9A551F",
-    fontSize: 15,
-    marginTop: 8,
-  },
-
-  timeText: {
-    fontSize: 11,
-    color: "#999",
-    marginLeft: 8,
-    marginBottom: 5,
-  },
-
-  myMessageWrapper: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    alignItems: "flex-end",
-    marginVertical: 15,
-  },
-
-  myTimeText: {
-    fontSize: 11,
-    color: "#999",
-    marginRight: 8,
-    marginBottom: 5,
-  },
-
-  rightMessage: {
-    backgroundColor: YELLOW,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 18,
-    maxWidth: "75%",
-  },
-
-  myMessageText: {
-    color: "black",
-    fontSize: 15,
-    lineHeight: 23,
-  },
-
-  plusMenu: {
-    backgroundColor: "white",
-    paddingVertical: 25,
-    borderTopWidth: 1,
-    borderTopColor: "#EEE",
-  },
-
-  menuRow: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-  },
-
-  menuItem: {
-    alignItems: "center",
-    width: 80,
-  },
-
-  menuText: {
-    marginTop: 10,
-    fontSize: 12,
-    color: "#555",
-    textAlign: "center",
-  },
-
-  pinkCircle: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    backgroundColor: "#EAC7BC",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  yellowCircle: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    backgroundColor: "#F7F3DD",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  greenCircle: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    backgroundColor: "#D8E5C8",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  blueCircle: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    backgroundColor: "#D5E1F2",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  inputArea: {
-    height: 80,
-    backgroundColor: "white",
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 15,
-    borderTopWidth: 1,
-    borderTopColor: "#E5E5E5",
-  },
-
-  iconButton: {
-    width: 38,
-    alignItems: "center",
-    marginRight: 8,
-  },
-
-  input: {
-    flex: 1,
-    height: 45,
-    backgroundColor: "#F2F2F2",
-    borderRadius: 25,
-    paddingHorizontal: 18,
-    fontSize: 15,
-    color: "black",
-  },
-
-  sendButton: {
-    width: 45,
-    height: 45,
-    borderRadius: 22,
-    backgroundColor: YELLOW,
-    justifyContent: "center",
-    alignItems: "center",
-    marginLeft: 10,
-  },
-
-  detailMenuContainer: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: "#F7F5EF",
-    zIndex: 999,
-    elevation: 999,
-  },
-
-  detailHeader: {
-    height: 78,
-    backgroundColor: "white",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 22,
-    borderBottomWidth: 1,
-    borderBottomColor: "#EFEFEF",
-  },
-
-  detailTitle: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "black",
-  },
-
-  albumCard: {
-    backgroundColor: "#FFFBEA",
-    margin: 20,
-    borderRadius: 20,
-    padding: 18,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  albumIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: 15,
-    backgroundColor: YELLOW,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 15,
-  },
-
-  albumIconText: {
-    fontSize: 28,
-    color: "#A17800",
-  },
-
-  albumTitle: {
-    flex: 1,
-    fontSize: 19,
-    fontWeight: "bold",
-    color: "black",
-  },
-
-  memberCard: {
-    backgroundColor: "white",
-    marginHorizontal: 20,
-    marginTop: -5,
-    borderRadius: 20,
-    padding: 20,
-  },
-
-  memberTitle: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#999",
+    marginTop: 28,
     marginBottom: 20,
   },
-
-  memberCount: {
-    color: YELLOW,
+  tradeLine: {
+    width: "100%",
+    height: 1,
+    backgroundColor: COLORS.line,
+    marginBottom: 18,
   },
-
-  memberItem: {
+  tradeMessageText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: COLORS.gray500,
+  },
+  myMessageWrap: {
+    alignItems: "flex-end",
+    marginTop: 14,
+  },
+  myMessageRow: {
     flexDirection: "row",
-    alignItems: "center",
-    paddingBottom: 18,
-    marginBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#EEE",
+    alignItems: "flex-end",
+    maxWidth: "86%",
   },
-
-  memberItemNoBorder: {
+  myBubble: {
+    maxWidth: 260,
+    backgroundColor: COLORS.yellow,
+    borderRadius: 14,
+    borderTopRightRadius: 2,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  myBubbleText: {
+    fontSize: 13,
+    lineHeight: 22,
+    fontWeight: "500",
+    color: COLORS.black,
+  },
+  myTime: {
+    fontSize: 11,
+    color: COLORS.gray500,
+    marginRight: 7,
+    marginBottom: 3,
+  },
+  imageBubble: {
+    width: 120,
+    height: 88,
+    borderRadius: 12,
+    backgroundColor: COLORS.yellowLight,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  imageCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 2,
+    borderColor: "#B8A34A",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  imageDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#B8A34A",
+  },
+  otherMessageWrap: {
     flexDirection: "row",
+    alignItems: "flex-start",
+    marginTop: 16,
+  },
+  profileCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
   },
-
-  memberInfo: {
-    marginLeft: 14,
-  },
-
-  memberNameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  memberName: {
-    fontSize: 17,
-    fontWeight: "bold",
-    color: "black",
-  },
-
-  memberSub: {
+  profileInitial: {
     fontSize: 15,
-    color: "#999",
-    marginTop: 3,
+    fontWeight: "800",
   },
-
-  menuSellerBadge: {
-    backgroundColor: "#E7C75C",
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 7,
+  otherContent: {
+    flex: 1,
+  },
+  nickname: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: COLORS.gray700,
+    marginBottom: 5,
+  },
+  otherBubbleRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+  },
+  otherBubble: {
+    maxWidth: 235,
+    backgroundColor: COLORS.gray100,
+    borderRadius: 13,
+    borderTopLeftRadius: 2,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+  },
+  otherBubbleText: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: COLORS.black,
+    fontWeight: "500",
+  },
+  otherTime: {
+    fontSize: 11,
+    color: COLORS.gray500,
+    marginLeft: 7,
+    marginBottom: 3,
+  },
+  inputSection: {
+    borderTopWidth: 1,
+    borderTopColor: COLORS.line,
+    backgroundColor: COLORS.white,
+    paddingHorizontal: 16,
+    paddingTop: 7,
+    paddingBottom: 7,
+  },
+  inputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  plusButton: {
+    width: 34,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 8,
+  },
+  input: {
+    flex: 1,
+    height: 40,
+    borderRadius: 22,
+    backgroundColor: "#F3F1ED",
+    paddingHorizontal: 16,
+    fontSize: 13,
+    color: COLORS.black,
+  },
+  sendButton: {
+    width: 37,
+    height: 37,
+    borderRadius: 19,
+    backgroundColor: COLORS.yellow,
+    alignItems: "center",
+    justifyContent: "center",
     marginLeft: 10,
   },
-
-  menuSellerBadgeText: {
-    color: "#7A4C00",
-    fontSize: 12,
-    fontWeight: "bold",
+  bottomPanel: {
+    backgroundColor: COLORS.white,
+    overflow: "hidden",
   },
-
-  memberProfileYellow: {
-    width: 56,
-    height: 56,
-    borderRadius: 18,
-    backgroundColor: "#FFF5CC",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  memberProfileText: {
-    fontSize: 24,
-    color: "#A17800",
-  },
-
-  memberProfileGreen: {
-    width: 56,
-    height: 56,
-    borderRadius: 18,
-    backgroundColor: "#DDF1E3",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  memberProfileGreenText: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "#438E63",
-  },
-
-  memberProfileBrown: {
-    width: 56,
-    height: 56,
-    borderRadius: 18,
-    backgroundColor: "#F3E0D2",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  memberProfileBrownText: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "#B0682D",
-  },
-
-  memberProfileGray: {
-    width: 56,
-    height: 56,
-    borderRadius: 18,
-    backgroundColor: "#EEEEEE",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  memberProfileGrayText: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "#888",
-  },
-
-  exitButton: {
-    backgroundColor: "white",
-    marginHorizontal: 20,
-    marginTop: 20,
-    borderRadius: 20,
-    paddingVertical: 20,
-    paddingHorizontal: 22,
+  plusMenu: {
+    flex: 1,
     flexDirection: "row",
-    justifyContent: "space-between",
+    alignItems: "flex-start",
+    paddingTop: 18,
+    paddingLeft: 18,
+    gap: 18,
+    backgroundColor: COLORS.white,
+  },
+  plusMenuItem: {
+    width: 72,
     alignItems: "center",
   },
-
-  exitLeft: {
-    flexDirection: "row",
+  plusMenuIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 6,
   },
-
-  exitText: {
-    color: "#B44D47",
-    fontSize: 20,
-    fontWeight: "bold",
-    marginLeft: 12,
+  plusMenuText: {
+    width: 84,
+    textAlign: "center",
+    fontSize: 10.5,
+    lineHeight: 14,
+    color: COLORS.gray700,
+    fontWeight: "500",
   },
 });
