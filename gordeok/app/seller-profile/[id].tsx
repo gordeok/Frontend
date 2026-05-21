@@ -90,6 +90,18 @@ export default function SellerProfileScreen() {
     if (menuVisible) setMenuVisible(false);
   };
 
+  const goReport = () => {
+    setMenuVisible(false);
+
+    router.push({
+      pathname: "./report",
+      params: {
+        sellerId: sellerProfile.id,
+        sellerName: sellerProfile.nickname,
+      },
+    });
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <StatusBar style="dark" backgroundColor="#FFFFFF" />
@@ -245,7 +257,6 @@ export default function SellerProfileScreen() {
           </View>
         </ScrollView>
 
-        {/* 점 3개 메뉴 */}
         <Modal
           visible={menuVisible}
           transparent
@@ -257,14 +268,14 @@ export default function SellerProfileScreen() {
             onPress={() => setMenuVisible(false)}
             onTouchMove={() => setMenuVisible(false)}
           >
-            <Pressable style={styles.moreMenu} onPress={(e) => e.stopPropagation()}>
+            <Pressable
+              style={styles.moreMenu}
+              onPress={(e) => e.stopPropagation()}
+            >
               <TouchableOpacity
                 activeOpacity={0.75}
                 style={styles.moreMenuItem}
-                onPress={() => {
-                  setMenuVisible(false);
-                  console.log("사기 신고하기");
-                }}
+                onPress={goReport}
               >
                 <Text style={styles.moreMenuText}>사기 신고하기</Text>
                 <Ionicons name="chevron-forward" size={15} color="#B5B5B5" />
