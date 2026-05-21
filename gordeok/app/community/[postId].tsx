@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
@@ -33,6 +34,7 @@ const COLORS = {
 };
 
 const SCREEN_PADDING = 22;
+const STORAGE_KEY = "communityPosts";
 const COMMENT_MENU_HEIGHT = 44;
 const SCREEN_HEIGHT = Dimensions.get("window").height;
 
@@ -74,6 +76,7 @@ type CommunityPost = {
   likes: number;
   comments: number;
   views: number;
+  photoCount?: number;
 };
 
 type Comment = {
@@ -228,18 +231,33 @@ function getSafeMenuTop(pageY: number) {
 
 export default function CommunityDetailScreen() {
   const params = useLocalSearchParams<{
-    id?: string;
     postId?: string;
+    id?: string;
     communityId?: string;
   }>();
 
   const insets = useSafeAreaInsets();
 
+  const [savedPosts, setSavedPosts] = useState<CommunityPost[]>([]);
   const [postMenuVisible, setPostMenuVisible] = useState(false);
   const [commentMenu, setCommentMenu] = useState<CommentMenuState>(null);
   const [commentText, setCommentText] = useState("");
   const [comments, setComments] = useState<Comment[]>(dummyComments);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const loadSavedPosts = async () => {
+      try {
+        const saved = await AsyncStorage.getItem(STORAGE_KEY);
+        const parsed: CommunityPost[] = saved ? JSON.parse(saved) : [];
+        setSavedPosts(parsed);
+      } catch (error) {
+        console.log("상세 게시글 불러오기 실패", error);
+      }
+    };
+
+    loadSavedPosts();
+  }, []);
 
   useEffect(() => {
     const showEvent =
@@ -263,11 +281,14 @@ export default function CommunityDetailScreen() {
 
   const post = useMemo(() => {
     const currentId = String(
-      params.id ?? params.postId ?? params.communityId ?? "1"
+      params.postId ?? params.id ?? params.communityId ?? "1"
     );
 
-    return dummyPosts.find((item) => item.id === currentId) ?? dummyPosts[0];
-  }, [params.id, params.postId, params.communityId]);
+    return (
+      [...savedPosts, ...dummyPosts].find((item) => item.id === currentId) ??
+      dummyPosts[0]
+    );
+  }, [params.postId, params.id, params.communityId, savedPosts]);
 
   const categoryStyle = getCategoryStyle(post.category);
 
@@ -305,7 +326,6 @@ export default function CommunityDetailScreen() {
       <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
       >
         <View style={styles.header}>
           <TouchableOpacity
@@ -435,8 +455,8 @@ export default function CommunityDetailScreen() {
             styles.inputWrapper,
             {
               paddingBottom: keyboardVisible
-                ? 10
-                : Math.max(insets.bottom),
+                ? 14
+                : Math.max(insets.bottom + 18, 24),
             },
           ]}
         >
