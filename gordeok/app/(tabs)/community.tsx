@@ -1,6 +1,7 @@
 // 커뮤니티 목록
 
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import { useState } from "react";
 import {
   FlatList,
@@ -108,7 +109,10 @@ export default function CommunityScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         renderItem={({ item }) => (
-          <Pressable style={styles.postBox}>
+          <Pressable
+            style={styles.postBox}
+            onPress={() => router.push(`/community/${item.id}`)}
+          >
             <View style={styles.profileRow}>
               <View style={styles.profileCircle} />
 
