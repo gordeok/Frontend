@@ -102,21 +102,44 @@ const members: Member[] = [
   },
 ];
 
+const noteMembers: Member[] = [
+    {
+        id: "note-me",
+        nickname: "범규와이프",
+        member: "",
+        initial: "범",
+        color: "#FFE0CA",
+        initialColor: "#E0702A",
+    },
+    {
+        id: "note-other",
+        nickname: "꿔바로우",
+        member: "",
+        initial: "꿔",
+        color: "#DDF7EB",
+        initialColor: "#1E8E61",
+    },
+];
+
 export default function ChatMenuScreen() {
-  const { chatRoomId, role, title, status, reviewSubmitted } =
+  const { chatRoomId, role, title, type, status, reviewSubmitted } =
     useLocalSearchParams<{
       chatRoomId?: string;
       role?: string;
       title?: string;
+      type?: string;
       status?: string;
       reviewSubmitted?: string;
     }>();
 
-  const isSeller = role !== "buyer";
+  const isNote = type === "note";
+  const isSeller = !isNote && role !== "buyer";
 
   const roomTitle =
     typeof title === "string" && title.length > 0
       ? title
+      : isNote
+      ? "쪽지"
       : "에스파 Drama 정규 1집";
 
   const initialStatus: TradeStatus =
@@ -148,7 +171,10 @@ export default function ChatMenuScreen() {
         return 0;
       });
 
+  const visibleMembers = isNote ? noteMembers : sortedMembers;
+
   const getIsMe = (member: Member) => {
+    if (isNote) return member.id === "note-me";
     if (isSeller) return member.id === sellerMeId;
     return member.id === buyerMeId;
   };
@@ -289,6 +315,7 @@ export default function ChatMenuScreen() {
       pathname: "/chat/[chatRoomId]",
       params: {
         chatRoomId: typeof chatRoomId === "string" ? chatRoomId : "1",
+        type: "divide",
         role: isSeller ? "seller" : "buyer",
         title: roomTitle,
         tradeEvent: "completed",
@@ -377,70 +404,84 @@ export default function ChatMenuScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.tradeCard}>
-          <View style={styles.tradeTop}>
-            <View style={styles.thumbnail} />
+        {isNote ? (
+          <TouchableOpacity style={styles.notePostCard} activeOpacity={0.8}>
+            <View style={styles.notePostTextBox}>
+              <Text style={styles.notePostLabel}>쪽지 글</Text>
+              <Text style={styles.notePostTitle} numberOfLines={2}>
+                {roomTitle}
+              </Text>
+            </View>
 
-            <View style={styles.tradeInfo}>
-              <View style={styles.titleRow}>
-                <Text style={styles.tradeTitle}>{roomTitle}</Text>
+            <Ionicons name="chevron-forward" size={22} color={COLORS.gray700} />
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.tradeCard}>
+            <View style={styles.tradeTop}>
+              <View style={styles.thumbnail} />
 
-                <View style={[styles.statusBadge, statusStyle.badge]}>
-                  <Text style={[styles.statusText, statusStyle.text]}>
-                    {tradeStatus}
-                  </Text>
+              <View style={styles.tradeInfo}>
+                <View style={styles.titleRow}>
+                  <Text style={styles.tradeTitle}>{roomTitle}</Text>
+
+                  <View style={[styles.statusBadge, statusStyle.badge]}>
+                    <Text style={[styles.statusText, statusStyle.text]}>
+                      {tradeStatus}
+                    </Text>
+                  </View>
                 </View>
+
+                {!isSeller && (
+                  <View style={styles.buyerInfoBox}>
+                    <Text style={styles.buyerInfoLabel}>내 참여 멤버</Text>
+                    <Text style={styles.buyerInfoValue}>윈터</Text>
+                  </View>
+                )}
               </View>
-
-              {!isSeller && (
-                <View style={styles.buyerInfoBox}>
-                  <Text style={styles.buyerInfoLabel}>내 참여 멤버</Text>
-                  <Text style={styles.buyerInfoValue}>윈터</Text>
-                </View>
-              )}
             </View>
-          </View>
 
-          {isSeller && (
-            <View style={styles.tradeButtonRow}>
-              <TouchableOpacity
-                style={[styles.tradeButton, styles.cancelButton]}
-                activeOpacity={0.8}
-                onPress={handleCancelTrade}
-              >
-                <Text style={styles.cancelButtonText}>거래 취소</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.tradeButton,
-                  isTradeCompleted
-                    ? styles.completeButtonDisabled
-                    : styles.completeButton,
-                ]}
-                activeOpacity={isTradeCompleted ? 1 : 0.8}
-                disabled={isTradeCompleted}
-                onPress={handleCompleteTrade}
-              >
-                <Text
-                  style={[
-                    styles.completeButtonText,
-                    isTradeCompleted && styles.completeButtonTextDisabled,
-                  ]}
+            {isSeller && (
+              <View style={styles.tradeButtonRow}>
+                <TouchableOpacity
+                  style={[styles.tradeButton, styles.cancelButton]}
+                  activeOpacity={0.8}
+                  onPress={handleCancelTrade}
                 >
-                  거래 완료
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
+                  <Text style={styles.cancelButtonText}>거래 취소</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.tradeButton,
+                    isTradeCompleted
+                      ? styles.completeButtonDisabled
+                      : styles.completeButton,
+                  ]}
+                  activeOpacity={isTradeCompleted ? 1 : 0.8}
+                  disabled={isTradeCompleted}
+                  onPress={handleCompleteTrade}
+                >
+                  <Text
+                    style={[
+                      styles.completeButtonText,
+                      isTradeCompleted && styles.completeButtonTextDisabled,
+                    ]}
+                  >
+                    거래 완료
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
 
         <View style={styles.memberCard}>
           <Text style={styles.sectionTitle}>
-            대화상대 <Text style={styles.countText}>{members.length}</Text>
+            대화상대{" "}
+            <Text style={styles.countText}>{visibleMembers.length}</Text>
           </Text>
 
-          {sortedMembers.map((member, index) => {
+          {visibleMembers.map((member, index) => {
             const isMe = getIsMe(member);
 
             return (
@@ -463,7 +504,7 @@ export default function ChatMenuScreen() {
                       </Text>
                     </View>
 
-                    {member.isSeller && (
+                    {!isNote && member.isSeller && (
                       <View style={styles.crownFloatingBadge}>
                         <MaterialCommunityIcons
                           name="crown"
@@ -487,10 +528,12 @@ export default function ChatMenuScreen() {
                       )}
                     </View>
 
-                    <Text style={styles.memberName}>{member.member}</Text>
+                    {member.member ? (
+                      <Text style={styles.memberName}>{member.member}</Text>
+                    ) : null}
                   </View>
 
-                  {isSeller && !member.isSeller && (
+                  {!isNote && isSeller && !member.isSeller && (
                     <TouchableOpacity
                       style={styles.infoButton}
                       activeOpacity={0.75}
@@ -501,7 +544,7 @@ export default function ChatMenuScreen() {
                   )}
                 </View>
 
-                {index !== sortedMembers.length - 1 && (
+                {index !== visibleMembers.length - 1 && (
                   <View style={styles.divider} />
                 )}
               </View>
@@ -509,7 +552,7 @@ export default function ChatMenuScreen() {
           })}
         </View>
 
-        {!isSeller && (
+        {(isNote || !isSeller) && (
           <TouchableOpacity
             style={styles.leaveRoomCard}
             activeOpacity={0.78}
@@ -656,6 +699,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 18,
     paddingBottom: 34,
+  },
+  notePostCard: {
+    minHeight: 74,
+    borderRadius: 16,
+    backgroundColor: COLORS.white,
+    paddingHorizontal: 18,
+    paddingVertical: 15,
+    marginBottom: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  notePostTextBox: {
+    flex: 1,
+    marginRight: 12,
+  },
+  notePostLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: COLORS.gray500,
+    marginBottom: 6,
+  },
+  notePostTitle: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: COLORS.black,
+    lineHeight: 21,
   },
   tradeCard: {
     backgroundColor: COLORS.white,

@@ -37,6 +37,7 @@ const COLORS = {
   gray200: "#EEEEEE",
   gray100: "#F7F7F7",
   yellow: "#F7C94B",
+  yellowDisabled: "#E8D38E",
   yellowLight: "#FFF6D8",
   line: "#F0F0F0",
 };
@@ -64,7 +65,7 @@ type Message = {
   initialColor?: string;
 };
 
-const baseMessages: Message[] = [
+const divideMessages: Message[] = [
   {
     id: "1",
     type: "system",
@@ -119,6 +120,30 @@ const baseMessages: Message[] = [
   },
 ];
 
+const noteMessages: Message[] = [
+  {
+    id: "note-1",
+    type: "system",
+    text: "쪽지가 시작되었어요",
+  },
+  {
+    id: "note-2",
+    type: "other",
+    nickname: "꿔바로우",
+    initial: "꿔",
+    color: "#DDF7EB",
+    initialColor: "#1E8E61",
+    text: "범규 포카 교환 가능할까요?",
+    time: "2:10 PM",
+  },
+  {
+    id: "note-3",
+    type: "me",
+    text: "네 가능합니다!",
+    time: "2:20 PM",
+  },
+];
+
 export default function ChatRoomDetailScreen() {
   const insets = useSafeAreaInsets();
 
@@ -126,6 +151,7 @@ export default function ChatRoomDetailScreen() {
     chatRoomId,
     role,
     title,
+    type,
     tradeEvent,
     status,
     reviewSubmitted,
@@ -133,12 +159,14 @@ export default function ChatRoomDetailScreen() {
     chatRoomId: string;
     role?: string;
     title?: string;
+    type?: string;
     tradeEvent?: string;
     status?: string;
     reviewSubmitted?: string;
   }>();
 
-  const isSeller = role !== "buyer";
+  const isNote = type === "note";
+  const isSeller = !isNote && role !== "buyer";
   const isBuyer = !isSeller;
 
   const scrollRef = useRef<ScrollView | null>(null);
@@ -149,7 +177,9 @@ export default function ChatRoomDetailScreen() {
   const lastKeyboardHeight = useRef(DEFAULT_PANEL_HEIGHT);
   const openedPlusFromKeyboard = useRef(false);
 
-  const [messages, setMessages] = useState<Message[]>(baseMessages);
+  const [messages, setMessages] = useState<Message[]>(
+    isNote ? noteMessages : divideMessages
+  );
   const [inputText, setInputText] = useState("");
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
@@ -159,6 +189,8 @@ export default function ChatRoomDetailScreen() {
   const roomTitle =
     typeof title === "string" && title.length > 0
       ? title
+      : isNote
+      ? "쪽지"
       : "에스파 Drama 정규 1집";
 
   const currentStatus: TradeStatus =
@@ -211,8 +243,12 @@ export default function ChatRoomDetailScreen() {
   };
 
   useEffect(() => {
+    setMessages(isNote ? noteMessages : divideMessages);
+    appliedTradeEvent.current = null;
     scrollToBottom(120);
+  }, [isNote, chatRoomId]);
 
+  useEffect(() => {
     const showEvent =
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvent =
@@ -255,6 +291,7 @@ export default function ChatRoomDetailScreen() {
   }, [isPlusOpen]);
 
   useEffect(() => {
+    if (isNote) return;
     if (!tradeEvent) return;
     if (appliedTradeEvent.current === tradeEvent) return;
 
@@ -287,9 +324,10 @@ export default function ChatRoomDetailScreen() {
     });
 
     scrollToBottom(100);
-  }, [tradeEvent]);
+  }, [tradeEvent, isNote]);
 
   useEffect(() => {
+    if (isNote) return;
     if (currentStatus !== "거래 완료") return;
 
     setMessages((prev) => {
@@ -312,10 +350,10 @@ export default function ChatRoomDetailScreen() {
     });
 
     scrollToBottom(100);
-  }, [currentStatus]);
+  }, [currentStatus, isNote]);
 
   const handleBack = () => {
-    if (currentStatus === "거래 완료") {
+    if (!isNote && currentStatus === "거래 완료") {
       router.replace({
         pathname: "/(tabs)/chats",
         params: {
@@ -334,6 +372,7 @@ export default function ChatRoomDetailScreen() {
       pathname: "/chat/menu",
       params: {
         chatRoomId,
+        type: isNote ? "note" : "divide",
         role: isSeller ? "seller" : "buyer",
         title: roomTitle,
         status: currentStatus,
@@ -536,7 +575,7 @@ export default function ChatRoomDetailScreen() {
                 );
               }
 
-              if (message.type === "trade") {
+              if (message.type === "trade" && !isNote) {
                 return (
                   <TradeMessage
                     key={message.id}
@@ -604,47 +643,48 @@ export default function ChatRoomDetailScreen() {
                 <Text style={styles.plusMenuText}>사진 / 동영상</Text>
               </TouchableOpacity>
 
-              {isSeller ? (
-                <TouchableOpacity
-                  style={styles.plusMenuItem}
-                  activeOpacity={0.75}
-                  onPress={handleTrackingPress}
-                >
-                  <View
-                    style={[
-                      styles.plusMenuIcon,
-                      { backgroundColor: "#DCEEFF" },
-                    ]}
+              {!isNote &&
+                (isSeller ? (
+                  <TouchableOpacity
+                    style={styles.plusMenuItem}
+                    activeOpacity={0.75}
+                    onPress={handleTrackingPress}
                   >
-                    <Ionicons
-                      name="cube-outline"
-                      size={21}
-                      color={COLORS.black}
-                    />
-                  </View>
-                  <Text style={styles.plusMenuText}>운송장 번호 공유</Text>
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  style={styles.plusMenuItem}
-                  activeOpacity={0.75}
-                  onPress={handleDeliveryStatusPress}
-                >
-                  <View
-                    style={[
-                      styles.plusMenuIcon,
-                      { backgroundColor: "#DCEEFF" },
-                    ]}
+                    <View
+                      style={[
+                        styles.plusMenuIcon,
+                        { backgroundColor: "#DCEEFF" },
+                      ]}
+                    >
+                      <Ionicons
+                        name="cube-outline"
+                        size={21}
+                        color={COLORS.black}
+                      />
+                    </View>
+                    <Text style={styles.plusMenuText}>운송장 번호 공유</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.plusMenuItem}
+                    activeOpacity={0.75}
+                    onPress={handleDeliveryStatusPress}
                   >
-                    <Ionicons
-                      name="cube-outline"
-                      size={21}
-                      color={COLORS.black}
-                    />
-                  </View>
-                  <Text style={styles.plusMenuText}>배송 현황 확인</Text>
-                </TouchableOpacity>
-              )}
+                    <View
+                      style={[
+                        styles.plusMenuIcon,
+                        { backgroundColor: "#DCEEFF" },
+                      ]}
+                    >
+                      <Ionicons
+                        name="cube-outline"
+                        size={21}
+                        color={COLORS.black}
+                      />
+                    </View>
+                    <Text style={styles.plusMenuText}>배송 현황 확인</Text>
+                  </TouchableOpacity>
+                ))}
             </View>
           </View>
         )}
@@ -723,12 +763,7 @@ function TradeMessage({
           disabled={reviewSubmitted}
           onPress={onReviewPress}
         >
-          <Text
-            style={[
-              styles.reviewButtonText,
-              reviewSubmitted && styles.reviewButtonTextDisabled,
-            ]}
-          >
+          <Text style={styles.reviewButtonText}>
             {reviewSubmitted ? "거래 후기 작성 완료" : "거래 후기 작성하기"}
           </Text>
         </TouchableOpacity>
@@ -901,15 +936,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  reviewButtonDisabled: {
+    backgroundColor: COLORS.yellowDisabled,
+  },
   reviewButtonText: {
     fontSize: 15,
     fontWeight: "900",
-    color: COLORS.white,
-  },
-  reviewButtonDisabled: {
-    backgroundColor: "#E8D38E",
-  },
-  reviewButtonTextDisabled: {
     color: COLORS.white,
   },
   myMessageWrap: {

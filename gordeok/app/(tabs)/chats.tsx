@@ -240,6 +240,7 @@ export default function ChatsScreen() {
       pathname: "/chat/[chatRoomId]",
       params: {
         chatRoomId: String(room.id),
+        type: "divide",
         role: room.role,
         title: room.title,
         status: room.status === "done" ? "거래 완료" : "모집 중",
@@ -258,9 +259,9 @@ export default function ChatsScreen() {
       pathname: "/chat/[chatRoomId]",
       params: {
         chatRoomId: String(room.id),
+        type: "note",
         role: "buyer",
         title: room.title,
-        type: "note",
       },
     });
   };
@@ -554,15 +555,10 @@ function DivideRoomItem({
             {room.title}
           </Text>
 
-          <Text style={[styles.timeText, isDone && styles.doneText]}>
-            {room.time}
-          </Text>
+          <Text style={styles.timeText}>{room.time}</Text>
         </View>
 
-        <Text
-          style={[styles.metaText, isDone && styles.doneText]}
-          numberOfLines={1}
-        >
+        <Text style={styles.metaText} numberOfLines={1}>
           {room.organizer} · {room.memberCount}
         </Text>
 
@@ -738,7 +734,7 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   listContent: {
-    paddingTop: 8,
+    paddingTop: 0,
     paddingBottom: 100,
   },
   emptyListContent: {
@@ -763,11 +759,13 @@ const styles = StyleSheet.create({
   },
   rightActionWrap: {
     width: LEAVE_WIDTH,
+    alignSelf: "stretch",
     backgroundColor: COLORS.red,
   },
   leaveButton: {
     flex: 1,
     width: LEAVE_WIDTH,
+    height: "100%",
     backgroundColor: COLORS.red,
     justifyContent: "center",
     alignItems: "center",
@@ -790,12 +788,12 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   noteItem: {
-    minHeight: 90,
+    minHeight: 91,
     justifyContent: "center",
     backgroundColor: COLORS.white,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.line,
-    paddingHorizontal: SCREEN_PADDING,
+    paddingHorizontal: 28,
     paddingVertical: 15,
   },
   pressedItem: {
