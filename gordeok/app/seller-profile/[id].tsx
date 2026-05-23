@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Modal,
   Pressable,
   ScrollView,
@@ -12,6 +13,9 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+import { getSellerProfile } from "../../services/seller";
+import type { SellerProfileResponse } from "../../types/seller";
 
 const YELLOW = "#F3C24F";
 
@@ -40,67 +44,92 @@ type SellerProfile = {
   reviews: ReviewItem[];
 };
 
+function formatDate(value?: string) {
+  if (!value) return "-";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10).replaceAll("-", ".");
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}.${month}.${day}`;
+}
+
+function normalizeSellerProfile(
+  data: SellerProfileResponse,
+  fallbackId: string
+): SellerProfile {
+  return {
+    id: String(data.userId ?? fallbackId),
+    nickname: data.nickname || "판매자",
+    joinedAt: formatDate(data.createdAt),
+    followerCount: 0,
+    followingCount: 0,
+    trustScore: data.trustScore ?? 0,
+    hasFraudReport: Boolean(data.hasScamReport),
+    sales: [],
+    reviews: [],
+  };
+}
+
 export default function SellerProfileScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id } = useLocalSearchParams<{ id?: string }>();
+
+  const sellerId = String(id ?? "");
 
   const [scoreModalVisible, setScoreModalVisible] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
+  const [sellerProfile, setSellerProfile] = useState<SellerProfile | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
 
-  const sellerProfile: SellerProfile = {
-    id: id ?? "1",
-    nickname: "범규와이프",
-    joinedAt: "2023.08.12",
-    followerCount: 5,
-    followingCount: 13,
-    trustScore: 78,
-    hasFraudReport: true,
-    sales: [
-      { id: 1, title: "럽홀더 포카 양도" },
-      { id: 2, title: "범규 포카 분철" },
-      { id: 3, title: "투바투 앨범 분철" },
-      { id: 4, title: "미공포 양도" },
-    ],
-    reviews: [
-      {
-        id: 1,
-        initial: "껌",
-        nickname: "껌규",
-        date: "2025.04.11",
-        content: "포카 상태 너무 좋아요 굿굿 감사합니다",
-      },
-      {
-        id: 2,
-        initial: "쮜",
-        nickname: "쮜바로우많이투개더",
-        date: "2025.03.24",
-        content: "믿고 분철 탑니다~ 항상 빠른 응답 감사해요",
-      },
-      {
-        id: 3,
-        initial: "수",
-        nickname: "수빈이라고 나 수빈",
-        date: "2025.03.12",
-        content: "다음에도 또 분철 타겠습니다 열어주세요~",
-      },
-    ],
-  };
+  useEffect(() => {
+    const loadSellerProfile = async () => {
+      if (!sellerId) {
+        setErrorMessage("판매자 정보를 찾을 수 없습니다.");
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        setIsLoading(true);
+        setErrorMessage("");
+
+        const data = await getSellerProfile(sellerId);
+        setSellerProfile(normalizeSellerProfile(data, sellerId));
+      } catch (error: any) {
+        setSellerProfile(null);
+        setErrorMessage(error?.message || "판매자 정보를 불러오지 못했습니다.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadSellerProfile();
+  }, [sellerId]);
 
   const closeMenu = () => {
     if (menuVisible) setMenuVisible(false);
   };
 
   const goReport = () => {
+    if (!sellerProfile) return;
+
     setMenuVisible(false);
 
     router.push({
-      pathname: "./report",
+      pathname: "/seller-profile/report",
       params: {
         sellerId: sellerProfile.id,
         sellerName: sellerProfile.nickname,
       },
-    });
+    } as any);
   };
+
+  const trustScore = Math.max(0, Math.min(sellerProfile?.trustScore ?? 0, 100));
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
@@ -121,141 +150,147 @@ export default function SellerProfileScreen() {
           <View style={styles.headerIcon} />
         </View>
 
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
-          onScrollBeginDrag={closeMenu}
-        >
-          {sellerProfile.hasFraudReport && (
-            <View style={styles.warningBanner}>
-              <Text style={styles.warningText}>
-                사기 신고 이력이 있는 계정입니다.
-              </Text>
-            </View>
-          )}
-
-          <View style={styles.profileCard}>
-            <TouchableOpacity
-              style={styles.moreButton}
-              activeOpacity={0.65}
-              onPress={() => setMenuVisible(true)}
-            >
-              <Ionicons name="ellipsis-horizontal" size={17} color="#555555" />
-            </TouchableOpacity>
-
-            <View style={styles.profileTop}>
-              <View style={styles.profileCircle}>
-                <Text style={styles.profileInitial}>
-                  {sellerProfile.nickname.slice(0, 1)}
+        {isLoading ? (
+          <View style={styles.centerState}>
+            <ActivityIndicator size="small" color={YELLOW} />
+            <Text style={styles.centerText}>판매자 정보를 불러오는 중이에요</Text>
+          </View>
+        ) : errorMessage || !sellerProfile ? (
+          <View style={styles.centerState}>
+            <Text style={styles.errorText}>{errorMessage}</Text>
+          </View>
+        ) : (
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
+            onScrollBeginDrag={closeMenu}
+          >
+            {sellerProfile.hasFraudReport && (
+              <View style={styles.warningBanner}>
+                <Text style={styles.warningText}>
+                  사기 신고 이력이 있는 계정입니다.
                 </Text>
               </View>
+            )}
 
-              <View style={styles.profileInfo}>
-                <Text style={styles.nickname}>{sellerProfile.nickname}</Text>
-                <Text style={styles.subText}>가입 {sellerProfile.joinedAt}</Text>
-                <Text style={styles.subText}>
-                  팔로워 {sellerProfile.followerCount}명 · 팔로잉{" "}
-                  {sellerProfile.followingCount}명
-                </Text>
+            <View style={styles.profileCard}>
+              <TouchableOpacity
+                style={styles.moreButton}
+                activeOpacity={0.65}
+                onPress={() => setMenuVisible(true)}
+              >
+                <Ionicons name="ellipsis-horizontal" size={17} color="#555555" />
+              </TouchableOpacity>
+
+              <View style={styles.profileTop}>
+                <View style={styles.profileCircle}>
+                  <Text style={styles.profileInitial}>
+                    {sellerProfile.nickname.slice(0, 1)}
+                  </Text>
+                </View>
+
+                <View style={styles.profileInfo}>
+                  <Text style={styles.nickname}>{sellerProfile.nickname}</Text>
+                  <Text style={styles.subText}>가입 {sellerProfile.joinedAt}</Text>
+                  <Text style={styles.subText}>
+                    팔로워 {sellerProfile.followerCount}명 · 팔로잉{" "}
+                    {sellerProfile.followingCount}명
+                  </Text>
+                </View>
               </View>
-            </View>
 
-            <TouchableOpacity
-              style={styles.trustArea}
-              activeOpacity={0.75}
-              onPress={() => setScoreModalVisible(true)}
-            >
-              <View style={styles.trustTopRow}>
-                <View style={styles.trustTitleRow}>
-                  <Text style={styles.trustLabel}>신뢰 점수</Text>
-                  <Ionicons
-                    name="information-circle-outline"
-                    size={16}
-                    color="#A4A4A4"
-                    style={styles.trustInfoIcon}
+              <TouchableOpacity
+                style={styles.trustArea}
+                activeOpacity={0.75}
+                onPress={() => setScoreModalVisible(true)}
+              >
+                <View style={styles.trustTopRow}>
+                  <View style={styles.trustTitleRow}>
+                    <Text style={styles.trustLabel}>신뢰 점수</Text>
+                    <Ionicons
+                      name="information-circle-outline"
+                      size={16}
+                      color="#A4A4A4"
+                      style={styles.trustInfoIcon}
+                    />
+                  </View>
+
+                  <View style={styles.trustScoreRow}>
+                    <Text style={styles.trustScore}>{trustScore}</Text>
+                    <Text style={styles.trustPoint}>점</Text>
+                  </View>
+                </View>
+
+                <View style={styles.progressBg}>
+                  <View
+                    style={[styles.progressFill, { width: `${trustScore}%` }]}
                   />
                 </View>
-
-                <View style={styles.trustScoreRow}>
-                  <Text style={styles.trustScore}>
-                    {sellerProfile.trustScore}
-                  </Text>
-                  <Text style={styles.trustPoint}>점</Text>
-                </View>
-              </View>
-
-              <View style={styles.progressBg}>
-                <View
-                  style={[
-                    styles.progressFill,
-                    { width: `${sellerProfile.trustScore}%` },
-                  ]}
-                />
-              </View>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.sectionCard}>
-            <TouchableOpacity
-              activeOpacity={0.75}
-              style={styles.sectionHeader}
-              onPress={() =>
-                router.push({
-                  pathname: "/seller-sales/[id]",
-                  params: { id: sellerProfile.id },
-                })
-              }
-            >
-              <Text style={styles.sectionTitle}>판매 목록</Text>
-              <Ionicons name="chevron-forward" size={18} color="#B5B5B5" />
-            </TouchableOpacity>
-
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.saleList}
-            >
-              {sellerProfile.sales.map((item) => (
-                <TouchableOpacity
-                  key={item.id}
-                  activeOpacity={0.75}
-                  style={styles.saleItem}
-                >
-                  <View style={styles.saleThumb} />
-                  <Text numberOfLines={1} style={styles.saleTitle}>
-                    {item.title}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-
-          <View style={styles.sectionCard}>
-            <TouchableOpacity
-              activeOpacity={0.75}
-              style={styles.sectionHeader}
-              onPress={() =>
-                router.push({
-                  pathname: "/seller-reviews/[id]",
-                  params: { id: sellerProfile.id },
-                })
-              }
-            >
-              <Text style={styles.sectionTitle}>받은 후기</Text>
-              <Ionicons name="chevron-forward" size={18} color="#B5B5B5" />
-            </TouchableOpacity>
-
-            <View style={styles.reviewList}>
-              {sellerProfile.reviews.map((review, index) => (
-                <ReviewRow
-                  key={review.id}
-                  review={review}
-                  isLast={index === sellerProfile.reviews.length - 1}
-                />
-              ))}
+              </TouchableOpacity>
             </View>
-          </View>
-        </ScrollView>
+
+            <View style={styles.sectionCard}>
+              <TouchableOpacity
+                activeOpacity={0.75}
+                style={styles.sectionHeader}
+                onPress={() =>
+                  router.push({
+                    pathname: "/seller-sales/[id]",
+                    params: { id: sellerProfile.id },
+                  } as any)
+                }
+              >
+                <Text style={styles.sectionTitle}>판매 목록</Text>
+                <Ionicons name="chevron-forward" size={18} color="#B5B5B5" />
+              </TouchableOpacity>
+
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.saleList}
+              >
+                {sellerProfile.sales.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    activeOpacity={0.75}
+                    style={styles.saleItem}
+                  >
+                    <View style={styles.saleThumb} />
+                    <Text numberOfLines={1} style={styles.saleTitle}>
+                      {item.title}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
+            <View style={styles.sectionCard}>
+              <TouchableOpacity
+                activeOpacity={0.75}
+                style={styles.sectionHeader}
+                onPress={() =>
+                  router.push({
+                    pathname: "/seller-reviews/[id]",
+                    params: { id: sellerProfile.id },
+                  } as any)
+                }
+              >
+                <Text style={styles.sectionTitle}>받은 후기</Text>
+                <Ionicons name="chevron-forward" size={18} color="#B5B5B5" />
+              </TouchableOpacity>
+
+              <View style={styles.reviewList}>
+                {sellerProfile.reviews.map((review, index) => (
+                  <ReviewRow
+                    key={review.id}
+                    review={review}
+                    isLast={index === sellerProfile.reviews.length - 1}
+                  />
+                ))}
+              </View>
+            </View>
+          </ScrollView>
+        )}
 
         <Modal
           visible={menuVisible}
@@ -345,13 +380,7 @@ export default function SellerProfileScreen() {
   );
 }
 
-function ReviewRow({
-  review,
-  isLast,
-}: {
-  review: ReviewItem;
-  isLast: boolean;
-}) {
+function ReviewRow({ review, isLast }: { review: ReviewItem; isLast: boolean }) {
   return (
     <View style={[styles.reviewItem, isLast && styles.reviewItemLast]}>
       <View style={styles.reviewProfile}>
@@ -384,16 +413,8 @@ function CriteriaItem({ title }: { title: string }) {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-  },
-
-  container: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-  },
-
+  safeArea: { flex: 1, backgroundColor: "#FFFFFF" },
+  container: { flex: 1, backgroundColor: "#FFFFFF" },
   header: {
     height: 58,
     paddingHorizontal: 20,
@@ -402,7 +423,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-
   headerIcon: {
     width: 32,
     height: 32,
@@ -410,19 +430,26 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "flex-start",
   },
-
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#111111",
+  headerTitle: { fontSize: 18, fontWeight: "900", color: "#111111" },
+  scrollContent: { paddingHorizontal: 22, paddingTop: 6, paddingBottom: 34 },
+  centerState: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
   },
-
-  scrollContent: {
-    paddingHorizontal: 22,
-    paddingTop: 6,
-    paddingBottom: 34,
+  centerText: {
+    marginTop: 10,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#777777",
   },
-
+  errorText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#999999",
+    textAlign: "center",
+  },
   warningBanner: {
     backgroundColor: "#F6DADA",
     paddingVertical: 15,
@@ -430,13 +457,7 @@ const styles = StyleSheet.create({
     marginHorizontal: -22,
     marginBottom: 18,
   },
-
-  warningText: {
-    color: "#C7352B",
-    fontSize: 15,
-    fontWeight: "900",
-  },
-
+  warningText: { color: "#C7352B", fontSize: 15, fontWeight: "900" },
   profileCard: {
     position: "relative",
     backgroundColor: "#FFFFFF",
@@ -446,7 +467,6 @@ const styles = StyleSheet.create({
     borderColor: "#F0F0F0",
     zIndex: 20,
   },
-
   moreButton: {
     position: "absolute",
     top: 18,
@@ -457,12 +477,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     zIndex: 30,
   },
-
-  menuOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.01)",
-  },
-
+  menuOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.01)" },
   moreMenu: {
     position: "absolute",
     top: 200,
@@ -480,31 +495,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#F0F0F0",
   },
-
   moreMenuItem: {
     minHeight: 42,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-
-  moreMenuText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#555555",
-  },
-
-  moreMenuDivider: {
-    height: 1,
-    backgroundColor: "#EFEFEF",
-  },
-
-  profileTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingRight: 48,
-  },
-
+  moreMenuText: { fontSize: 13, fontWeight: "700", color: "#555555" },
+  moreMenuDivider: { height: 1, backgroundColor: "#EFEFEF" },
+  profileTop: { flexDirection: "row", alignItems: "center", paddingRight: 48 },
   profileCircle: {
     width: 62,
     height: 62,
@@ -514,62 +513,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 16,
   },
-
-  profileInitial: {
-    fontSize: 24,
-    fontWeight: "900",
-    color: "#4B5563",
-  },
-
-  profileInfo: {
-    flex: 1,
-  },
-
+  profileInitial: { fontSize: 24, fontWeight: "900", color: "#4B5563" },
+  profileInfo: { flex: 1 },
   nickname: {
     fontSize: 19,
     fontWeight: "800",
     color: "#111111",
     marginBottom: 6,
   },
-
-  subText: {
-    fontSize: 13,
-    fontWeight: "500",
-    color: "#9D9D9D",
-    lineHeight: 19,
-  },
-
-  trustArea: {
-    marginTop: 22,
-    paddingTop: 4,
-  },
-
+  subText: { fontSize: 13, fontWeight: "500", color: "#9D9D9D", lineHeight: 19 },
+  trustArea: { marginTop: 22, paddingTop: 4 },
   trustTopRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-
-  trustTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  trustInfoIcon: {
-    marginLeft: 5,
-  },
-
-  trustLabel: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#333333",
-  },
-
-  trustScoreRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-  },
-
+  trustTitleRow: { flexDirection: "row", alignItems: "center" },
+  trustInfoIcon: { marginLeft: 5 },
+  trustLabel: { fontSize: 15, fontWeight: "800", color: "#333333" },
+  trustScoreRow: { flexDirection: "row", alignItems: "flex-end" },
   trustScore: {
     fontSize: 19,
     fontWeight: "800",
@@ -577,7 +539,6 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
     marginTop: 2,
   },
-
   trustPoint: {
     fontSize: 12,
     fontWeight: "700",
@@ -585,7 +546,6 @@ const styles = StyleSheet.create({
     marginLeft: 3,
     marginBottom: 3,
   },
-
   progressBg: {
     height: 5,
     backgroundColor: "#EFEFEF",
@@ -593,13 +553,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
     overflow: "hidden",
   },
-
-  progressFill: {
-    height: "100%",
-    backgroundColor: YELLOW,
-    borderRadius: 99,
-  },
-
+  progressFill: { height: "100%", backgroundColor: YELLOW, borderRadius: 99 },
   sectionCard: {
     marginTop: 20,
     backgroundColor: "#FFFFFF",
@@ -611,36 +565,16 @@ const styles = StyleSheet.create({
     borderColor: "#F0F0F0",
     zIndex: 1,
   },
-
   sectionHeader: {
     minHeight: 30,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#111111",
-  },
-
-  saleList: {
-    paddingTop: 15,
-    gap: 12,
-  },
-
-  saleItem: {
-    width: 86,
-  },
-
-  saleThumb: {
-    width: 86,
-    height: 72,
-    borderRadius: 14,
-    backgroundColor: "#FFF1CC",
-  },
-
+  sectionTitle: { fontSize: 16, fontWeight: "800", color: "#111111" },
+  saleList: { paddingTop: 15, gap: 12 },
+  saleItem: { width: 86 },
+  saleThumb: { width: 86, height: 72, borderRadius: 14, backgroundColor: "#FFF1CC" },
   saleTitle: {
     marginTop: 8,
     fontSize: 12,
@@ -648,23 +582,14 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textAlign: "center",
   },
-
-  reviewList: {
-    marginTop: 10,
-  },
-
+  reviewList: { marginTop: 10 },
   reviewItem: {
     flexDirection: "row",
     paddingVertical: 13,
     borderBottomWidth: 1,
     borderBottomColor: "#EFEFEF",
   },
-
-  reviewItemLast: {
-    borderBottomWidth: 0,
-    paddingBottom: 2,
-  },
-
+  reviewItemLast: { borderBottomWidth: 0, paddingBottom: 2 },
   reviewProfile: {
     width: 34,
     height: 34,
@@ -676,23 +601,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 11,
   },
-
-  reviewInitial: {
-    fontSize: 12,
-    fontWeight: "900",
-    color: "#333333",
-  },
-
-  reviewContent: {
-    flex: 1,
-  },
-
+  reviewInitial: { fontSize: 12, fontWeight: "900", color: "#333333" },
+  reviewContent: { flex: 1 },
   reviewTop: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-
   reviewName: {
     fontSize: 14,
     fontWeight: "800",
@@ -700,21 +615,8 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 8,
   },
-
-  reviewDate: {
-    fontSize: 11,
-    color: "#999999",
-    fontWeight: "600",
-  },
-
-  reviewText: {
-    marginTop: 7,
-    fontSize: 13,
-    color: "#555555",
-    lineHeight: 18,
-    fontWeight: "600",
-  },
-
+  reviewDate: { fontSize: 11, color: "#999999", fontWeight: "600" },
+  reviewText: { marginTop: 7, fontSize: 13, color: "#555555", lineHeight: 18, fontWeight: "600" },
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.28)",
@@ -722,7 +624,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 28,
   },
-
   modalContainer: {
     width: "100%",
     backgroundColor: "#FFFFFF",
@@ -731,7 +632,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingBottom: 22,
   },
-
   closeButton: {
     position: "absolute",
     top: 18,
@@ -744,7 +644,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     zIndex: 10,
   },
-
   modalIcon: {
     alignSelf: "center",
     width: 62,
@@ -755,14 +654,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 16,
   },
-
-  modalTitle: {
-    fontSize: 21,
-    fontWeight: "900",
-    color: "#111111",
-    textAlign: "center",
-  },
-
+  modalTitle: { fontSize: 21, fontWeight: "900", color: "#111111", textAlign: "center" },
   modalDescription: {
     fontSize: 14,
     fontWeight: "500",
@@ -771,41 +663,11 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginTop: 10,
   },
-
-  criteriaBox: {
-    backgroundColor: "#FAFAFA",
-    borderRadius: 16,
-    padding: 18,
-    marginTop: 22,
-  },
-
-  criteriaTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#111111",
-    marginBottom: 14,
-  },
-
-  criteriaItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    minHeight: 28,
-  },
-
-  dot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: YELLOW,
-    marginRight: 10,
-  },
-
-  criteriaText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#555555",
-  },
-
+  criteriaBox: { backgroundColor: "#FAFAFA", borderRadius: 16, padding: 18, marginTop: 22 },
+  criteriaTitle: { fontSize: 16, fontWeight: "800", color: "#111111", marginBottom: 14 },
+  criteriaItem: { flexDirection: "row", alignItems: "center", minHeight: 28 },
+  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: YELLOW, marginRight: 10 },
+  criteriaText: { fontSize: 14, fontWeight: "600", color: "#555555" },
   confirmButton: {
     height: 54,
     backgroundColor: YELLOW,
@@ -814,10 +676,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 22,
   },
-
-  confirmButtonText: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: "#FFFFFF",
-  },
+  confirmButtonText: { fontSize: 16, fontWeight: "900", color: "#111111" },
 });

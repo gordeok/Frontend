@@ -2,6 +2,7 @@ import { View, Text, Pressable, StyleSheet, ScrollView } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
+import { saveFavoriteIdols, saveFavoriteMembers } from "../services/user";
 
 const idolData = [
   { id: "boynextdoor", name: "BOYNEXTDOOR", members: ["성호", "리우", "명재현", "태산", "이한", "운학"] },
@@ -26,6 +27,46 @@ const idolData = [
   { id: "twice", name: "TWICE", members: ["나연", "정연", "모모", "사나", "지효", "쯔위"] },
   { id: "itzy", name: "ITZY", members: ["예지", "리아", "류진", "채령", "유나"] },
 ];
+
+const IDOL_API_ID_MAP: Record<string, number> = {
+  boynextdoor: 1,
+  txt: 2,
+  bts: 3,
+  straykids: 4,
+  seventeen: 5,
+  nct: 6,
+  enhypen: 7,
+  ive: 8,
+  aespa: 9,
+  newjeans: 10,
+  zerobaseone: 11,
+  riize: 12,
+  theboyz: 13,
+  stayc: 14,
+  le_sserafim: 15,
+  monstax: 16,
+  exo: 17,
+  sf9: 18,
+  pentagon: 19,
+  twice: 20,
+  itzy: 21,
+};
+
+function toApiIdolIds(groupIds: string[]) {
+  return groupIds
+    .map((groupId) => IDOL_API_ID_MAP[groupId])
+    .filter((id): id is number => typeof id === "number");
+}
+
+function toApiMemberIds(memberIds: string[]) {
+  const allMembers = idolData.flatMap((group) =>
+    group.members.map((member) => `${group.id}-${member}`)
+  );
+
+  return memberIds
+    .map((memberId) => allMembers.indexOf(memberId) + 1)
+    .filter((id) => id > 0);
+}
 
 export default function GroupEditMembers() {
   const router = useRouter();
@@ -76,21 +117,33 @@ export default function GroupEditMembers() {
     });
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     const keptOldMembers = oldSelectedMembers.filter(
       (memberId) =>
         !targetGroupIds.some((groupId) => memberId.startsWith(`${groupId}-`))
     );
-  
+
     const finalMembers = [...keptOldMembers, ...newSelectedMembers];
-  
-    router.replace({
-      pathname: "/(tabs)/home",
-      params: {
-        groups: selectedGroupIds.join(","),
-        members: finalMembers.join(","),
-      },
-    } as any);
+
+    try {
+      await saveFavoriteIdols({
+        idolIds: toApiIdolIds(selectedGroupIds),
+      });
+
+      await saveFavoriteMembers({
+        memberIds: toApiMemberIds(finalMembers),
+      });
+    } catch (error) {
+      console.log("최애 그룹/멤버 저장 실패 또는 백엔드 미연결:", error);
+    } finally {
+      router.replace({
+        pathname: "/(tabs)/home",
+        params: {
+          groups: selectedGroupIds.join(","),
+          members: finalMembers.join(","),
+        },
+      } as any);
+    }
   };
 
   return (

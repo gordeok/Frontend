@@ -1,4 +1,3 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
@@ -17,6 +16,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { createReport } from "../../services/report";
+
 const COLORS = {
   white: "#FFFFFF",
   black: "#111111",
@@ -32,40 +33,6 @@ const COLORS = {
 };
 
 const SCREEN_PADDING = 22;
-const STORAGE_KEY = "fraudReports";
-
-type FraudReport = {
-  id: string;
-  sellerId: string;
-  sellerName: string;
-  title: string;
-  content: string;
-  photoCount: number;
-  status: "접수완료";
-  createdAt: number;
-};
-
-type CreateFraudReportPayload = {
-  sellerId: string;
-  sellerName: string;
-  title: string;
-  content: string;
-  photoCount: number;
-};
-
-function createFraudReport(payload: CreateFraudReportPayload): FraudReport {
-  return {
-    id: String(Date.now()),
-    sellerId: payload.sellerId,
-    sellerName: payload.sellerName,
-    title: payload.title,
-    content: payload.content,
-    photoCount: payload.photoCount,
-    status: "접수완료",
-    createdAt: Date.now(),
-  };
-}
-
 export default function SellerReportScreen() {
   const { sellerId, sellerName } = useLocalSearchParams<{
     sellerId?: string;
@@ -119,46 +86,29 @@ export default function SellerReportScreen() {
     try {
       setIsSubmitting(true);
 
-      const newReport = createFraudReport({
-        sellerId: reportSellerId,
-        sellerName: reportSellerName,
-        title: trimmedTitle,
+      const targetUserId = Number(reportSellerId);
+
+      if (!targetUserId || Number.isNaN(targetUserId)) {
+        Alert.alert("오류", "신고 대상 정보를 찾을 수 없어요.");
+        return;
+      }
+
+      const result = await createReport({
+        targetUserId,
+        reason: trimmedTitle,
         content: trimmedContent,
-        photoCount,
       });
 
-      const savedReports = await AsyncStorage.getItem(STORAGE_KEY);
-      const parsedReports: FraudReport[] = savedReports
-        ? JSON.parse(savedReports)
-        : [];
-
-      await AsyncStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify([newReport, ...parsedReports])
+      Alert.alert(
+        "신고 접수 완료",
+        result?.message || "사기 신고가 접수되었습니다.",
+        [
+          {
+            text: "확인",
+            onPress: () => router.back(),
+          },
+        ]
       );
-
-      Alert.alert("신고 접수 완료", "사기 신고가 접수되었습니다.", [
-        {
-          text: "확인",
-          onPress: () => router.back(),
-        },
-      ]);
-
-      /*
-        나중에 백엔드 연동 시 여기만 교체하면 됨.
-
-        await fetch("백엔드주소/reports/fraud", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sellerId: reportSellerId,
-            sellerName: reportSellerName,
-            title: trimmedTitle,
-            content: trimmedContent,
-            photoCount,
-          }),
-        });
-      */
     } catch (error) {
       Alert.alert("오류", "신고 접수 중 문제가 발생했어요.");
     } finally {

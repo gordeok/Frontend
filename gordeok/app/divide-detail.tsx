@@ -16,6 +16,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useBookmark } from "@/contexts/BookmarkContext";
+import { getPostDetail, reserveMemberItem } from "../services/post";
+import type { PostDetailResponse } from "../types/post";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -47,6 +49,7 @@ const COLORS = {
 type MemberState = "모집중" | "예약중" | "모집완료";
 
 type DivideMember = {
+  memberItemId?: number;
   name: string;
   state: MemberState;
   price: number;
@@ -69,6 +72,43 @@ type DividePost = {
   members: DivideMember[];
 };
 
+
+function getMemberState(status: string): MemberState {
+  if (status === "COMPLETED" || status === "CLOSED" || status === "모집완료") {
+    return "모집완료";
+  }
+
+  if (status === "RESERVED" || status === "예약중") {
+    return "예약중";
+  }
+
+  return "모집중";
+}
+
+function mapApiPostToDetailPost(post: PostDetailResponse): DividePost {
+  return {
+    id: String(post.postId),
+    groupId: post.idolName,
+    groupName: post.idolName,
+    userName: post.seller?.nickname ?? "판매자",
+    title: post.title,
+    albumName: post.albumName ?? "",
+    time: "",
+    date: "",
+    status: post.status,
+    completed: post.status === "COMPLETED" || post.status === "CLOSED",
+    content: post.description ?? "",
+    components: post.components ?? [],
+    deliveryMethod: post.shippingFeeType ?? "",
+    members: (post.memberItems ?? []).map((member) => ({
+      memberItemId: member.id,
+      name: member.memberName,
+      state: getMemberState(member.status),
+      price: member.price,
+    })),
+  };
+}
+
 export default function DivideDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -87,24 +127,54 @@ export default function DivideDetailScreen() {
   const gestureStartHeight = useRef(SHEET_HIDDEN_HEIGHT);
 
   const postData = typeof params.postData === "string" ? params.postData : "";
+  const postIdParam = typeof params.postId === "string" ? params.postId : "";
   const groupParam = typeof params.groups === "string" ? params.groups : "";
   const memberParam = typeof params.members === "string" ? params.members : "";
 
-  const post = useMemo<DividePost | null>(() => {
-    if (!postData) return null;
+  const [apiPost, setApiPost] = useState<DividePost | null>(null);
+  const [isReserving, setIsReserving] = useState(false);
 
-    try {
-      return JSON.parse(postData);
-    } catch {
-      return null;
+  useEffect(() => {
+    if (postData || !postIdParam) return;
+
+    let alive = true;
+
+    const loadPostDetail = async () => {
+      try {
+        const data = await getPostDetail(postIdParam);
+
+        if (!alive) return;
+
+        setApiPost(mapApiPostToDetailPost(data));
+      } catch (error) {
+        console.log("게시글 상세 API 연결 전이거나 조회 실패:", error);
+      }
+    };
+
+    loadPostDetail();
+
+    return () => {
+      alive = false;
+    };
+  }, [postData, postIdParam]);
+
+  const post = useMemo<DividePost | null>(() => {
+    if (postData) {
+      try {
+        return JSON.parse(postData);
+      } catch {
+        return null;
+      }
     }
-  }, [postData]);
+
+    return apiPost;
+  }, [postData, apiPost]);
 
   const selectedMember = post?.members.find(
     (member) => member.name === selectedMemberName
   );
 
-  const isJoinEnabled = !!selectedMember;
+  const isJoinEnabled = !!selectedMember && !isReserving;
 
   const moveSheetTo = (toValue: number) => {
     currentSheetHeight.current = toValue;
@@ -266,22 +336,36 @@ export default function DivideDetailScreen() {
     );
   };
 
-  const handleJoin = () => {
+  const handleJoin = async () => {
     if (!selectedMember) return;
 
-    setIsMemberSheetOpen(false);
+    try {
+      setIsReserving(true);
 
-    router.push({
-      pathname: "/divide-join",
-      params: {
-        postId: post.id,
-        postData: JSON.stringify(post),
-        selectedMember: selectedMember.name,
-        selectedPrice: String(selectedMember.price),
-        groups: groupParam,
-        members: memberParam,
-      },
-    } as any);
+      if (selectedMember.memberItemId) {
+        await reserveMemberItem(selectedMember.memberItemId);
+      }
+    } catch (error) {
+      console.log("멤버 예약 API 연결 전이거나 예약 실패:", error);
+    } finally {
+      setIsReserving(false);
+      setIsMemberSheetOpen(false);
+
+      router.push({
+        pathname: "/divide-join",
+        params: {
+          postId: post.id,
+          memberItemId: selectedMember.memberItemId
+            ? String(selectedMember.memberItemId)
+            : "",
+          postData: JSON.stringify(post),
+          selectedMember: selectedMember.name,
+          selectedPrice: String(selectedMember.price),
+          groups: groupParam,
+          members: memberParam,
+        },
+      } as any);
+    }
   };
 
   return (

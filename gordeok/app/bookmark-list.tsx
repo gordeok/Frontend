@@ -1,6 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -8,7 +10,8 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { BookmarkPost, useBookmark } from "@/contexts/BookmarkContext";
+import { getBookmarks, toggleBookmark } from "../services/bookmark";
+import type { BookmarkItem } from "../types/bookmark";
 
 const COLORS = {
   white: "#FFFFFF",
@@ -25,18 +28,85 @@ const COLORS = {
 
 export default function BookmarkListScreen() {
   const router = useRouter();
-  const { bookmarks, removeBookmark } = useBookmark();
 
-  const goDetail = (post: BookmarkPost) => {
+  const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [removingId, setRemovingId] = useState<number | null>(null);
+
+  useEffect(() => {
+    loadBookmarks();
+  }, []);
+
+  const loadBookmarks = async () => {
+    try {
+      setIsLoading(true);
+      setErrorMessage("");
+
+      const data = await getBookmarks();
+      setBookmarks(data ?? []);
+    } catch (error: any) {
+      console.log("북마크 목록 조회 실패:", error);
+      setBookmarks([]);
+      setErrorMessage(
+        error?.message || "북마크 목록을 불러오지 못했습니다."
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const goDetail = (post: BookmarkItem) => {
+    const postData = {
+      id: String(post.postId),
+      groupId: post.idolName,
+      groupName: post.idolName,
+      userName: post.nickname,
+      title: post.title,
+      albumName: post.albumName || "",
+      time: formatTime(post.createdAt),
+      date: post.createdAt?.slice(0, 10) ?? "",
+      status: normalizePostStatus(post.status),
+      completed:
+        post.status === "COMPLETED" ||
+        post.status === "CLOSED" ||
+        post.status === "모집완료",
+      content: "",
+      components: [],
+      deliveryMethod: "",
+      members: (post.memberItems || []).map((member) => ({
+        name: member.memberName,
+        state: normalizeMemberStatus(member.status),
+        price: member.price,
+      })),
+    };
+
     router.push({
       pathname: "/divide-detail",
       params: {
-        postId: post.id,
-        postData: post.postData,
-        groups: post.groups ?? "",
-        members: post.members ?? "",
+        postId: String(post.postId),
+        postData: JSON.stringify(postData),
+        groups: "",
+        members: "",
       },
     } as any);
+  };
+
+  const handleRemoveBookmark = async (post: BookmarkItem) => {
+    try {
+      setRemovingId(post.bookmarkId);
+
+      await toggleBookmark(post.postId);
+
+      setBookmarks((prev) =>
+        prev.filter((item) => item.bookmarkId !== post.bookmarkId)
+      );
+    } catch (error: any) {
+      console.log("북마크 취소 실패:", error);
+      setErrorMessage(error?.message || "북마크 취소에 실패했습니다.");
+    } finally {
+      setRemovingId(null);
+    }
   };
 
   return (
@@ -64,10 +134,15 @@ export default function BookmarkListScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {bookmarks.length > 0 ? (
+          {isLoading ? (
+            <View style={styles.emptyBox}>
+              <ActivityIndicator size="small" color={COLORS.yellow} />
+              <Text style={styles.emptyTitle}>북마크를 불러오는 중이에요</Text>
+            </View>
+          ) : bookmarks.length > 0 ? (
             bookmarks.map((item) => (
               <Pressable
-                key={item.id}
+                key={String(item.bookmarkId)}
                 style={({ pressed, hovered }) => [
                   styles.card,
                   (pressed || hovered) && styles.cardHover,
@@ -86,8 +161,8 @@ export default function BookmarkListScreen() {
                   <Text style={styles.title}>{item.title}</Text>
 
                   <Text style={styles.sellerName} numberOfLines={1}>
-                    {item.sellerName}
-                    {item.groupName ? ` · ${item.groupName}` : ""}
+                    {item.nickname}
+                    {item.idolName ? ` · ${item.idolName}` : ""}
                   </Text>
                 </View>
 
@@ -98,8 +173,9 @@ export default function BookmarkListScreen() {
                   ]}
                   onPress={(event) => {
                     event.stopPropagation();
-                    removeBookmark(item.id);
+                    handleRemoveBookmark(item);
                   }}
+                  disabled={removingId === item.bookmarkId}
                   hitSlop={10}
                 >
                   <Ionicons name="bookmark" size={22} color={COLORS.yellow} />
@@ -114,12 +190,44 @@ export default function BookmarkListScreen() {
                 color={COLORS.gray400}
               />
               <Text style={styles.emptyTitle}>저장한 북마크가 없어요</Text>
+              {!!errorMessage && (
+                <Text style={styles.errorText}>{errorMessage}</Text>
+              )}
             </View>
           )}
         </ScrollView>
       </View>
     </SafeAreaView>
   );
+}
+
+function normalizePostStatus(status: string) {
+  if (status === "COMPLETED" || status === "CLOSED" || status === "모집완료") {
+    return "모집완료";
+  }
+
+  return "모집중";
+}
+
+function normalizeMemberStatus(status: string) {
+  if (status === "COMPLETED" || status === "모집완료") return "모집완료";
+  if (status === "RESERVED" || status === "예약중") return "예약중";
+  return "모집중";
+}
+
+function formatTime(createdAt: string) {
+  if (!createdAt) return "";
+
+  const created = new Date(createdAt);
+  const now = new Date();
+  const diff = Math.floor((now.getTime() - created.getTime()) / 1000 / 60);
+
+  if (Number.isNaN(diff)) return "";
+  if (diff < 1) return "방금 전";
+  if (diff < 60) return `${diff}분 전`;
+  if (diff < 1440) return `${Math.floor(diff / 60)}시간 전`;
+
+  return `${Math.floor(diff / 1440)}일 전`;
 }
 
 const styles = StyleSheet.create({
@@ -243,4 +351,12 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
 
+  errorText: {
+    marginTop: 4,
+    fontSize: 12,
+    fontWeight: "600",
+    color: COLORS.gray500,
+    textAlign: "center",
+    lineHeight: 18,
+  },
 });

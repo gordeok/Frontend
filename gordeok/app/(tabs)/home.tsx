@@ -14,7 +14,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useDividePosts, DividePost } from "@/contexts/DividePostContext";
+import { getPosts } from "@/services/post";
+import type { PostListItem } from "@/types/post";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -196,11 +197,30 @@ const MEMBER_BOX_WIDTH = (SCREEN_WIDTH - 44 - 32 - MEMBER_GAP * 2) / 3;
 const FAVORITE_GROUPS_KEY = "GO_REUDEOK_FAVORITE_GROUPS";
 const FAVORITE_MEMBERS_KEY = "GO_REUDEOK_FAVORITE_MEMBERS";
 
+type DisplayPost = {
+  id: string;
+  groupId: string;
+  groupName: string;
+  userName: string;
+  title: string;
+  albumName: string;
+  time: string;
+  date: string;
+  status: string;
+  completed: boolean;
+  content: string;
+  components: string[];
+  deliveryMethod: string;
+  members: {
+    name: string;
+    state: string;
+    price: number;
+  }[];
+};
+
 export default function HomeScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { posts: createdPosts } = useDividePosts();
-
   const routeGroupParam =
     typeof params.groups === "string" && params.groups.length > 0
       ? params.groups
@@ -289,6 +309,10 @@ export default function HomeScreen() {
     string | null
   >(null);
 
+  const [apiPosts, setApiPosts] = useState<PostListItem[]>([]);
+  const [isPostsLoading, setIsPostsLoading] = useState(false);
+  const [postError, setPostError] = useState("");
+
   useEffect(() => {
     if (selectedGroups.length === 1) {
       setSelectedGroupId(selectedGroups[0].id);
@@ -304,24 +328,54 @@ export default function HomeScreen() {
     }
   }, [selectedGroups, selectedGroupId]);
 
+  useEffect(() => {
+    const loadPosts = async () => {
+      try {
+        setIsPostsLoading(true);
+        setPostError("");
+
+        const selectedGroup = selectedGroups.find(
+          (group) => group.id === selectedGroupId
+        );
+
+        const response = await getPosts({
+          page: 0,
+          size: 20,
+          sort: "latest",
+          idolName: selectedGroup?.displayName,
+        });
+
+        const list = Array.isArray(response) ? response : response.content;
+
+        setApiPosts(list ?? []);
+      } catch (error) {
+        console.log("게시글 조회 실패:", error);
+        setApiPosts([]);
+        setPostError("게시글을 불러오지 못했어요");
+      } finally {
+        setIsPostsLoading(false);
+      }
+    };
+
+    if (selectedGroups.length > 0) {
+      loadPosts();
+    } else {
+      setApiPosts([]);
+    }
+  }, [selectedGroups, selectedGroupId]);
+
   const posts = useMemo(() => {
-    const defaultPosts = makePosts(selectedGroups);
-    const createdDisplayPosts = normalizeCreatedPosts(
-      createdPosts,
-      selectedGroups
-    );
+    return normalizeApiPosts(apiPosts, selectedGroups);
+  }, [selectedGroups, apiPosts]);
 
-    return [...createdDisplayPosts, ...defaultPosts];
-  }, [createdPosts, selectedGroups]);
-
-  const filteredPosts = posts.filter((post) => {
+  const filteredPosts: DisplayPost[] = posts.filter((post) => {
     const matchesGroup = selectedGroupId
       ? post.groupId === selectedGroupId
       : true;
 
     const matchesFavoriteMember = selectedFavoriteMember
       ? post.members.some(
-          (member: any) =>
+          (member) =>
             member.name === selectedFavoriteMember && member.state === "모집중"
         )
       : true;
@@ -561,22 +615,28 @@ export default function HomeScreen() {
               </View>
 
               <View style={styles.postList}>
-                {filteredPosts.length === 0 ? (
+                {isPostsLoading ? (
                   <View style={styles.noPostBox}>
-                    <Text style={styles.noPostTitle}>
-                      모집중인 분철 글이 없어요
-                    </Text>
+                    <Text style={styles.noPostTitle}>분철 글을 불러오는 중이에요</Text>
+                  </View>
+                ) : postError ? (
+                  <View style={styles.noPostBox}>
+                    <Text style={styles.noPostTitle}>{postError}</Text>
+                  </View>
+                ) : filteredPosts.length === 0 ? (
+                  <View style={styles.noPostBox}>
+                    <Text style={styles.noPostTitle}>모집중인 분철 글이 없어요</Text>
                   </View>
                 ) : (
                   filteredPosts.map((post) => (
                     <PostCard
-                      key={post.id}
+                      key={String(post.id)}
                       post={post}
                       onPress={() =>
                         router.push({
                           pathname: "/divide-detail",
                           params: {
-                            postId: post.id,
+                            postId: String(post.id),
                             postData: JSON.stringify(post),
                             groups: groupParam,
                             members: memberParam,
@@ -611,196 +671,79 @@ export default function HomeScreen() {
   );
 }
 
-function normalizeCreatedPosts(createdPosts: DividePost[], selectedGroups: any[]) {
-  return createdPosts
-    .map((post) => {
-      const matchedGroup = selectedGroups.find(
-        (group) =>
-          group.id === post.groupId ||
-          group.displayName === post.groupName ||
-          group.name === post.groupName
-      );
+function normalizeApiPosts(
+  apiPosts: PostListItem[],
+  selectedGroups: typeof idolData
+): DisplayPost[] {
+  return apiPosts.reduce<DisplayPost[]>((result, post) => {
+    const matchedGroup = selectedGroups.find(
+      (group) =>
+        group.displayName === post.idolName ||
+        group.name === post.idolName ||
+        group.id === post.idolName
+    );
 
-      if (!matchedGroup) return null;
+    if (!matchedGroup) return result;
 
-      return {
-        id: `created-${post.id}`,
-        groupId: matchedGroup.id,
-        groupName: matchedGroup.displayName,
-        userName: "나",
-        title: post.title,
-        albumName: post.albumName || "직접 등록한 분철",
-        time: post.createdAt,
-        date: post.createdDate || "",
-        status: "모집중",
-        completed: false,
-        content: post.content || "",
-        components: post.components || [],
-        deliveryMethod:
-          post.deliveryMethod === "GS"
-            ? "GS 반값택배"
-            : post.deliveryMethod === "CU"
-            ? "CU 반값택배"
-            : post.deliveryMethod,
-        members: post.members.map((member) => ({
-          name: member.name,
-          state: member.status ?? "모집중",
-          price: member.price,
-        })),
-      };
-    })
-    .filter(Boolean);
-}
-
-function makePosts(groups: any[]) {
-  const posts: any[] = [];
-
-  groups.forEach((group, groupIndex) => {
-    const favorite = group.favorites[0] ?? group.members[0];
-
-    posts.push({
-      id: `${group.id}-1`,
-      groupId: group.id,
-      groupName: group.displayName,
-      userName: `${favorite}맘`,
-      title: `${group.displayName} 새 앨범 분철`,
-      albumName: getAlbumName(group.id),
-      time: groupIndex === 0 ? "3분 전" : "8분 전",
-      date: "2025.05.11",
-      status: "마감임박",
-      completed: false,
-      content: "덤 많이 드려요.\n재배송비는 추후 분납 예정입니다.",
-      components: ["앨범 본체", "엽서", "포스터"],
-      deliveryMethod: "CU 반값택배",
-      members: group.members.map((member: string, index: number) => ({
-        name: member,
-        state: index === 0 ? "모집중" : index <= 2 ? "예약중" : "모집완료",
-        price: getPrice(group.id, index),
+    result.push({
+      id: String(post.id),
+      groupId: matchedGroup.id,
+      groupName: post.idolName,
+      userName: post.nickname || "알 수 없음",
+      title: post.title || "제목 없음",
+      albumName: post.albumName || "",
+      time: formatTime(post.createdAt),
+      date: post.createdAt?.slice(0, 10) ?? "",
+      status: getPostStatus(post.status, post.almostFull),
+      completed:
+        post.status === "COMPLETED" ||
+        post.status === "CLOSED" ||
+        post.status === "모집완료",
+      content: post.description || "",
+      components: post.components || [],
+      deliveryMethod: post.shippingFeeType || "",
+      members: (post.memberItems || []).map((member) => ({
+        name: member.memberName,
+        state: getMemberStatus(member.status),
+        price: member.price,
       })),
     });
 
-    posts.push({
-      id: `${group.id}-2`,
-      groupId: group.id,
-      groupName: group.displayName,
-      userName: `${group.displayName}러버`,
-      title: `${group.displayName} 포카 특전 분철`,
-      albumName: getSecondAlbumName(group.id),
-      time: groupIndex === 0 ? "12분 전" : "18분 전",
-      date: "2025.05.13",
-      status: "모집중",
-      completed: false,
-      content: "포카 특전 위주로 분철합니다.\n하자 확인 후 보내드려요.",
-      components: ["포카", "특전", "앨범 본체"],
-      deliveryMethod: "GS 반값택배",
-      members: group.members.map((member: string, index: number) => ({
-        name: member,
-        state: index <= 2 ? "모집중" : index === 3 ? "예약중" : "모집완료",
-        price: getPrice(group.id, index) + 1000,
-      })),
-    });
-
-    posts.push({
-      id: `${group.id}-3`,
-      groupId: group.id,
-      groupName: group.displayName,
-      userName: `${group.shortName}_분철`,
-      title: `${group.displayName} 럭드 분철`,
-      albumName: "럭키드로우 특전",
-      time: "25분 전",
-      date: "2025.05.15",
-      status: "모집완료",
-      completed: true,
-      content: "럭키드로우 특전 분철 완료되었습니다.",
-      components: ["럭키드로우 특전"],
-      deliveryMethod: "일반택배",
-      members: group.members.slice(0, 6).map((member: string, index: number) => ({
-        name: member,
-        state: "모집완료",
-        price: getPrice(group.id, index),
-      })),
-    });
-  });
-
-  return posts;
+    return result;
+  }, []);
 }
 
-function getAlbumName(groupId: string) {
-  const albumMap: Record<string, string> = {
-    boynextdoor: "No Genre",
-    txt: "The Star Chapter",
-    bts: "Proof",
-    straykids: "ATE",
-    seventeen: "SEVENTEENTH HEAVEN",
-    nct: "Golden Age",
-    enhypen: "ROMANCE : UNTOLD",
-    ive: "IVE SWITCH",
-    aespa: "Armageddon",
-    newjeans: "Get Up",
-    zerobaseone: "You had me at HELLO",
-    riize: "RIIZING",
-    theboyz: "PHANTASY",
-    stayc: "TEENFRESH",
-    le_sserafim: "EASY",
-    monstax: "REASON",
-    exo: "EXIST",
-    twice: "With YOU-th",
-    itzy: "BORN TO BE",
-  };
+function getPostStatus(status: string, almostFull: boolean) {
+  if (status === "COMPLETED" || status === "CLOSED" || status === "모집완료") {
+    return "모집완료";
+  }
 
-  return albumMap[groupId] ?? "새 앨범";
+  if (almostFull) {
+    return "마감임박";
+  }
+
+  return "모집중";
 }
 
-function getSecondAlbumName(groupId: string) {
-  const albumMap: Record<string, string> = {
-    boynextdoor: "HOW?",
-    txt: "minisode 3",
-    bts: "BE",
-    straykids: "樂-STAR",
-    seventeen: "FML",
-    nct: "Fact Check",
-    enhypen: "ORANGE BLOOD",
-    ive: "I'VE MINE",
-    aespa: "Drama",
-    newjeans: "OMG",
-    zerobaseone: "MELTING POINT",
-    riize: "Get A Guitar",
-    theboyz: "BE AWAKE",
-    stayc: "YOUNG-LUV.COM",
-    le_sserafim: "CRAZY",
-    monstax: "SHAPE of LOVE",
-    exo: "DON'T FIGHT THE FEELING",
-    twice: "READY TO BE",
-    itzy: "KILL MY DOUBT",
-  };
-
-  return albumMap[groupId] ?? "포카 특전";
+function getMemberStatus(status: string) {
+  if (status === "COMPLETED" || status === "모집완료") return "모집완료";
+  if (status === "RESERVED" || status === "예약중") return "예약중";
+  return "모집중";
 }
 
-function getPrice(groupId: string, index: number) {
-  const basePriceMap: Record<string, number> = {
-    boynextdoor: 8000,
-    txt: 8500,
-    bts: 10000,
-    straykids: 8000,
-    seventeen: 8000,
-    nct: 8500,
-    enhypen: 8500,
-    ive: 9000,
-    aespa: 9000,
-    newjeans: 9500,
-    zerobaseone: 8500,
-    riize: 8500,
-    theboyz: 7500,
-    stayc: 7500,
-    le_sserafim: 9000,
-    monstax: 8000,
-    exo: 8500,
-    twice: 8000,
-    itzy: 7500,
-  };
+function formatTime(createdAt: string) {
+  if (!createdAt) return "";
 
-  return (basePriceMap[groupId] ?? 8000) + (index % 2) * 500;
+  const created = new Date(createdAt);
+  const now = new Date();
+  const diff = Math.floor((now.getTime() - created.getTime()) / 1000 / 60);
+
+  if (Number.isNaN(diff)) return "";
+  if (diff < 1) return "방금 전";
+  if (diff < 60) return `${diff}분 전`;
+  if (diff < 1440) return `${Math.floor(diff / 60)}시간 전`;
+
+  return `${Math.floor(diff / 1440)}일 전`;
 }
 
 function PostCard({

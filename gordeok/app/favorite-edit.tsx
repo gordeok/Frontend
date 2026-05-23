@@ -4,6 +4,7 @@ import { View, Text, Pressable, StyleSheet, ScrollView } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
+import { saveFavoriteMembers } from "../services/user";
 
 const idolData = [
   {
@@ -113,6 +114,46 @@ const idolData = [
   },
 ];
 
+const IDOL_API_ID_MAP: Record<string, number> = {
+  boynextdoor: 1,
+  txt: 2,
+  bts: 3,
+  straykids: 4,
+  seventeen: 5,
+  nct: 6,
+  enhypen: 7,
+  ive: 8,
+  aespa: 9,
+  newjeans: 10,
+  zerobaseone: 11,
+  riize: 12,
+  theboyz: 13,
+  stayc: 14,
+  le_sserafim: 15,
+  monstax: 16,
+  exo: 17,
+  sf9: 18,
+  pentagon: 19,
+  twice: 20,
+  itzy: 21,
+};
+
+function toApiIdolIds(groupIds: string[]) {
+  return groupIds
+    .map((groupId) => IDOL_API_ID_MAP[groupId])
+    .filter((id): id is number => typeof id === "number");
+}
+
+function toApiMemberIds(memberIds: string[]) {
+  const allMembers = idolData.flatMap((group) =>
+    group.members.map((member) => `${group.id}-${member}`)
+  );
+
+  return memberIds
+    .map((memberId) => allMembers.indexOf(memberId) + 1)
+    .filter((id) => id > 0);
+}
+
 export default function FavoriteEditScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -154,14 +195,22 @@ export default function FavoriteEditScreen() {
     router.back();
   };
 
-  const handleConfirm = () => {
-    router.replace({
-      pathname: "/(tabs)/home",
-      params: {
-        groups: selectedGroupIds.join(","),
-        members: selectedMembers.join(","),
-      },
-    } as any);
+  const handleConfirm = async () => {
+    try {
+      await saveFavoriteMembers({
+        memberIds: toApiMemberIds(selectedMembers),
+      });
+    } catch (error) {
+      console.log("최애 멤버 저장 실패 또는 백엔드 미연결:", error);
+    } finally {
+      router.replace({
+        pathname: "/(tabs)/home",
+        params: {
+          groups: selectedGroupIds.join(","),
+          members: selectedMembers.join(","),
+        },
+      } as any);
+    }
   };
 
   return (

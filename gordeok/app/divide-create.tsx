@@ -12,7 +12,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useEffect, useMemo, useState } from "react";
-import { useDividePosts } from "@/contexts/DividePostContext";
+import { createPost } from "../services/post";
+import { getIdolMembers, getIdols } from "../services/idol";
 
 type AiStatus = "idle" | "analyzing" | "done" | "error";
 type SourceStatus = "none" | "ai" | "edited" | "manual";
@@ -34,74 +35,33 @@ type AiAnalyzeResult = {
   groupSuggestion: Group;
 };
 
-const MOCK_GROUPS: Group[] = [
-  { id: 1, name: "에스파" },
-  { id: 2, name: "뉴진스" },
-  { id: 3, name: "아이브" },
-  { id: 4, name: "투모로우바이투게더" },
-];
-
-const MOCK_MEMBERS: Record<number, Member[]> = {
-  1: [
-    { id: 1, name: "카리나", initial: "카", price: "" },
-    { id: 2, name: "윈터", initial: "윈", price: "" },
-    { id: 3, name: "지젤", initial: "지", price: "" },
-    { id: 4, name: "닝닝", initial: "닝", price: "" },
-  ],
-  2: [
-    { id: 1, name: "민지", initial: "민", price: "" },
-    { id: 2, name: "하니", initial: "하", price: "" },
-    { id: 3, name: "다니엘", initial: "다", price: "" },
-    { id: 4, name: "해린", initial: "해", price: "" },
-    { id: 5, name: "혜인", initial: "혜", price: "" },
-  ],
-  3: [
-    { id: 1, name: "안유진", initial: "안", price: "" },
-    { id: 2, name: "가을", initial: "가", price: "" },
-    { id: 3, name: "레이", initial: "레", price: "" },
-    { id: 4, name: "장원영", initial: "장", price: "" },
-    { id: 5, name: "리즈", initial: "리", price: "" },
-    { id: 6, name: "이서", initial: "이", price: "" },
-  ],
-  4: [
-    { id: 1, name: "수빈", initial: "수", price: "" },
-    { id: 2, name: "연준", initial: "연", price: "" },
-    { id: 3, name: "범규", initial: "범", price: "" },
-    { id: 4, name: "태현", initial: "태", price: "" },
-    { id: 5, name: "휴닝카이", initial: "휴", price: "" },
-  ],
-};
-
 async function analyzeDivideImage(): Promise<AiAnalyzeResult> {
-  await new Promise((resolve) => setTimeout(resolve, 900));
-
-  return {
-    titleSuggestion: "aespa - Armageddon 분철",
-    groupSuggestion: { id: 1, name: "에스파" },
-  };
+  throw new Error("이미지 파일 선택 기능 연결 후 사용할 수 있습니다.");
 }
 
 async function searchGroups(keyword: string): Promise<Group[]> {
-  await new Promise((resolve) => setTimeout(resolve, 180));
+  const result = await getIdols(keyword);
 
-  if (!keyword.trim()) return [];
-
-  return MOCK_GROUPS.filter((group) =>
-    group.name.toLowerCase().includes(keyword.trim().toLowerCase())
-  );
+  return result.map((idol) => ({
+    id: idol.id,
+    name: idol.name,
+  }));
 }
 
 async function fetchGroupMembers(groupId: number): Promise<Member[]> {
-  await new Promise((resolve) => setTimeout(resolve, 250));
+  const result = await getIdolMembers(groupId);
 
-  return MOCK_MEMBERS[groupId] ?? [];
+  return result.map((member) => ({
+    id: member.id,
+    name: member.name,
+    initial: member.name.slice(0, 1),
+    price: "",
+  }));
 }
 
 export default function DivideCreate() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { addPost } = useDividePosts();
-
   const groupParam =
     typeof params.groups === "string" && params.groups.length > 0
       ? params.groups
@@ -326,36 +286,38 @@ export default function DivideCreate() {
     setComponents((prev) => prev.filter((component) => component !== item));
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!isButtonActive || deliveryMethod === null) return;
 
-    setIsSubmitting(true);
+    try {
+      setIsSubmitting(true);
 
-    addPost({
-      title,
-      groupName,
-      deliveryMethod,
-      members: members.map((member) => ({
-        id: member.id,
-        name: member.name,
-        initial: member.initial,
-        price: Number(member.price.replace(/,/g, "")),
-        status: "모집중",
-      })),
-      components,
-      content,
-      photoCount,
-    });
+      await createPost({
+        title: title.trim(),
+        description: content.trim(),
+        imageUrl: "",
+        idolName: groupName.trim(),
+        albumName: "",
+        components,
+        shippingFeeType: deliveryMethod,
+        memberItems: members.map((member) => ({
+          memberName: member.name,
+          price: Number(member.price.replace(/,/g, "")),
+        })),
+      });
 
-    setIsSubmitting(false);
-
-    router.replace({
-      pathname: "/(tabs)/home",
-      params: {
-        groups: groupParam,
-        members: memberParam,
-      },
-    } as any);
+      router.replace({
+        pathname: "/(tabs)/home",
+        params: {
+          groups: groupParam,
+          members: memberParam,
+        },
+      } as any);
+    } catch (error) {
+      console.log("게시글 등록 실패:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (

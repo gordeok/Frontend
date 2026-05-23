@@ -1,24 +1,98 @@
 // 회원가입 화면
 
-import { View, Text, StyleSheet } from "react-native";
+import { useState } from "react";
+import { Alert, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+
 import AppInput from "@/components/common/AppInput";
 import AppButton from "@/components/common/AppButton";
+import { signup } from "@/services/auth";
 
 export default function SignupScreen() {
   const router = useRouter();
+
+  const [nickname, setNickname] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [passwordConfirm, setPasswordConfirm] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleSignup = async () => {
+    if (
+      !nickname.trim() ||
+      !email.trim() ||
+      !password.trim() ||
+      !passwordConfirm.trim()
+    ) {
+      Alert.alert("입력 확인", "모든 항목을 입력해주세요.");
+      return;
+    }
+
+    if (password !== passwordConfirm) {
+      Alert.alert("입력 확인", "비밀번호가 일치하지 않습니다.");
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+
+      const data = await signup({
+        nickname: nickname.trim(),
+        email: email.trim(),
+        password,
+        passwordConfirm,
+      });
+
+      Alert.alert("회원가입 성공", data.message || "가입이 완료되었습니다.");
+      router.push("/onboarding/favorite-groups" as any);
+    } catch (error: any) {
+      Alert.alert(
+        "회원가입 실패",
+        error.message || "회원가입 중 오류가 발생했습니다."
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <View style={styles.container}>
       <Text style={styles.logo}>로고</Text>
 
       <View style={styles.form}>
-        <AppInput placeholder="이름" />
-        <AppInput placeholder="아이디" />
-        <AppInput placeholder="비밀번호" secureTextEntry />
-        <AppInput placeholder="비밀번호 확인" secureTextEntry />
+        <AppInput
+          placeholder="닉네임"
+          value={nickname}
+          onChangeText={setNickname}
+        />
 
-        <AppButton title="가입하기" onPress={() => router.push("/onboarding/favorite-groups" as any)} />
+        <AppInput
+          placeholder="이메일"
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          keyboardType="email-address"
+        />
+
+        <AppInput
+          placeholder="비밀번호"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
+        />
+
+        <AppInput
+          placeholder="비밀번호 확인"
+          value={passwordConfirm}
+          onChangeText={setPasswordConfirm}
+          secureTextEntry
+        />
+
+        <AppButton
+          title={isLoading ? "가입 중..." : "가입하기"}
+          onPress={handleSignup}
+          disabled={isLoading}
+        />
       </View>
     </View>
   );
