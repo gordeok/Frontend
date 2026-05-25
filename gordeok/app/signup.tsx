@@ -52,7 +52,6 @@ export default function SignupScreen() {
       const savedUserId = await AsyncStorage.getItem("userId");
       console.log("저장된 userId:", savedUserId);
 
-      Alert.alert("회원가입 성공", data.message || "가입이 완료되었습니다.");
       router.push("/onboarding/favorite-groups" as any);
     } catch (error: any) {
       Alert.alert(

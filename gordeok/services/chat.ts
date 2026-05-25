@@ -300,9 +300,9 @@ export async function getBuyerInfo(
 }
 
 export async function completeChatRoom(chatRoomId: number | string) {
-  return apiRequest<void>(`/api/chat-rooms/${chatRoomId}/complete`, {
-    method: "PATCH",
-  });
+    return apiRequest<void>(`/api/chat-rooms/${chatRoomId}/complete`, {
+      method: "PATCH",
+    });
 }
 
 export async function cancelChatRoom(chatRoomId: number | string) {
@@ -354,3 +354,4 @@ export async function leaveChatRoom(chatRoomId: number | string) {
     },
   });
 }
+

@@ -184,16 +184,20 @@ function isCompletedMember(
   completedMembers: CompletedMemberItem[]
 ) {
   return completedMembers.some((item) => {
-    const samePost = String(item.postId) === String(postId);
+    const samePost = String(item?.postId) === String(postId);
 
     const sameMemberItemId =
       member.memberItemId !== undefined &&
       member.memberItemId !== null &&
-      String(item.memberItemId) === String(member.memberItemId);
+      String(item?.memberItemId) === String(member.memberItemId);
+
+    const savedMemberName = String(item?.selectedMember ?? "").trim();
+    const currentMemberName = String(member.name ?? "").trim();
 
     const sameMemberName =
-      item.selectedMember &&
-      String(item.selectedMember) === String(member.name);
+      savedMemberName.length > 0 &&
+      currentMemberName.length > 0 &&
+      savedMemberName === currentMemberName;
 
     return samePost && (sameMemberItemId || sameMemberName);
   });

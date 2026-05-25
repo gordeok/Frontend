@@ -73,7 +73,7 @@ export default function LoginScreen() {
         />
 
         <AppButton
-          title={isLoading ? "로그인 중..." : "로그인"}
+          title={isLoading ? "로그인" : "로그인"}
           onPress={handleLogin}
           disabled={isLoading}
         />

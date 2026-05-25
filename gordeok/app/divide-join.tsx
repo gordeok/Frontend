@@ -1,5 +1,8 @@
 // 분철 참여글 작성 화면
 
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Ionicons } from "@expo/vector-icons";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -11,15 +14,29 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import { selectMemberItem } from "../services/chat";
+import { createParticipation } from "../services/post";
+import { getMyProfile } from "../services/user";
 
 const COMPLETED_MEMBER_STORAGE_KEY = "GO_REUDEOK_COMPLETED_MEMBER_ITEMS";
-const CHAT_ROOMS_STORAGE_KEY = "GO_REUDEOK_CHAT_ROOMS";
+
+type LocalChatRoom = {
+  id: string;
+  title: string;
+  lastMessage: string;
+  time: string;
+  unreadCount: number;
+  status?: string;
+  role?: string;
+  sellerName?: string;
+  buyerName?: string;
+  selectedMember?: string;
+  memberItemId?: string;
+  completedMemberCount?: number;
+  totalMemberCount?: number;
+  allMembersCompleted?: boolean;
+};
 
 export default function DivideJoin() {
   const router = useRouter();
@@ -57,21 +74,35 @@ export default function DivideJoin() {
     parsedPost?.sellerName ??
     parsedPost?.nickname ??
     parsedPost?.authorName ??
+    parsedPost?.seller?.nickname ??
     "판매자";
 
   const thumbnail =
-    parsedPost?.image ??
-    parsedPost?.imageUrl ??
-    parsedPost?.thumbnail ??
     parsedPost?.thumbnailUrl ??
+    parsedPost?.thumbnail ??
+    parsedPost?.imageUrl ??
     "";
 
+  const [myNickname, setMyNickname] = useState("");
   const [receiverName, setReceiverName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [storeName, setStoreName] = useState("");
   const [requestText, setRequestText] = useState("");
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    const loadMyProfile = async () => {
+      try {
+        const profile = await getMyProfile();
+        setMyNickname(profile.nickname ?? "");
+      } catch (error) {
+        console.log("내 프로필 조회 실패:", error);
+      }
+    };
+
+    loadMyProfile();
+  }, []);
 
   useEffect(() => {
     const showSub = Keyboard.addListener("keyboardDidShow", () => {
@@ -136,293 +167,173 @@ export default function DivideJoin() {
       response?.result?.chatroomId ??
       response?.result?.chatRoomID ??
       response?.result?.roomId ??
-      response?.result?.id ??
-      response?.data?.result?.chatRoomId ??
-      response?.data?.result?.chatroomId ??
-      response?.data?.result?.chatRoomID ??
-      response?.data?.result?.roomId ??
-      response?.data?.result?.id
+      response?.result?.id
     );
   };
 
-  const saveCompletedMember = async () => {
+  const getTotalMemberCount = () => {
+    const memberItems = parsedPost?.memberItems;
+    const members = parsedPost?.members;
+
+    if (Array.isArray(memberItems)) return memberItems.length;
+    if (Array.isArray(members)) return members.length;
+
+    return selectedMember ? 1 : 0;
+  };
+
+  const saveCompletedMemberItem = async () => {
     try {
-      if (!postId || !memberItemId) return;
-
       const saved = await AsyncStorage.getItem(COMPLETED_MEMBER_STORAGE_KEY);
-      const prev = saved ? JSON.parse(saved) : [];
+      const previous = saved ? JSON.parse(saved) : [];
 
-      const prevList = Array.isArray(prev) ? prev : [];
-
-      const newItem = {
+      const nextItem = {
         postId: String(postId),
         memberItemId: String(memberItemId),
         selectedMember,
         completedAt: new Date().toISOString(),
       };
 
-      const filtered = prevList.filter((item: any) => {
-        return !(
-          String(item.postId) === String(postId) &&
-          String(item.memberItemId) === String(memberItemId)
-        );
-      });
+      const filtered = Array.isArray(previous)
+        ? previous.filter((item) => {
+            const samePost = String(item?.postId) === String(postId);
+            const sameMemberItemId =
+              String(item?.memberItemId) === String(memberItemId);
+            const sameMemberName =
+              !!item?.selectedMember &&
+              !!selectedMember &&
+              String(item.selectedMember).trim() === selectedMember.trim();
+
+            return !(samePost && (sameMemberItemId || sameMemberName));
+          })
+        : [];
 
       await AsyncStorage.setItem(
         COMPLETED_MEMBER_STORAGE_KEY,
-        JSON.stringify([newItem, ...filtered])
+        JSON.stringify([nextItem, ...filtered])
       );
     } catch (error) {
       console.log("모집완료 상태 저장 실패:", error);
     }
   };
 
-  const isAlreadyCompletedMember = async () => {
-    try {
-      const saved = await AsyncStorage.getItem(COMPLETED_MEMBER_STORAGE_KEY);
-      const parsed = saved ? JSON.parse(saved) : [];
-
-      if (!Array.isArray(parsed)) return false;
-
-      return parsed.some((item: any) => {
-        const samePost = String(item.postId) === String(postId);
-        const sameMemberItem =
-          String(item.memberItemId) === String(memberItemId);
-        const sameMemberName =
-          selectedMember &&
-          item.selectedMember &&
-          String(item.selectedMember) === String(selectedMember);
-
-        return samePost && (sameMemberItem || sameMemberName);
-      });
-    } catch (error) {
-      console.log("참여완료 여부 확인 실패:", error);
-      return false;
-    }
-  };
-
   const saveChatRoomToList = async (chatRoomId: string) => {
     try {
-      const newRoom = {
+      const raw = await AsyncStorage.getItem("localChatRooms");
+      const previousRooms: LocalChatRoom[] = raw ? JSON.parse(raw) : [];
+
+      const totalMemberCount = getTotalMemberCount();
+      const completedMemberCount = Math.min(1, totalMemberCount);
+      const allMembersCompleted =
+        totalMemberCount > 0 && completedMemberCount >= totalMemberCount;
+
+      const nextRoom: LocalChatRoom = {
         id: String(chatRoomId),
-        chatRoomId: String(chatRoomId),
-
-        roomName: postTitle,
         title: postTitle,
-        postTitle,
-
-        opponentName: sellerName,
-        sellerName,
-        buyerName: receiverName.trim() || "나",
-
-        role: "BUYER",
-        type: "GROUP",
-        status: "progress",
-
-        postId: String(postId),
-        memberItemId: String(memberItemId),
-
-        selectedMember,
-        selectedPrice,
-
-        receiverName: receiverName.trim(),
-        phoneNumber: phoneNumber.trim(),
-        storeName: storeName.trim(),
-        requestText: requestText.trim(),
-
-        thumbnail,
-
-        lastMessage: "채팅방에 입장했습니다.",
-        lastMessageAt: new Date().toISOString(),
+        lastMessage: "분철 참여글을 작성했어요.",
+        time: "방금",
         unreadCount: 0,
+        status: allMembersCompleted ? "모집 완료" : "모집 중",
+        role: "buyer",
+        sellerName,
+        buyerName: myNickname || "",
+        selectedMember,
+        memberItemId: String(memberItemId),
+        completedMemberCount,
+        totalMemberCount,
+        allMembersCompleted,
       };
 
-      const saved = await AsyncStorage.getItem(CHAT_ROOMS_STORAGE_KEY);
-      const prevRooms = saved ? JSON.parse(saved) : [];
-
-      const prevList = Array.isArray(prevRooms) ? prevRooms : [];
-
-      const filteredRooms = prevList.filter((room: any) => {
-        const savedId = String(room.chatRoomId ?? room.id);
-        const sameRoom = savedId === String(chatRoomId);
-
-        const sameMember =
-          String(room.postId) === String(postId) &&
-          String(room.memberItemId) === String(memberItemId);
-
-        return !sameRoom && !sameMember;
-      });
-
-      const nextRooms = [newRoom, ...filteredRooms];
+      const filteredRooms = previousRooms.filter(
+        (room) => String(room.id) !== String(chatRoomId)
+      );
 
       await AsyncStorage.setItem(
-        CHAT_ROOMS_STORAGE_KEY,
-        JSON.stringify(nextRooms)
+        "localChatRooms",
+        JSON.stringify([nextRoom, ...filteredRooms])
       );
     } catch (error) {
-      console.log("채팅방 목록 저장 실패:", error);
+      console.log("로컬 채팅방 저장 실패:", error);
     }
-  };
-
-  const findSavedChatRoomId = async () => {
-    try {
-      const saved = await AsyncStorage.getItem(CHAT_ROOMS_STORAGE_KEY);
-      const parsed = saved ? JSON.parse(saved) : [];
-
-      if (!Array.isArray(parsed)) return null;
-
-      const targetRoom = parsed.find((room: any) => {
-        const samePost = String(room.postId) === String(postId);
-        const sameMemberItem =
-          String(room.memberItemId) === String(memberItemId);
-        const sameMemberName =
-          selectedMember &&
-          room.selectedMember &&
-          String(room.selectedMember) === String(selectedMember);
-
-        return samePost && (sameMemberItem || sameMemberName);
-      });
-
-      return targetRoom?.chatRoomId ?? targetRoom?.id ?? null;
-    } catch (error) {
-      console.log("저장된 채팅방 찾기 실패:", error);
-      return null;
-    }
-  };
-
-  const goToChatRoom = (chatRoomId: string) => {
-    router.replace({
-      pathname: "/chat/[chatRoomId]",
-      params: {
-        chatRoomId: String(chatRoomId),
-
-        type: "divide",
-        role: "BUYER",
-
-        postId: String(postId),
-        memberItemId: String(memberItemId),
-
-        title: postTitle,
-        roomName: postTitle,
-
-        sellerName,
-        opponentName: sellerName,
-        buyerName: receiverName.trim() || "나",
-
-        selectedMember,
-        selectedPrice,
-
-        receiverName: receiverName.trim(),
-        phoneNumber: phoneNumber.trim(),
-        storeName: storeName.trim(),
-        requestText: requestText.trim(),
-
-        status: "모집 중",
-        reviewSubmitted: "false",
-      },
-    } as any);
-  };
-
-  const handleAlreadyJoined = async () => {
-    await saveCompletedMember();
-
-    const savedChatRoomId = await findSavedChatRoomId();
-
-    if (savedChatRoomId) {
-      goToChatRoom(String(savedChatRoomId));
-      return;
-    }
-
-    Alert.alert(
-      "이미 참여한 멤버입니다",
-      "이 멤버는 이미 참여글이 작성되어 있어요. 채팅 목록에서 해당 채팅방을 확인해 주세요.",
-      [
-        {
-          text: "확인",
-          onPress: () => {
-            router.replace("/(tabs)/chats");
-          },
-        },
-      ]
-    );
   };
 
   const handleEnterChat = async () => {
     if (!isButtonActive) return;
 
+    if (!postId || !memberItemId) {
+      Alert.alert("입력 오류", "게시글 또는 멤버 정보가 없습니다.");
+      return;
+    }
+
     try {
       setIsSubmitting(true);
 
-      if (!postId || !memberItemId) {
-        Alert.alert("입력 오류", "게시글 또는 멤버 정보가 없습니다.");
-        return;
-      }
-
-      const alreadyCompleted = await isAlreadyCompletedMember();
-
-      if (alreadyCompleted) {
-        await handleAlreadyJoined();
-        return;
-      }
-
-      const response = await selectMemberItem(memberItemId, {
-        recipientName: receiverName.trim(),
+      const body = {
+        realName: receiverName.trim(),
         phoneNumber: phoneNumber.trim(),
-        convenienceStore: storeName.trim(),
-        request: requestText.trim(),
+        storeName: storeName.trim(),
+        requestMessage: requestText.trim(),
+      };
+
+      console.log("참여글 작성 요청값:", {
+        postId,
+        memberItemId,
+        body,
       });
 
-      console.log("멤버 선택 완료 + 채팅방 생성 성공:", response);
+      const response = await createParticipation(postId, memberItemId, body);
+
+      console.log("참여글 작성 성공:", response);
 
       const chatRoomId = getChatRoomIdFromResponse(response);
 
-      console.log("찾은 chatRoomId:", chatRoomId);
-
-      await saveCompletedMember();
-
       if (!chatRoomId) {
         Alert.alert(
-          "채팅방 정보 없음",
-          "참여글은 작성됐어요. 채팅방 ID가 아직 응답에 없어서 채팅 목록에서 확인해 주세요.",
-          [
-            {
-              text: "확인",
-              onPress: () => {
-                router.replace("/(tabs)/chats");
-              },
-            },
-          ]
+          "채팅방 입장 실패",
+          "참여글은 작성됐지만 채팅방 정보를 받지 못했습니다."
         );
         return;
       }
 
+      await saveCompletedMemberItem();
       await saveChatRoomToList(String(chatRoomId));
 
-      goToChatRoom(String(chatRoomId));
+      router.replace({
+        pathname: "/chat/[chatRoomId]",
+        params: {
+          chatRoomId: String(chatRoomId),
+          role: "BUYER",
+
+          postId: String(postId),
+          memberItemId: String(memberItemId),
+
+          title: postTitle,
+          sellerName,
+          opponentName: sellerName,
+
+          buyerName: myNickname,
+          myNickname,
+          currentUserNickname: myNickname,
+
+          selectedMember,
+          selectedPrice,
+
+          receiverName: receiverName.trim(),
+          phoneNumber: phoneNumber.trim(),
+          storeName: storeName.trim(),
+          requestText: requestText.trim(),
+          requestMessage: requestText.trim(),
+
+          thumbnail,
+          status: "모집 중",
+          reviewSubmitted: "false",
+        },
+      } as any);
     } catch (error: any) {
       console.log("참여글 작성 실패:", error);
 
-      const errorMessage =
-        error?.response?.data?.message ||
-        error?.response?.data?.detail ||
-        error?.message ||
-        "";
-
-      const normalizedErrorMessage = String(errorMessage).replace(/\s/g, "");
-
-      if (
-        normalizedErrorMessage.includes("이미참여글이작성된멤버") ||
-        normalizedErrorMessage.includes("이미참여") ||
-        normalizedErrorMessage.includes("작성된멤버") ||
-        normalizedErrorMessage.includes("중복")
-      ) {
-        await handleAlreadyJoined();
-        return;
-      }
-
       Alert.alert(
         "참여글 작성 실패",
-        errorMessage || "참여글 작성 중 오류가 발생했습니다."
+        error?.message || "참여글 작성 중 오류가 발생했습니다."
       );
     } finally {
       setIsSubmitting(false);
@@ -599,7 +510,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 30,
     paddingTop: 24,
-    paddingBottom: 145,
+    paddingBottom: 135,
   },
 
   scrollContentKeyboard: {
@@ -672,13 +583,9 @@ const styles = StyleSheet.create({
   },
 
   bottomArea: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
     paddingHorizontal: 24,
-    paddingTop: 10,
-    paddingBottom: 18,
+    paddingTop: 8,
+    paddingBottom: 14,
     backgroundColor: "#FFFFFF",
     borderTopWidth: 1,
     borderTopColor: "#F1F1F1",
@@ -686,14 +593,14 @@ const styles = StyleSheet.create({
 
   notice: {
     fontSize: 11,
-    lineHeight: 16,
+    lineHeight: 15,
     color: "#999999",
     textAlign: "center",
-    marginBottom: 10,
+    marginBottom: 8,
   },
 
   joinButton: {
-    height: 52,
+    height: 50,
     borderRadius: 10,
     backgroundColor: YELLOW,
     alignItems: "center",

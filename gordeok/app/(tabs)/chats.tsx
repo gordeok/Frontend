@@ -67,7 +67,8 @@ const COLORS = {
 
 const SCREEN_PADDING = 22;
 const LEAVE_WIDTH = 88;
-const CHAT_ROOMS_STORAGE_KEY = "GO_REUDEOK_CHAT_ROOMS";
+const CHAT_ROOMS_STORAGE_KEYS = ["localChatRooms", "GO_REUDEOK_CHAT_ROOMS"];
+const REMOVED_CHAT_ROOMS_KEY = "GO_REUDEOK_REMOVED_CHAT_ROOMS";
 
 function formatChatTime(value?: string) {
   if (!value) return "";
@@ -168,13 +169,79 @@ function extractChatRooms(response: unknown): ChatRoomApiItem[] {
 
 async function loadSavedChatRooms() {
   try {
-    const saved = await AsyncStorage.getItem(CHAT_ROOMS_STORAGE_KEY);
-    const parsed = saved ? JSON.parse(saved) : [];
+    const allRooms: any[] = [];
 
-    return Array.isArray(parsed) ? parsed : [];
+    for (const key of CHAT_ROOMS_STORAGE_KEYS) {
+      const saved = await AsyncStorage.getItem(key);
+      const parsed = saved ? JSON.parse(saved) : [];
+
+      if (Array.isArray(parsed)) {
+        allRooms.push(...parsed);
+      }
+    }
+
+    const uniqueMap = new Map<string, any>();
+
+    allRooms.forEach((room) => {
+      const id = String(room?.chatRoomId ?? room?.id ?? room?.roomId ?? "");
+      if (!id) return;
+      uniqueMap.set(id, {
+        ...uniqueMap.get(id),
+        ...room,
+      });
+    });
+
+    return Array.from(uniqueMap.values());
   } catch (error) {
     console.log("로컬 채팅방 목록 불러오기 실패:", error);
     return [];
+  }
+}
+
+async function loadRemovedChatRoomIds() {
+  try {
+    const saved = await AsyncStorage.getItem(REMOVED_CHAT_ROOMS_KEY);
+    const parsed = saved ? JSON.parse(saved) : [];
+
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch (error) {
+    console.log("제거된 채팅방 목록 불러오기 실패:", error);
+    return [];
+  }
+}
+
+async function saveRemovedChatRoomId(chatRoomId: string | number) {
+  try {
+    const targetId = String(chatRoomId);
+    const previous = await loadRemovedChatRoomIds();
+    const next = Array.from(new Set([...previous, targetId]));
+
+    await AsyncStorage.setItem(REMOVED_CHAT_ROOMS_KEY, JSON.stringify(next));
+  } catch (error) {
+    console.log("제거된 채팅방 저장 실패:", error);
+  }
+}
+
+async function removeLocalChatRoom(chatRoomId: string | number) {
+  try {
+    const targetId = String(chatRoomId);
+
+    for (const key of CHAT_ROOMS_STORAGE_KEYS) {
+      const saved = await AsyncStorage.getItem(key);
+      const parsed = saved ? JSON.parse(saved) : [];
+
+      const next = Array.isArray(parsed)
+        ? parsed.filter(
+            (room) =>
+              String(room?.chatRoomId ?? room?.id ?? room?.roomId ?? "") !==
+              targetId
+          )
+        : [];
+
+      await AsyncStorage.setItem(key, JSON.stringify(next));
+    }
+  } catch (error) {
+    console.log("로컬 채팅방 제거 실패:", error);
   }
 }
 
@@ -296,8 +363,8 @@ function normalizeChatRooms(response: unknown) {
   });
 
   const divideRooms = rooms
-  .filter((room: any) => isDivideRoom(room))
-  .map<DivideRoom>((room: any, index) => {
+    .filter((room: any) => isDivideRoom(room))
+    .map<DivideRoom>((room: any, index) => {
     const roomStatus = getRoomStatus(room);
     const role = getRawRoomRole(room);
 
@@ -331,7 +398,7 @@ function normalizeChatRooms(response: unknown) {
       requestText: room.requestText || room.requestMessage || "",
     };
   })
-  .sort((a, b) => {
+    .sort((a, b) => {
     if (a.status === "done" && b.status !== "done") return 1;
     if (a.status !== "done" && b.status === "done") return -1;
     return 0;
@@ -375,13 +442,21 @@ export default function ChatsScreen() {
 
   const loadChatRooms = useCallback(async () => {
     const savedRooms = await loadSavedChatRooms();
+    const removedIds = await loadRemovedChatRoomIds();
+
+    const filterRemovedRooms = (rooms: any[]) =>
+      rooms.filter((room) => {
+        const id = String(room?.chatRoomId ?? room?.id ?? room?.roomId ?? "");
+        return !removedIds.includes(id);
+      });
 
     try {
       const response = await getChatRooms();
       console.log("채팅방 목록 API 응답:", response);
 
-      const serverRooms = extractChatRooms(response);
-      const mergedRooms = mergeRawChatRooms(savedRooms, serverRooms);
+      const serverRooms = filterRemovedRooms(extractChatRooms(response));
+      const localRooms = filterRemovedRooms(savedRooms);
+      const mergedRooms = mergeRawChatRooms(localRooms, serverRooms);
       const normalized = normalizeChatRooms(mergedRooms);
 
       setDivideRooms(normalized.divideRooms);
@@ -389,7 +464,7 @@ export default function ChatsScreen() {
     } catch (error) {
       console.log("채팅방 목록 조회 실패:", error);
 
-      const normalized = normalizeChatRooms(savedRooms);
+      const normalized = normalizeChatRooms(filterRemovedRooms(savedRooms));
 
       setDivideRooms(normalized.divideRooms);
       setNoteRooms(normalized.noteRooms);
@@ -413,6 +488,9 @@ export default function ChatsScreen() {
     removedIdRef.current = removedChatRoomId;
 
     const targetId = Number(removedChatRoomId);
+
+    saveRemovedChatRoomId(removedChatRoomId);
+    removeLocalChatRoom(removedChatRoomId);
 
     setDivideRooms((prev) => prev.filter((room) => room.id !== targetId));
     setNoteRooms((prev) => prev.filter((room) => room.id !== targetId));
@@ -494,9 +572,9 @@ export default function ChatsScreen() {
         roomName: room.title,
 
         sellerName: room.organizer,
-        opponentName: room.organizer,
+        opponentName: room.role === "seller" ? room.buyerName || "" : room.organizer,
 
-        buyerName: room.buyerName || "나",
+        buyerName: room.buyerName || "",
 
         selectedMember: room.selectedMember || "",
         selectedPrice: room.selectedPrice || "",
@@ -545,6 +623,8 @@ export default function ChatsScreen() {
           } catch (error) {
             console.log("서버 채팅방 나가기 실패:", error);
           } finally {
+            await saveRemovedChatRoomId(room.id);
+            await removeLocalChatRoom(room.id);
             setDivideRooms((prev) => prev.filter((item) => item.id !== room.id));
             closeOpenedRow();
           }
@@ -566,6 +646,8 @@ export default function ChatsScreen() {
         onPress: async () => {
           try {
             await leaveChatRoom(room.id);
+            await saveRemovedChatRoomId(room.id);
+            await removeLocalChatRoom(room.id);
             setNoteRooms((prev) => prev.filter((item) => item.id !== room.id));
             closeOpenedRow();
           } catch (error) {

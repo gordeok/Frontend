@@ -71,12 +71,26 @@ export async function createParticipation(
 ) {
   const userId = await getStoredUserId();
 
+  const body = {
+    realName: data.realName,
+    phoneNumber: data.phoneNumber,
+    storeName: data.storeName,
+    requestMessage: data.requestMessage ?? "",
+  };
+
+  console.log("참여글 작성 API 요청:", {
+    postId,
+    memberItemId,
+    userId,
+    body,
+  });
+
   return apiRequest<CreateParticipationResponse>(
     `/api/posts/${postId}/members/${memberItemId}/participations`,
     {
       method: "POST",
       query: { userId },
-      body: JSON.stringify(data),
+      body: JSON.stringify(body),
     }
   );
 }

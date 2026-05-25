@@ -610,6 +610,7 @@ function normalizeApiPosts(
           const isCompletedByLocal = isCompletedMember(
             String(postId),
             memberItemId,
+            member.memberName,
             completedMembers
           );
 
@@ -662,13 +663,18 @@ function normalizeApiPosts(
 function isCompletedMember(
   postId: string,
   memberItemId: string,
+  memberName: string,
   completedMembers: CompletedMemberItem[]
 ) {
   return completedMembers.some((item) => {
-    return (
-      String(item.postId) === String(postId) &&
-      String(item.memberItemId) === String(memberItemId)
-    );
+    const samePost = String(item.postId) === String(postId);
+    const sameMemberItemId = String(item.memberItemId) === String(memberItemId);
+    const sameMemberName =
+      !!item.selectedMember &&
+      !!memberName &&
+      String(item.selectedMember).trim() === String(memberName).trim();
+
+    return samePost && (sameMemberItemId || sameMemberName);
   });
 }
 
@@ -774,8 +780,17 @@ function getPostStatus(status: string, almostFull: boolean) {
 }
 
 function getMemberStatus(status: string) {
-  if (status === "COMPLETED" || status === "모집완료") return "모집완료";
+  if (
+    status === "COMPLETED" ||
+    status === "CLOSED" ||
+    status === "SOLD_OUT" ||
+    status === "모집완료"
+  ) {
+    return "모집완료";
+  }
+
   if (status === "RESERVED" || status === "예약중") return "예약중";
+
   return "모집중";
 }
 
