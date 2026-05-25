@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Alert, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import AppInput from "@/components/common/AppInput";
 import AppButton from "@/components/common/AppButton";
@@ -31,10 +32,15 @@ export default function LoginScreen() {
 
       console.log("로그인 성공:", data);
 
-      // 나중에 AsyncStorage 설치하면 userId 저장
-      // await AsyncStorage.setItem("userId", String(data.userId));
+      await AsyncStorage.setItem("userId", String(data.userId));
 
-      Alert.alert("로그인 성공", data.message || "로그인되었습니다.");
+      if (data.nickname) {
+        await AsyncStorage.setItem("nickname", data.nickname);
+      }
+
+      const savedUserId = await AsyncStorage.getItem("userId");
+      console.log("저장된 userId:", savedUserId);
+
       router.replace("/home" as any);
     } catch (error: any) {
       Alert.alert(

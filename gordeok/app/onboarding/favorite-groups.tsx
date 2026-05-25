@@ -67,7 +67,9 @@ export default function FavoriteGroups() {
   const goNext = async () => {
     try {
       setIsSaving(true);
-      await saveFavoriteIdols({ idolIds: selectedGroups });
+      setErrorMessage("");
+
+      await saveFavoriteIdols(selectedGroups);
 
       router.push({
         pathname: "/onboarding/favorite-members",

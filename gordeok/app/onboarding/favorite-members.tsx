@@ -87,7 +87,9 @@ export default function FavoriteMembers() {
   const goNext = async () => {
     try {
       setIsSaving(true);
-      await saveFavoriteMembers({ memberIds: selectedMembers });
+      setErrorMessage("");
+
+      await saveFavoriteMembers(selectedMembers);
 
       router.push({
         pathname: "/onboarding/complete",

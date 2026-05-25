@@ -7,13 +7,16 @@ import {
   ScrollView,
   Keyboard,
   Platform,
+  KeyboardAvoidingView,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPost } from "../services/post";
 import { getIdolMembers, getIdols } from "../services/idol";
+import { createSellerChatRoom } from "../services/chat";
 
 type AiStatus = "idle" | "analyzing" | "done" | "error";
 type SourceStatus = "none" | "ai" | "edited" | "manual";
@@ -40,28 +43,58 @@ async function analyzeDivideImage(): Promise<AiAnalyzeResult> {
 }
 
 async function searchGroups(keyword: string): Promise<Group[]> {
-  const result = await getIdols(keyword);
+  const trimmedKeyword = keyword.trim();
 
-  return result.map((idol) => ({
-    id: idol.id,
-    name: idol.name,
-  }));
+  if (trimmedKeyword.length === 0) {
+    return [];
+  }
+
+  const result = await getIdols(trimmedKeyword);
+
+  const uniqueMap = new Map<string, Group>();
+
+  result.forEach((idol) => {
+    const name = idol.name.trim();
+    const key = name.toLowerCase();
+
+    if (!uniqueMap.has(key)) {
+      uniqueMap.set(key, {
+        id: idol.id,
+        name,
+      });
+    }
+  });
+
+  return Array.from(uniqueMap.values());
 }
 
 async function fetchGroupMembers(groupId: number): Promise<Member[]> {
   const result = await getIdolMembers(groupId);
 
-  return result.map((member) => ({
-    id: member.id,
-    name: member.name,
-    initial: member.name.slice(0, 1),
-    price: "",
-  }));
+  const uniqueMap = new Map<string, Member>();
+
+  result.forEach((member) => {
+    const name = member.name.trim();
+    const key = name.toLowerCase();
+
+    if (!uniqueMap.has(key)) {
+      uniqueMap.set(key, {
+        id: member.id,
+        name,
+        initial: name.slice(0, 1),
+        price: "",
+      });
+    }
+  });
+
+  return Array.from(uniqueMap.values());
 }
 
 export default function DivideCreate() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const scrollRef = useRef<ScrollView | null>(null);
+
   const groupParam =
     typeof params.groups === "string" && params.groups.length > 0
       ? params.groups
@@ -72,7 +105,7 @@ export default function DivideCreate() {
       ? params.members
       : "";
 
-  const [photoCount, setPhotoCount] = useState(0);
+  const [photoCount] = useState(0);
 
   const [title, setTitle] = useState("");
   const [groupName, setGroupName] = useState("");
@@ -82,7 +115,9 @@ export default function DivideCreate() {
   const [components, setComponents] = useState<string[]>([]);
   const [componentText, setComponentText] = useState("");
 
-  const [deliveryMethod, setDeliveryMethod] = useState<"GS" | "CU" | null>(null);
+  const [deliveryMethod, setDeliveryMethod] = useState<"GS" | "CU" | null>(
+    null
+  );
   const [content, setContent] = useState("");
 
   const [aiStatus, setAiStatus] = useState<AiStatus>("idle");
@@ -95,6 +130,7 @@ export default function DivideCreate() {
 
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGroupLoading, setIsGroupLoading] = useState(false);
 
   const isAnalyzing = aiStatus === "analyzing";
   const isAiDone = aiStatus === "done";
@@ -122,22 +158,35 @@ export default function DivideCreate() {
   }, []);
 
   useEffect(() => {
+    const keyword = groupName.trim();
+
+    if (!isGroupFocused || selectedGroupId !== null || keyword.length === 0) {
+      setGroupSuggestions([]);
+      return;
+    }
+
     let alive = true;
 
-    const runSearch = async () => {
-      const result = await searchGroups(groupName);
+    const timer = setTimeout(async () => {
+      try {
+        const result = await searchGroups(keyword);
 
-      if (!alive) return;
+        if (!alive) return;
 
-      setGroupSuggestions(result);
-    };
+        setGroupSuggestions(result);
+      } catch (error) {
+        if (!alive) return;
 
-    runSearch();
+        console.log("그룹 검색 실패:", error);
+        setGroupSuggestions([]);
+      }
+    }, 250);
 
     return () => {
       alive = false;
+      clearTimeout(timer);
     };
-  }, [groupName]);
+  }, [groupName, isGroupFocused, selectedGroupId]);
 
   const isAllPriceFilled = useMemo(() => {
     return (
@@ -147,7 +196,6 @@ export default function DivideCreate() {
   }, [members]);
 
   const isButtonActive =
-    photoCount > 0 &&
     title.trim().length > 0 &&
     groupName.trim().length > 0 &&
     selectedGroupId !== null &&
@@ -155,7 +203,8 @@ export default function DivideCreate() {
     isAllPriceFilled &&
     deliveryMethod !== null &&
     content.trim().length > 0 &&
-    !isSubmitting;
+    !isSubmitting &&
+    !isGroupLoading;
 
   const showGroupDropdown =
     isGroupFocused && groupName.trim().length > 0 && selectedGroupId === null;
@@ -178,14 +227,23 @@ export default function DivideCreate() {
   };
 
   const applyGroup = async (group: Group, source: SourceStatus) => {
-    setSelectedGroupId(group.id);
-    setGroupName(group.name);
-    setGroupSource(source);
-    setIsGroupFocused(false);
-    Keyboard.dismiss();
+    try {
+      setIsGroupLoading(true);
+      setSelectedGroupId(group.id);
+      setGroupName(group.name);
+      setGroupSource(source);
+      setIsGroupFocused(false);
+      setGroupSuggestions([]);
+      Keyboard.dismiss();
 
-    const groupMembers = await fetchGroupMembers(group.id);
-    setMembers(groupMembers);
+      const groupMembers = await fetchGroupMembers(group.id);
+      setMembers(groupMembers);
+    } catch (error) {
+      console.log("멤버 목록 불러오기 실패:", error);
+      setMembers([]);
+    } finally {
+      setIsGroupLoading(false);
+    }
   };
 
   const handleRunAiAnalyze = async () => {
@@ -208,15 +266,7 @@ export default function DivideCreate() {
   };
 
   const handleAddPhoto = () => {
-    if (photoCount >= 5) return;
-
-    const isFirstPhoto = photoCount === 0;
-
-    setPhotoCount((prev) => prev + 1);
-
-    if (isFirstPhoto) {
-      handleRunAiAnalyze();
-    }
+    return;
   };
 
   const handleTitleFocus = () => {
@@ -254,6 +304,7 @@ export default function DivideCreate() {
     setGroupName("");
     setSelectedGroupId(null);
     setGroupSource("none");
+    setGroupSuggestions([]);
     setMembers([]);
     setIsGroupFocused(true);
   };
@@ -286,13 +337,19 @@ export default function DivideCreate() {
     setComponents((prev) => prev.filter((component) => component !== item));
   };
 
+  const handleContentFocus = () => {
+    setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }, 250);
+  };
+
   const handleSubmit = async () => {
     if (!isButtonActive || deliveryMethod === null) return;
 
     try {
       setIsSubmitting(true);
 
-      await createPost({
+      const result = await createPost({
         title: title.trim(),
         description: content.trim(),
         imageUrl: "",
@@ -306,6 +363,15 @@ export default function DivideCreate() {
         })),
       });
 
+      const createdPostId =
+        result && "postId" in result ? result.postId : null;
+
+      if (!createdPostId) {
+        throw new Error("게시글 ID를 받지 못했습니다.");
+      }
+
+      await createSellerChatRoom(createdPostId, title.trim());
+
       router.replace({
         pathname: "/(tabs)/home",
         params: {
@@ -314,7 +380,11 @@ export default function DivideCreate() {
         },
       } as any);
     } catch (error) {
-      console.log("게시글 등록 실패:", error);
+      console.log("게시글 등록 또는 판매자 채팅방 생성 실패:", error);
+      Alert.alert(
+        "등록 실패",
+        "게시글 등록 또는 채팅방 생성에 실패했어요. 다시 시도해주세요."
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -322,386 +392,422 @@ export default function DivideCreate() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Pressable
-            onPress={() => router.back()}
-            hitSlop={12}
-            style={styles.backButton}
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+      >
+        <View style={styles.container}>
+          <View style={styles.header}>
+            <Pressable
+              onPress={() => router.back()}
+              hitSlop={12}
+              style={styles.backButton}
+            >
+              <Ionicons name="chevron-back" size={25} color="#222222" />
+            </Pressable>
+
+            <Text style={styles.headerTitle}>분철 게시글 작성</Text>
+
+            <View style={styles.headerRight} />
+          </View>
+
+          <ScrollView
+            ref={scrollRef}
+            style={styles.scroll}
+            contentContainerStyle={[
+              styles.scrollContent,
+              isKeyboardVisible && styles.scrollContentKeyboard,
+            ]}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+            scrollEnabled
           >
-            <Ionicons name="chevron-back" size={25} color="#222222" />
-          </Pressable>
-
-          <Text style={styles.headerTitle}>분철 게시글 작성</Text>
-
-          <View style={styles.headerRight} />
-        </View>
-
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={[
-            styles.scrollContent,
-            isKeyboardVisible && styles.scrollContentKeyboard,
-          ]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>사진 추가 *</Text>
-              <Text style={styles.photoCount}>{photoCount} / 5</Text>
-            </View>
-
-            <View style={styles.photoRow}>
-              <Pressable style={styles.photoBox} onPress={handleAddPhoto}>
-                <Ionicons name="add" size={26} color="#A8A29E" />
-              </Pressable>
-
-              <Pressable style={styles.photoBoxEmpty} onPress={handleAddPhoto} />
-              <Pressable style={styles.photoBoxEmpty} onPress={handleAddPhoto} />
-            </View>
-
-            {(isAnalyzing || isAiDone) && (
-              <View style={[styles.aiNotice, isAiDone && styles.aiNoticeDone]}>
-                <Ionicons
-                  name={isAnalyzing ? "sparkles-outline" : "checkmark-circle"}
-                  size={14}
-                  color={isAnalyzing ? "#8C8178" : "#20B979"}
-                />
-
-                <Text
-                  style={[
-                    styles.aiNoticeText,
-                    isAiDone && styles.aiNoticeTextDone,
-                  ]}
-                >
-                  {isAnalyzing
-                    ? "사진을 분석해서 제목과 그룹을 찾는 중이에요."
-                    : "AI가 제목과 그룹을 채웠어요. 수정해도 괜찮아요."}
-                </Text>
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>사진 추가</Text>
+                <Text style={styles.photoCount}>{photoCount} / 5</Text>
               </View>
-            )}
-          </View>
 
-          <View style={styles.divider} />
-
-          <View style={styles.section}>
-            <View style={styles.labelRow}>
-              <Text style={styles.sectionTitle}>게시글 제목 *</Text>
-              {titleBadgeText.length > 0 && (
-                <Text
-                  style={[
-                    styles.stateBadge,
-                    titleSource === "edited" && styles.stateBadgeEdited,
-                  ]}
-                >
-                  {titleBadgeText}
-                </Text>
-              )}
-            </View>
-
-            <View
-              style={[
-                styles.inputWrap,
-                titleSource === "ai" && !isTitleFocused && styles.aiInputWrap,
-                isTitleFocused && styles.inputWrapFocused,
-              ]}
-            >
-              <TextInput
-                style={styles.textInput}
-                placeholder="제목을 입력해 주세요."
-                placeholderTextColor="#B4B4B4"
-                value={title}
-                onFocus={handleTitleFocus}
-                onBlur={() => setIsTitleFocused(false)}
-                onChangeText={handleTitleChange}
-              />
-
-              <Pressable style={styles.smallAssistButton} onPress={handleRunAiAnalyze}>
-                <Text style={styles.smallAssistText}>
-                  {isAnalyzing ? "인식 중" : "AI"}
-                </Text>
-              </Pressable>
-            </View>
-
-          </View>
-
-          <View style={styles.divider} />
-
-          <View style={styles.section}>
-            <View style={styles.labelRow}>
-              <Text style={styles.sectionTitle}>그룹명 *</Text>
-              {groupBadgeText.length > 0 && (
-                <Text
-                  style={[
-                    styles.stateBadge,
-                    groupSource === "edited" && styles.stateBadgeEdited,
-                    groupSource === "manual" && styles.stateBadgeManual,
-                  ]}
-                >
-                  {groupBadgeText}
-                </Text>
-              )}
-            </View>
-
-            <View
-              style={[
-                styles.inputWrap,
-                groupSource === "ai" && !isGroupFocused && styles.aiInputWrap,
-                isGroupFocused && styles.inputWrapFocused,
-              ]}
-            >
-              <Ionicons
-                name="search"
-                size={17}
-                color="#B1AAA3"
-                style={styles.searchIcon}
-              />
-
-              <TextInput
-                style={styles.groupInput}
-                placeholder="그룹명을 검색해 주세요."
-                placeholderTextColor="#B4B4B4"
-                value={groupName}
-                onFocus={handleGroupFocus}
-                onChangeText={handleGroupChange}
-              />
-
-              {groupName.length > 0 && (
-                <Pressable hitSlop={8} onPress={handleClearGroup}>
-                  <Ionicons name="close-circle" size={18} color="#C8C1BA" />
+              <View style={styles.photoRow}>
+                <Pressable style={styles.photoBox} onPress={handleAddPhoto}>
+                  <Ionicons name="add" size={26} color="#A8A29E" />
                 </Pressable>
+              </View>
+
+              {(isAnalyzing || isAiDone) && (
+                <View style={[styles.aiNotice, isAiDone && styles.aiNoticeDone]}>
+                  <Ionicons
+                    name={isAnalyzing ? "sparkles-outline" : "checkmark-circle"}
+                    size={14}
+                    color={isAnalyzing ? "#8C8178" : "#20B979"}
+                  />
+
+                  <Text
+                    style={[
+                      styles.aiNoticeText,
+                      isAiDone && styles.aiNoticeTextDone,
+                    ]}
+                  >
+                    {isAnalyzing
+                      ? "사진을 분석해서 제목과 그룹을 찾는 중이에요."
+                      : "AI가 제목과 그룹을 채웠어요. 수정해도 괜찮아요."}
+                  </Text>
+                </View>
               )}
             </View>
 
-            {showGroupDropdown && (
-              <View style={styles.groupDropdown}>
-                <Text style={styles.groupDropdownTitle}>검색 결과</Text>
+            <View style={styles.divider} />
 
-                {groupSuggestions.length > 0 ? (
-                  groupSuggestions.map((group) => (
-                    <Pressable
-                      key={group.id}
-                      onPress={() => applyGroup(group, "manual")}
-                      style={({ pressed }) => [
-                        styles.groupDropdownItem,
-                        pressed && styles.groupDropdownItemPressed,
-                      ]}
-                    >
-                      <View style={styles.groupResultLeft}>
-                        <View style={styles.groupResultIcon}>
-                          <Text style={styles.groupResultInitial}>
-                            {group.name.slice(0, 1)}
-                          </Text>
-                        </View>
-
-                        <View>
-                          <Text style={styles.groupDropdownText}>
-                            {group.name}
-                          </Text>
-                          <Text style={styles.groupDropdownSubText}>
-                            멤버 목록 불러오기
-                          </Text>
-                        </View>
-                      </View>
-
-                      <Ionicons
-                        name="chevron-forward"
-                        size={16}
-                        color="#B8B1AA"
-                      />
-                    </Pressable>
-                  ))
-                ) : (
-                  <View style={styles.groupEmptyBox}>
-                    <Ionicons name="search-outline" size={18} color="#B8B1AA" />
-                    <Text style={styles.emptyGroupText}>검색 결과가 없어요</Text>
-                  </View>
+            <View style={styles.section}>
+              <View style={styles.labelRow}>
+                <Text style={styles.sectionTitle}>게시글 제목 *</Text>
+                {titleBadgeText.length > 0 && (
+                  <Text
+                    style={[
+                      styles.stateBadge,
+                      titleSource === "edited" && styles.stateBadgeEdited,
+                    ]}
+                  >
+                    {titleBadgeText}
+                  </Text>
                 )}
               </View>
-            )}
 
-            {selectedGroupId !== null && !showGroupDropdown && (
-              <View style={styles.groupSelectedBox}>
-                <Ionicons name="checkmark-circle" size={15} color="#20B979" />
-                <Text style={styles.groupSelectedText}>
-                  선택한 그룹의 멤버 목록을 불러왔어요.
-                </Text>
+              <View
+                style={[
+                  styles.inputWrap,
+                  titleSource === "ai" && !isTitleFocused && styles.aiInputWrap,
+                  isTitleFocused && styles.inputWrapFocused,
+                ]}
+              >
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="제목을 입력해 주세요."
+                  placeholderTextColor="#B4B4B4"
+                  value={title}
+                  onFocus={handleTitleFocus}
+                  onBlur={() => setIsTitleFocused(false)}
+                  onChangeText={handleTitleChange}
+                />
+
+                <Pressable
+                  style={styles.smallAssistButton}
+                  onPress={handleRunAiAnalyze}
+                >
+                  <Text style={styles.smallAssistText}>
+                    {isAnalyzing ? "인식 중" : "AI"}
+                  </Text>
+                </Pressable>
               </View>
-            )}
+            </View>
 
-            {groupSource === "edited" && (
-              <Text style={styles.fieldHelperText}>
-                그룹명을 수정한 뒤 검색 결과에서 그룹을 선택해 주세요.
-              </Text>
-            )}
-          </View>
+            <View style={styles.divider} />
 
-          <View style={styles.divider} />
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>멤버별 가격 설정 *</Text>
-
-            {members.length === 0 ? (
-              <View style={styles.emptyMemberBox}>
-                <Text style={styles.emptyMemberText}>
-                  그룹을 선택하면 멤버 리스트가 자동으로 표시돼요.
-                </Text>
+            <View style={styles.section}>
+              <View style={styles.labelRow}>
+                <Text style={styles.sectionTitle}>그룹명 *</Text>
+                {groupBadgeText.length > 0 && (
+                  <Text
+                    style={[
+                      styles.stateBadge,
+                      groupSource === "edited" && styles.stateBadgeEdited,
+                      groupSource === "manual" && styles.stateBadgeManual,
+                    ]}
+                  >
+                    {groupBadgeText}
+                  </Text>
+                )}
               </View>
-            ) : (
-              <View style={styles.memberList}>
-                {members.map((member) => (
-                  <View key={`${selectedGroupId}-${member.id}`} style={styles.memberItem}>
-                    <View style={styles.memberLeft}>
-                      <View style={styles.memberCircle}>
-                        <Text style={styles.memberInitial}>{member.initial}</Text>
-                      </View>
-                      <Text style={styles.memberName}>{member.name}</Text>
-                    </View>
 
-                    <View style={styles.priceInputWrap}>
-                      <Text style={styles.wonText}>₩</Text>
-                      <TextInput
-                        style={styles.priceInput}
-                        placeholder="가격 입력"
-                        placeholderTextColor="#B9B1AA"
-                        keyboardType="number-pad"
-                        value={member.price}
-                        onChangeText={(text) => handlePriceChange(member.id, text)}
+              <View
+                style={[
+                  styles.inputWrap,
+                  groupSource === "ai" && !isGroupFocused && styles.aiInputWrap,
+                  isGroupFocused && styles.inputWrapFocused,
+                ]}
+              >
+                <Ionicons
+                  name="search"
+                  size={17}
+                  color="#B1AAA3"
+                  style={styles.searchIcon}
+                />
+
+                <TextInput
+                  style={styles.groupInput}
+                  placeholder="그룹명을 검색해 주세요."
+                  placeholderTextColor="#B4B4B4"
+                  value={groupName}
+                  onFocus={handleGroupFocus}
+                  onChangeText={handleGroupChange}
+                />
+
+                {groupName.length > 0 && (
+                  <Pressable hitSlop={8} onPress={handleClearGroup}>
+                    <Ionicons name="close-circle" size={18} color="#C8C1BA" />
+                  </Pressable>
+                )}
+              </View>
+
+              {showGroupDropdown && (
+                <View style={styles.groupDropdown}>
+                  <Text style={styles.groupDropdownTitle}>검색 결과</Text>
+
+                  {groupSuggestions.length > 0 ? (
+                    groupSuggestions.map((group) => (
+                      <Pressable
+                        key={group.id}
+                        onPress={() => applyGroup(group, "manual")}
+                        style={({ pressed }) => [
+                          styles.groupDropdownItem,
+                          pressed && styles.groupDropdownItemPressed,
+                        ]}
+                      >
+                        <View style={styles.groupResultLeft}>
+                          <View style={styles.groupResultIcon}>
+                            <Text style={styles.groupResultInitial}>
+                              {group.name.slice(0, 1)}
+                            </Text>
+                          </View>
+
+                          <View>
+                            <Text style={styles.groupDropdownText}>
+                              {group.name}
+                            </Text>
+                            <Text style={styles.groupDropdownSubText}>
+                              멤버 목록 불러오기
+                            </Text>
+                          </View>
+                        </View>
+
+                        <Ionicons
+                          name="chevron-forward"
+                          size={16}
+                          color="#B8B1AA"
+                        />
+                      </Pressable>
+                    ))
+                  ) : (
+                    <View style={styles.groupEmptyBox}>
+                      <Ionicons
+                        name="search-outline"
+                        size={18}
+                        color="#B8B1AA"
                       />
+                      <Text style={styles.emptyGroupText}>
+                        검색 결과가 없어요
+                      </Text>
                     </View>
+                  )}
+                </View>
+              )}
 
-                    <Pressable
-                      onPress={() => handleRemoveMember(member.id)}
-                      hitSlop={10}
-                      style={styles.removeButton}
+              {isGroupLoading && (
+                <View style={styles.groupSelectedBox}>
+                  <Ionicons name="sync-outline" size={15} color="#83776D" />
+                  <Text style={styles.groupLoadingText}>
+                    멤버 목록을 불러오는 중이에요.
+                  </Text>
+                </View>
+              )}
+
+              {selectedGroupId !== null && !showGroupDropdown && !isGroupLoading && (
+                <View style={styles.groupSelectedBox}>
+                  <Ionicons name="checkmark-circle" size={15} color="#20B979" />
+                  <Text style={styles.groupSelectedText}>
+                    선택한 그룹의 멤버 목록을 불러왔어요.
+                  </Text>
+                </View>
+              )}
+
+              {groupSource === "edited" && (
+                <Text style={styles.fieldHelperText}>
+                  그룹명을 수정한 뒤 검색 결과에서 그룹을 선택해 주세요.
+                </Text>
+              )}
+            </View>
+
+            <View style={styles.divider} />
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>멤버별 가격 설정 *</Text>
+
+              {members.length === 0 ? (
+                <View style={styles.emptyMemberBox}>
+                  <Text style={styles.emptyMemberText}>
+                    그룹을 선택하면 멤버 리스트가 자동으로 표시돼요.
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.memberList}>
+                  {members.map((member) => (
+                    <View
+                      key={`${selectedGroupId}-${member.id}`}
+                      style={styles.memberItem}
                     >
-                      <Ionicons name="close" size={22} color="#B8B1AA" />
-                    </Pressable>
-                  </View>
-                ))}
+                      <View style={styles.memberLeft}>
+                        <View style={styles.memberCircle}>
+                          <Text style={styles.memberInitial}>
+                            {member.initial}
+                          </Text>
+                        </View>
+                        <Text style={styles.memberName}>{member.name}</Text>
+                      </View>
+
+                      <View style={styles.priceInputWrap}>
+                        <Text style={styles.wonText}>₩</Text>
+                        <TextInput
+                          style={styles.priceInput}
+                          placeholder="가격 입력"
+                          placeholderTextColor="#B9B1AA"
+                          keyboardType="number-pad"
+                          value={member.price}
+                          onChangeText={(text) =>
+                            handlePriceChange(member.id, text)
+                          }
+                        />
+                      </View>
+
+                      <Pressable
+                        onPress={() => handleRemoveMember(member.id)}
+                        hitSlop={10}
+                        style={styles.removeButton}
+                      >
+                        <Ionicons name="close" size={22} color="#B8B1AA" />
+                      </Pressable>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            <View style={styles.divider} />
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>구성품 설정</Text>
+
+              <View style={styles.componentInputRow}>
+                <TextInput
+                  style={styles.componentInput}
+                  placeholder="추가 구성품 입력"
+                  placeholderTextColor="#B4B4B4"
+                  value={componentText}
+                  onChangeText={setComponentText}
+                  returnKeyType="done"
+                  onSubmitEditing={handleAddComponent}
+                />
+
+                <Pressable style={styles.addButton} onPress={handleAddComponent}>
+                  <Text style={styles.addButtonText}>추가</Text>
+                </Pressable>
               </View>
-            )}
-          </View>
 
-          <View style={styles.divider} />
+              {components.length > 0 ? (
+                <View style={styles.chipWrap}>
+                  {components.map((item) => (
+                    <View key={item} style={styles.chip}>
+                      <Text style={styles.chipText}>{item}</Text>
+                      <Pressable onPress={() => handleRemoveComponent(item)}>
+                        <Text style={styles.chipRemove}>x</Text>
+                      </Pressable>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text style={styles.emptyChipText}>추가된 구성품이 없어요.</Text>
+              )}
+            </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>구성품 설정</Text>
+            <View style={styles.divider} />
 
-            <View style={styles.componentInputRow}>
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>배송 방법 *</Text>
+
+              <View style={styles.deliveryRow}>
+                <Pressable
+                  style={[
+                    styles.deliveryButton,
+                    deliveryMethod === "GS" && styles.deliveryButtonActive,
+                  ]}
+                  onPress={() => setDeliveryMethod("GS")}
+                >
+                  <Text
+                    style={[
+                      styles.deliveryText,
+                      deliveryMethod === "GS" && styles.deliveryTextActive,
+                    ]}
+                  >
+                    GS 반값택배
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  style={[
+                    styles.deliveryButton,
+                    deliveryMethod === "CU" && styles.deliveryButtonActive,
+                  ]}
+                  onPress={() => setDeliveryMethod("CU")}
+                >
+                  <Text
+                    style={[
+                      styles.deliveryText,
+                      deliveryMethod === "CU" && styles.deliveryTextActive,
+                    ]}
+                  >
+                    CU 반값택배
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+
+            <View style={styles.divider} />
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>게시글 내용 *</Text>
+
               <TextInput
-                style={styles.componentInput}
-                placeholder="추가 구성품 입력"
+                style={styles.contentInput}
+                placeholder={
+                  "게시글 내용을 작성해주세요.\n예 ) 특이사항, 거래 시 유의사항 등"
+                }
                 placeholderTextColor="#B4B4B4"
-                value={componentText}
-                onChangeText={setComponentText}
-                returnKeyType="done"
-                onSubmitEditing={handleAddComponent}
+                multiline
+                textAlignVertical="top"
+                value={content}
+                onFocus={handleContentFocus}
+                onChangeText={setContent}
+                maxLength={500}
               />
 
-              <Pressable style={styles.addButton} onPress={handleAddComponent}>
-                <Text style={styles.addButtonText}>추가</Text>
-              </Pressable>
+              <Text style={styles.contentCount}>{content.length} / 500</Text>
             </View>
+          </ScrollView>
 
-            {components.length > 0 ? (
-              <View style={styles.chipWrap}>
-                {components.map((item) => (
-                  <View key={item} style={styles.chip}>
-                    <Text style={styles.chipText}>{item}</Text>
-                    <Pressable onPress={() => handleRemoveComponent(item)}>
-                      <Text style={styles.chipRemove}>x</Text>
-                    </Pressable>
-                  </View>
-                ))}
-              </View>
-            ) : (
-              <Text style={styles.emptyChipText}>추가된 구성품이 없어요.</Text>
-            )}
-          </View>
-
-          <View style={styles.divider} />
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>배송 방법 *</Text>
-
-            <View style={styles.deliveryRow}>
+          {!isKeyboardVisible && (
+            <View style={styles.bottomArea}>
               <Pressable
+                disabled={!isButtonActive}
                 style={[
-                  styles.deliveryButton,
-                  deliveryMethod === "GS" && styles.deliveryButtonActive,
+                  styles.submitButton,
+                  !isButtonActive && styles.submitButtonDisabled,
                 ]}
-                onPress={() => setDeliveryMethod("GS")}
+                onPress={handleSubmit}
               >
                 <Text
                   style={[
-                    styles.deliveryText,
-                    deliveryMethod === "GS" && styles.deliveryTextActive,
+                    styles.submitButtonText,
+                    !isButtonActive && styles.submitButtonTextDisabled,
                   ]}
                 >
-                  GS 반값택배
-                </Text>
-              </Pressable>
-
-              <Pressable
-                style={[
-                  styles.deliveryButton,
-                  deliveryMethod === "CU" && styles.deliveryButtonActive,
-                ]}
-                onPress={() => setDeliveryMethod("CU")}
-              >
-                <Text
-                  style={[
-                    styles.deliveryText,
-                    deliveryMethod === "CU" && styles.deliveryTextActive,
-                  ]}
-                >
-                  CU 반값택배
+                  {isSubmitting ? "등록 중..." : "분철 게시글 등록하기"}
                 </Text>
               </Pressable>
             </View>
-          </View>
-
-          <View style={styles.divider} />
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>게시글 내용 *</Text>
-
-            <TextInput
-              style={styles.contentInput}
-              placeholder={
-                "게시글 내용을 작성해주세요.\n예 ) 특이사항, 거래 시 유의사항 등"
-              }
-              placeholderTextColor="#B4B4B4"
-              multiline
-              textAlignVertical="top"
-              value={content}
-              onChangeText={setContent}
-              maxLength={500}
-            />
-
-            <Text style={styles.contentCount}>{content.length} / 500</Text>
-          </View>
-        </ScrollView>
-
-        {!isKeyboardVisible && (
-          <View style={styles.bottomArea}>
-            <Pressable
-              disabled={!isButtonActive}
-              style={[
-                styles.submitButton,
-                !isButtonActive && styles.submitButtonDisabled,
-              ]}
-              onPress={handleSubmit}
-            >
-              <Text style={styles.submitButtonText}>
-                {isSubmitting ? "등록 중..." : "분철 게시글 등록하기"}
-              </Text>
-            </Pressable>
-          </View>
-        )}
-      </View>
+          )}
+        </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -748,13 +854,13 @@ const styles = StyleSheet.create({
   },
 
   scrollContent: {
-    paddingHorizontal: 24,
-    paddingTop: 22,
-    paddingBottom: 24,
+    paddingHorizontal: 30,
+    paddingTop: 24,
+    paddingBottom: 135,
   },
 
   scrollContentKeyboard: {
-    paddingBottom: 40,
+    paddingBottom: 6,
   },
 
   section: {
@@ -823,15 +929,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#F7F5F4",
     justifyContent: "center",
     alignItems: "center",
-  },
-
-  photoBoxEmpty: {
-    width: 82,
-    height: 82,
-    borderRadius: 13,
-    borderWidth: 1,
-    borderColor: "#EEEAE7",
-    backgroundColor: "#FBFAF9",
   },
 
   aiNotice: {
@@ -1025,6 +1122,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     color: "#20996A",
+  },
+
+  groupLoadingText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#83776D",
   },
 
   emptyMemberBox: {
@@ -1234,12 +1337,16 @@ const styles = StyleSheet.create({
   },
 
   bottomArea: {
-    paddingHorizontal: 34,
-    paddingTop: 12,
-    paddingBottom: 16,
-    borderTopWidth: 1,
-    borderTopColor: "#E9E4DE",
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    paddingBottom: 14,
     backgroundColor: "#FFFFFF",
+    borderTopWidth: 1,
+    borderTopColor: "#F1F1F1",
   },
 
   submitButton: {
@@ -1257,6 +1364,10 @@ const styles = StyleSheet.create({
   submitButtonText: {
     fontSize: 16,
     fontWeight: "800",
+    color: "#FFFFFF",
+  },
+
+  submitButtonTextDisabled: {
     color: "#FFFFFF",
   },
 });

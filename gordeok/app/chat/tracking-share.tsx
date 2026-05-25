@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   Alert,
@@ -14,6 +14,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { getTrackingSetup, shareTracking } from "../../services/chat";
 
 const COLORS = {
   white: "#FFFFFF",
@@ -66,15 +67,58 @@ const buyers: Buyer[] = [
 ];
 
 export default function TrackingShareScreen() {
+  const { chatRoomId } = useLocalSearchParams<{ chatRoomId?: string }>();
+
+  const [buyerList, setBuyerList] = useState<Buyer[]>([]);
+  const [courierType, setCourierType] = useState("GS반값택배");
   const [trackingNumbers, setTrackingNumbers] = useState<
     Record<string, string>
-  >({
-    "1": "",
-    "2": "",
-    "3": "",
-  });
+  >({});
 
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const loadTrackingSetup = async () => {
+      try {
+        const response = await getTrackingSetup(chatRoomId ?? "1");
+
+        setCourierType(response.defaultCourierType || "GS반값택배");
+
+        const normalizedBuyers = response.buyers.map((buyer, index) => {
+          const colors = [
+            { color: "#DDF7EB", initialColor: "#1E8E61" },
+            { color: "#FFE0CA", initialColor: "#E0702A" },
+            { color: "#EEEEEE", initialColor: "#999999" },
+          ];
+          const profile = colors[index % colors.length];
+
+          return {
+            id: String(buyer.buyerUserId),
+            nickname: buyer.nickname,
+            member: buyer.memberName,
+            initial: buyer.nickname.slice(0, 1),
+            color: profile.color,
+            initialColor: profile.initialColor,
+          };
+        });
+
+        setBuyerList(normalizedBuyers);
+
+        setTrackingNumbers(
+          normalizedBuyers.reduce<Record<string, string>>((result, buyer) => {
+            result[buyer.id] = "";
+            return result;
+          }, {})
+        );
+      } catch (error) {
+        console.log("운송장 공유 초기 데이터 조회 실패:", error);
+        setBuyerList([]);
+        setTrackingNumbers({});
+      }
+    };
+
+    loadTrackingSetup();
+  }, [chatRoomId]);
 
   useEffect(() => {
     const showEvent =
@@ -103,15 +147,41 @@ export default function TrackingShareScreen() {
     }));
   };
 
-  const handleShare = () => {
-    const hasEmpty = buyers.some((buyer) => !trackingNumbers[buyer.id]?.trim());
+  const handleShare = async () => {
+    if (buyerList.length === 0) {
+      Alert.alert(
+        "공유할 구매자가 없어요",
+        "아직 참여자가 없어 운송장을 공유할 수 없어요."
+      );
+      return;
+    }
+
+    const hasEmpty = buyerList.some(
+      (buyer) => !trackingNumbers[buyer.id]?.trim()
+    );
 
     if (hasEmpty) {
       Alert.alert("입력 필요", "모든 구매자의 운송장 번호를 입력해주세요.");
       return;
     }
 
-    Alert.alert("공유 완료", "운송장 번호가 공유된 것처럼 처리했어요.", [
+    try {
+      await shareTracking(chatRoomId ?? "1", {
+        trackingList: buyerList.map((buyer) => ({
+          buyerUserId: Number(buyer.id),
+          courierType,
+          trackingNumber: trackingNumbers[buyer.id].trim(),
+        })),
+      });
+    } catch (error) {
+      Alert.alert(
+        "공유 실패",
+        "운송장 번호 공유에 실패했어요. 다시 시도해주세요."
+      );
+      return;
+    }
+
+    Alert.alert("공유 완료", "운송장 번호가 공유되었습니다.", [
       {
         text: "확인",
         onPress: () => router.back(),
@@ -157,57 +227,80 @@ export default function TrackingShareScreen() {
             </Text>
           </View>
 
-          {buyers.map((buyer) => (
-            <View key={buyer.id} style={styles.buyerCard}>
-              <View style={styles.buyerTop}>
-                <View
-                  style={[
-                    styles.profileCircle,
-                    { backgroundColor: buyer.color },
-                  ]}
-                >
-                  <Text
+          {buyerList.length === 0 ? (
+            <View style={styles.emptyBox}>
+
+              <Text style={styles.emptyTitle}>아직 참여자가 없어요</Text>
+
+              <Text style={styles.emptyDesc}>
+                구매자가 분철에 참여하면 이곳에서 운송장 번호를 공유할 수
+                있어요.
+              </Text>
+            </View>
+          ) : (
+            buyerList.map((buyer) => (
+              <View key={buyer.id} style={styles.buyerCard}>
+                <View style={styles.buyerTop}>
+                  <View
                     style={[
-                      styles.profileInitial,
-                      { color: buyer.initialColor },
+                      styles.profileCircle,
+                      { backgroundColor: buyer.color },
                     ]}
                   >
-                    {buyer.initial}
-                  </Text>
+                    <Text
+                      style={[
+                        styles.profileInitial,
+                        { color: buyer.initialColor },
+                      ]}
+                    >
+                      {buyer.initial}
+                    </Text>
+                  </View>
+
+                  <View style={styles.buyerTextBox}>
+                    <Text style={styles.nickname}>{buyer.nickname}</Text>
+                    <Text style={styles.memberName}>{buyer.member}</Text>
+                  </View>
                 </View>
 
-                <View style={styles.buyerTextBox}>
-                  <Text style={styles.nickname}>{buyer.nickname}</Text>
-                  <Text style={styles.memberName}>{buyer.member}</Text>
+                <View style={styles.divider} />
+
+                <View style={styles.inputBlock}>
+                  <Text style={styles.inputLabel}>운송장 번호</Text>
+
+                  <TextInput
+                    style={styles.input}
+                    value={trackingNumbers[buyer.id] ?? ""}
+                    onChangeText={(value) => handleChange(buyer.id, value)}
+                    placeholder="운송장 번호를 입력해주세요"
+                    placeholderTextColor={COLORS.gray500}
+                    returnKeyType="done"
+                  />
                 </View>
               </View>
-
-              <View style={styles.divider} />
-
-              <View style={styles.inputBlock}>
-                <Text style={styles.inputLabel}>운송장 번호</Text>
-
-                <TextInput
-                  style={styles.input}
-                  value={trackingNumbers[buyer.id] ?? ""}
-                  onChangeText={(value) => handleChange(buyer.id, value)}
-                  placeholder="운송장 번호를 입력해주세요"
-                  placeholderTextColor={COLORS.gray500}
-                  returnKeyType="done"
-                />
-              </View>
-            </View>
-          ))}
+            ))
+          )}
         </ScrollView>
 
         {!isKeyboardVisible && (
           <View style={styles.bottomButtonWrap}>
             <TouchableOpacity
-              style={styles.shareButton}
+              style={[
+                styles.shareButton,
+                buyerList.length === 0 && styles.shareButtonDisabled,
+              ]}
               activeOpacity={0.85}
               onPress={handleShare}
+              disabled={buyerList.length === 0}
             >
-              <Text style={styles.shareButtonText}>운송장 번호 공유하기</Text>
+              <Text
+                style={[
+                  styles.shareButtonText,
+                  buyerList.length === 0 && styles.shareButtonTextDisabled,
+                ]}
+              >
+                운송장 번호 공유하기
+              </Text>
             </TouchableOpacity>
           </View>
         )}
@@ -345,6 +438,36 @@ const styles = StyleSheet.create({
     color: COLORS.black,
     fontWeight: "600",
   },
+  emptyBox: {
+    minHeight: 260,
+    borderColor: COLORS.line,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 28,
+    marginTop: 75,
+  },
+  emptyIconCircle: {
+    width: 58,
+    height: 58,
+    borderRadius: 22,
+    backgroundColor: COLORS.white,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: COLORS.gray900,
+    marginBottom: 8,
+  },
+  emptyDesc: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: COLORS.gray500,
+    lineHeight: 19,
+    textAlign: "center",
+  },
   bottomButtonWrap: {
     paddingHorizontal: 24,
     paddingTop: 12,
@@ -360,9 +483,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  shareButtonDisabled: {
+    backgroundColor: COLORS.gray200,
+  },
   shareButtonText: {
     fontSize: 15,
     fontWeight: "800",
     color: COLORS.white,
+  },
+  shareButtonTextDisabled: {
+    color: COLORS.gray500,
   },
 });

@@ -1,194 +1,94 @@
 // 최애 편집 화면
 
+import { useEffect, useMemo, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ScrollView } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useState } from "react";
+import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { saveFavoriteMembers } from "../services/user";
 
-const idolData = [
-  {
-    id: "boynextdoor",
-    name: "BOYNEXTDOOR",
-    members: ["성호", "리우", "명재현", "태산", "이한", "운학"],
-  },
-  {
-    id: "txt",
-    name: "TXT",
-    members: ["연준", "수빈", "범규", "태현", "휴닝카이"],
-  },
-  {
-    id: "bts",
-    name: "BTS",
-    members: ["RM", "진", "슈가", "제이홉", "지민", "뷔", "정국"],
-  },
-  {
-    id: "straykids",
-    name: "Stray Kids",
-    members: ["방찬", "리노", "창빈", "현진", "한", "필릭스"],
-  },
-  {
-    id: "seventeen",
-    name: "SEVENTEEN",
-    members: ["에스쿱스", "정한", "조슈아", "준", "호시", "원우"],
-  },
-  {
-    id: "nct",
-    name: "NCT",
-    members: ["태용", "재현", "도영", "정우", "마크", "해찬"],
-  },
-  {
-    id: "enhypen",
-    name: "ENHYPEN",
-    members: ["정원", "희승", "제이", "제이크", "성훈", "선우"],
-  },
-  {
-    id: "ive",
-    name: "IVE",
-    members: ["안유진", "가을", "레이", "장원영", "리즈", "이서"],
-  },
-  {
-    id: "aespa",
-    name: "aespa",
-    members: ["카리나", "윈터", "지젤", "닝닝"],
-  },
-  {
-    id: "newjeans",
-    name: "NewJeans",
-    members: ["민지", "하니", "다니엘", "해린", "혜인"],
-  },
-  {
-    id: "zerobaseone",
-    name: "ZEROBASEONE",
-    members: ["성한빈", "김지웅", "장하오", "석매튜", "김태래"],
-  },
-  {
-    id: "riize",
-    name: "RIIZE",
-    members: ["쇼타로", "은석", "성찬", "원빈", "소희", "앤톤"],
-  },
-  {
-    id: "theboyz",
-    name: "THE BOYZ",
-    members: ["상연", "현재", "주연", "케빈", "선우", "에릭"],
-  },
-  {
-    id: "stayc",
-    name: "STAYC",
-    members: ["수민", "시은", "아이사", "세은", "윤", "재이"],
-  },
-  {
-    id: "le_sserafim",
-    name: "LE SSERAFIM",
-    members: ["사쿠라", "김채원", "허윤진", "카즈하", "홍은채"],
-  },
-  {
-    id: "monstax",
-    name: "MONSTA X",
-    members: ["셔누", "민혁", "기현", "형원", "주헌", "아이엠"],
-  },
-  {
-    id: "exo",
-    name: "EXO",
-    members: ["수호", "찬열", "백현", "디오", "카이", "세훈"],
-  },
-  {
-    id: "sf9",
-    name: "SF9",
-    members: ["영빈", "인성", "재윤", "다원", "로운", "찬희"],
-  },
-  {
-    id: "pentagon",
-    name: "PENTAGON",
-    members: ["후이", "진호", "홍석", "키노", "우석", "유토"],
-  },
-  {
-    id: "twice",
-    name: "TWICE",
-    members: ["나연", "정연", "모모", "사나", "지효", "쯔위"],
-  },
-  {
-    id: "itzy",
-    name: "ITZY",
-    members: ["예지", "리아", "류진", "채령", "유나"],
-  },
-];
+import { getIdolMembers } from "@/services/idol";
+import {
+  getFavoriteIdols,
+  getFavoriteMembers,
+  saveFavoriteMembers,
+} from "@/services/user";
 
-const IDOL_API_ID_MAP: Record<string, number> = {
-  boynextdoor: 1,
-  txt: 2,
-  bts: 3,
-  straykids: 4,
-  seventeen: 5,
-  nct: 6,
-  enhypen: 7,
-  ive: 8,
-  aespa: 9,
-  newjeans: 10,
-  zerobaseone: 11,
-  riize: 12,
-  theboyz: 13,
-  stayc: 14,
-  le_sserafim: 15,
-  monstax: 16,
-  exo: 17,
-  sf9: 18,
-  pentagon: 19,
-  twice: 20,
-  itzy: 21,
+type Idol = {
+  id: number;
+  name: string;
+  code: string;
 };
 
-function toApiIdolIds(groupIds: string[]) {
-  return groupIds
-    .map((groupId) => IDOL_API_ID_MAP[groupId])
-    .filter((id): id is number => typeof id === "number");
-}
+type Member = {
+  id: number;
+  idolId: number;
+  name: string;
+};
 
-function toApiMemberIds(memberIds: string[]) {
-  const allMembers = idolData.flatMap((group) =>
-    group.members.map((member) => `${group.id}-${member}`)
-  );
-
-  return memberIds
-    .map((memberId) => allMembers.indexOf(memberId) + 1)
-    .filter((id) => id > 0);
-}
+type GroupWithMembers = Idol & {
+  members: Member[];
+};
 
 export default function FavoriteEditScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams();
 
-  const groupParam =
-    typeof params.groups === "string" && params.groups.length > 0
-      ? params.groups
-      : "";
+  const [groups, setGroups] = useState<GroupWithMembers[]>([]);
+  const [selectedMembers, setSelectedMembers] = useState<number[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
 
-  const memberParam =
-    typeof params.members === "string" && params.members.length > 0
-      ? params.members
-      : "";
+  useEffect(() => {
+    const loadFavorites = async () => {
+      try {
+        setIsLoading(true);
+        setErrorMessage("");
 
-  const selectedGroupIds = groupParam.split(",").filter(Boolean);
-  const initialSelectedMembers = memberParam.split(",").filter(Boolean);
+        const favoriteIdols = await getFavoriteIdols();
+        const favoriteMembers = await getFavoriteMembers();
 
-  const selectedGroups = idolData.filter((group) =>
-    selectedGroupIds.includes(group.id)
-  );
+        setSelectedMembers(favoriteMembers.map((member) => Number(member.id)));
 
-  const [selectedMembers, setSelectedMembers] = useState<string[]>(
-    initialSelectedMembers
-  );
+        const groupsWithMembers = await Promise.all(
+          favoriteIdols.map(async (idol) => {
+            const members = await getIdolMembers(Number(idol.id));
 
-  const isConfirmEnabled = selectedMembers.length > 0;
+            return {
+              id: Number(idol.id),
+              name: idol.name,
+              code: idol.code,
+              members: Array.isArray(members) ? members : [],
+            };
+          })
+        );
 
-  const toggleMember = (memberId: string) => {
-    setSelectedMembers((prev) => {
-      if (prev.includes(memberId)) {
-        return prev.filter((id) => id !== memberId);
+        setGroups(groupsWithMembers);
+      } catch (error: any) {
+        console.log("최애 정보 조회 실패:", error);
+        setErrorMessage(error?.message || "최애 정보를 불러오지 못했습니다.");
+        setGroups([]);
+        setSelectedMembers([]);
+      } finally {
+        setIsLoading(false);
       }
+    };
 
-      return [...prev, memberId];
-    });
+    loadFavorites();
+  }, []);
+
+  const isConfirmEnabled = useMemo(() => {
+    if (groups.length === 0) return false;
+
+    return groups.every((group) =>
+      group.members.some((member) => selectedMembers.includes(Number(member.id)))
+    );
+  }, [groups, selectedMembers]);
+
+  const toggleMember = (memberId: number) => {
+    setSelectedMembers((prev) =>
+      prev.includes(memberId)
+        ? prev.filter((id) => id !== memberId)
+        : [...prev, memberId]
+    );
   };
 
   const handleCancel = () => {
@@ -197,19 +97,17 @@ export default function FavoriteEditScreen() {
 
   const handleConfirm = async () => {
     try {
-      await saveFavoriteMembers({
-        memberIds: toApiMemberIds(selectedMembers),
-      });
-    } catch (error) {
-      console.log("최애 멤버 저장 실패 또는 백엔드 미연결:", error);
+      setIsSaving(true);
+      setErrorMessage("");
+
+      await saveFavoriteMembers(selectedMembers);
+
+      router.replace("/(tabs)/home" as any);
+    } catch (error: any) {
+      console.log("최애 멤버 저장 실패:", error);
+      setErrorMessage(error?.message || "최애 멤버 저장에 실패했습니다.");
     } finally {
-      router.replace({
-        pathname: "/(tabs)/home",
-        params: {
-          groups: selectedGroupIds.join(","),
-          members: selectedMembers.join(","),
-        },
-      } as any);
+      setIsSaving(false);
     }
   };
 
@@ -229,37 +127,45 @@ export default function FavoriteEditScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {selectedGroups.map((group) => (
-          <View key={group.id} style={styles.groupSection}>
-            <Text style={styles.groupTitle}>{group.name}</Text>
+        {isLoading ? (
+          <Text style={styles.noticeText}>최애 정보를 불러오는 중이에요.</Text>
+        ) : errorMessage ? (
+          <Text style={styles.noticeText}>{errorMessage}</Text>
+        ) : groups.length === 0 ? (
+          <Text style={styles.noticeText}>선택된 최애 그룹이 없어요.</Text>
+        ) : (
+          groups.map((group) => (
+            <View key={String(group.id)} style={styles.groupSection}>
+              <Text style={styles.groupTitle}>{group.name}</Text>
 
-            <View style={styles.grid}>
-              {group.members.map((member) => {
-                const memberId = `${group.id}-${member}`;
-                const isSelected = selectedMembers.includes(memberId);
+              <View style={styles.grid}>
+                {group.members.map((member) => {
+                  const memberId = Number(member.id);
+                  const isSelected = selectedMembers.includes(memberId);
 
-                return (
-                  <Pressable
-                    key={memberId}
-                    style={[styles.card, isSelected && styles.selectedCard]}
-                    onPress={() => toggleMember(memberId)}
-                  >
-                    <View style={styles.imagePlaceholder} />
-
-                    <Text
-                      style={[
-                        styles.memberName,
-                        isSelected && styles.selectedText,
-                      ]}
+                  return (
+                    <Pressable
+                      key={String(member.id)}
+                      style={[styles.card, isSelected && styles.selectedCard]}
+                      onPress={() => toggleMember(memberId)}
                     >
-                      {member}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+                      <View style={styles.imagePlaceholder} />
+
+                      <Text
+                        style={[
+                          styles.memberName,
+                          isSelected && styles.selectedText,
+                        ]}
+                      >
+                        {member.name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
-          </View>
-        ))}
+          ))
+        )}
       </ScrollView>
 
       <View style={styles.bottom}>
@@ -270,12 +176,12 @@ export default function FavoriteEditScreen() {
         <Pressable
           style={[
             styles.confirmButton,
-            !isConfirmEnabled && styles.disabledButton,
+            (!isConfirmEnabled || isSaving) && styles.disabledButton,
           ]}
-          disabled={!isConfirmEnabled}
+          disabled={!isConfirmEnabled || isSaving}
           onPress={handleConfirm}
         >
-          <Text style={styles.confirmText}>확인</Text>
+          <Text style={styles.confirmText}>{isSaving ? "저장 중" : "확인"}</Text>
         </Pressable>
       </View>
     </View>
@@ -300,7 +206,7 @@ const styles = StyleSheet.create({
   },
 
   headerTitle: {
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: "900",
     color: "#202633",
   },
@@ -311,6 +217,13 @@ const styles = StyleSheet.create({
 
   scrollContent: {
     paddingBottom: 140,
+  },
+
+  noticeText: {
+    textAlign: "center",
+    color: "#999",
+    fontSize: 14,
+    marginTop: 36,
   },
 
   groupSection: {
@@ -327,7 +240,8 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    justifyContent: "space-between",
+    justifyContent: "flex-start",
+    gap: 17
   },
 
   card: {

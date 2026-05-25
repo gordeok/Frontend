@@ -1,4 +1,4 @@
-import { apiRequest } from "../utils/api";
+import { apiRequest, getStoredUserId } from "../utils/api";
 import type {
   CreateParticipationRequest,
   CreateParticipationResponse,
@@ -9,8 +9,6 @@ import type {
   PostPageResponse,
 } from "../types/post";
 
-const DEFAULT_USER_ID = 1;
-
 export type GetPostsParams = {
   page?: number;
   size?: number;
@@ -20,48 +18,74 @@ export type GetPostsParams = {
 };
 
 export async function getPosts(params: GetPostsParams = {}) {
-  const searchParams = new URLSearchParams();
-
-  searchParams.append("page", String(params.page ?? 0));
-  searchParams.append("size", String(params.size ?? 10));
-  searchParams.append("sort", params.sort ?? "latest");
-
-  if (params.keyword) searchParams.append("keyword", params.keyword);
-  if (params.idolName) searchParams.append("idolName", params.idolName);
-
-  return apiRequest<PostPageResponse | PostListItem[]>(
-    `/api/posts?${searchParams.toString()}`
-  );
+  return apiRequest<PostPageResponse | PostListItem[]>("/api/posts", {
+    method: "GET",
+    query: {
+      page: params.page ?? 0,
+      size: params.size ?? 10,
+      sort: params.sort ?? "latest",
+      keyword: params.keyword,
+      idolName: params.idolName,
+    },
+  });
 }
 
-export async function getPostDetail(postId: string | number, userId = DEFAULT_USER_ID) {
-  return apiRequest<PostDetailResponse>(`/api/posts/${postId}?userId=${userId}`);
+export async function getPostDetail(postId: string | number) {
+  let userId: string | null = null;
+
+  try {
+    userId = await getStoredUserId();
+  } catch {
+    userId = null;
+  }
+
+  return apiRequest<PostDetailResponse>(`/api/posts/${postId}`, {
+    method: "GET",
+    query: userId ? { userId } : undefined,
+  });
 }
 
-export async function createPost(data: CreatePostRequest, userId = DEFAULT_USER_ID) {
-  return apiRequest<CreatePostResponse>(`/api/posts?userId=${userId}`, {
+export async function createPost(data: CreatePostRequest) {
+  const userId = await getStoredUserId();
+
+  return apiRequest<CreatePostResponse>("/api/posts", {
     method: "POST",
+    query: { userId },
     body: JSON.stringify(data),
   });
 }
 
-export async function reserveMemberItem(memberItemId: string | number, buyerId = DEFAULT_USER_ID) {
-  return apiRequest<void>(`/api/member-items/${memberItemId}/reserve?buyerId=${buyerId}`, {
+export async function reserveMemberItem(memberItemId: string | number) {
+  const buyerId = await getStoredUserId();
+
+  return apiRequest<void>(`/api/member-items/${memberItemId}/reserve`, {
     method: "POST",
+    query: { buyerId },
   });
 }
 
 export async function createParticipation(
   postId: string | number,
   memberItemId: string | number,
-  data: CreateParticipationRequest,
-  userId = DEFAULT_USER_ID
+  data: CreateParticipationRequest
 ) {
+  const userId = await getStoredUserId();
+
   return apiRequest<CreateParticipationResponse>(
-    `/api/posts/${postId}/members/${memberItemId}/participations?userId=${userId}`,
+    `/api/posts/${postId}/members/${memberItemId}/participations`,
     {
       method: "POST",
+      query: { userId },
       body: JSON.stringify(data),
     }
   );
+}
+
+export async function cancelMemberItem(memberItemId: string | number) {
+  const buyerId = await getStoredUserId();
+
+  return apiRequest<void>(`/api/member-items/${memberItemId}/cancel`, {
+    method: "PATCH",
+    query: { buyerId },
+  });
 }

@@ -1,17 +1,16 @@
 // 커뮤니티 목록
 
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
-import { router, useFocusEffect } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
-import {
-  FlatList,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { router } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
+import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+import {
+  type CommunityCategory,
+  type CommunityPost,
+  getCommunityPosts,
+} from "../../services/community";
 
 const COLORS = {
   white: "#FFFFFF",
@@ -26,27 +25,16 @@ const COLORS = {
 };
 
 const SCREEN_PADDING = 22;
-const STORAGE_KEY = "communityPosts";
 
 const categories = ["전체", "포카교환", "오프동행", "질문게시판", "자유게시판"];
 
 type SortType = "latest" | "likes" | "views";
 
-type CommunityPost = {
-  id: string;
-  category: string;
-  name: string;
-  profileText: string;
-  profileColor: string;
-  time: string;
-  createdAt: number;
-  title: string;
-  content: string;
-  likes: number;
-  comments: number;
-  views: number;
-  photoCount?: number;
-};
+const sortOptions: { key: SortType; label: string }[] = [
+  { key: "latest", label: "최신순" },
+  { key: "likes", label: "좋아요순" },
+  { key: "views", label: "조회수순" },
+];
 
 const CATEGORY_BADGE_COLORS: Record<
   string,
@@ -73,6 +61,36 @@ const CATEGORY_BADGE_COLORS: Record<
   },
 };
 
+function convertCategory(category: string): CommunityCategory {
+  switch (category) {
+    case "포카교환":
+      return "PHOTO_EXCHANGE";
+    case "오프동행":
+      return "OFFLINE_COMPANION";
+    case "질문게시판":
+      return "QUESTION";
+    case "자유게시판":
+      return "FREE";
+    default:
+      return "ALL";
+  }
+}
+
+function convertCategoryLabel(category: string) {
+  switch (category) {
+    case "PHOTO_EXCHANGE":
+      return "포카교환";
+    case "OFFLINE_COMPANION":
+      return "오프동행";
+    case "QUESTION":
+      return "질문게시판";
+    case "FREE":
+      return "자유게시판";
+    default:
+      return "전체";
+  }
+}
+
 function getCategoryBadgeColor(category: string) {
   return (
     CATEGORY_BADGE_COLORS[category] ?? {
@@ -82,148 +100,61 @@ function getCategoryBadgeColor(category: string) {
   );
 }
 
-const dummyPosts: CommunityPost[] = [
-  {
-    id: "1",
-    category: "포카교환",
-    name: "범규와이프",
-    profileText: "범",
-    profileColor: "#FFF1C6",
-    time: "방금 전",
-    createdAt: 6,
-    title: "범규 포카 교환 구해요",
-    content:
-      "미니소드 럭드 범규 보유 중이고 수빈이나 연준 포카랑 교환 원해요. 상태 사진 바로 보내드릴게요.",
-    likes: 18,
-    comments: 5,
-    views: 92,
-  },
-  {
-    id: "2",
-    category: "질문게시판",
-    name: "포카초보",
-    profileText: "초",
-    profileColor: "#EAF1FF",
-    time: "12분 전",
-    createdAt: 5,
-    title: "분철 입금 전 확인할 것 알려주세요",
-    content:
-      "처음 참여하는 분철이라 인증, 후기, 입금 방식 중에서 꼭 확인해야 할 부분이 궁금해요.",
-    likes: 31,
-    comments: 14,
-    views: 208,
-  },
-  {
-    id: "3",
-    category: "오프동행",
-    name: "콘서트가자",
-    profileText: "콘",
-    profileColor: "#E8F6EE",
-    time: "35분 전",
-    createdAt: 4,
-    title: "이번 주 음악방송 같이 가실 분 있나요?",
-    content:
-      "혼자 가기 애매해서 같이 대기하고 끝나고 카페까지 갈 분 구해요. 너무 시끄러운 분위기는 아니었으면 좋겠어요.",
-    likes: 12,
-    comments: 3,
-    views: 76,
-  },
-  {
-    id: "4",
-    category: "자유게시판",
-    name: "앨깡요정",
-    profileText: "앨",
-    profileColor: "#FFE6F2",
-    time: "1시간 전",
-    createdAt: 3,
-    title: "오늘 앨범깡 결과 진짜 레전드였어요",
-    content:
-      "중복 없이 최애까지 나와서 하루 종일 기분 좋음... 다들 앨깡 성공했나요?",
-    likes: 45,
-    comments: 11,
-    views: 263,
-  },
-  {
-    id: "5",
-    category: "포카교환",
-    name: "해찬찾아요",
-    profileText: "해",
-    profileColor: "#E7FFF7",
-    time: "2시간 전",
-    createdAt: 2,
-    title: "NCT 해찬 포카 교환 가능하신 분 찾습니다",
-    content:
-      "재현 포카 여러 장 보유 중이고 해찬 위주로 교환 원합니다. 상태 사진이랑 하자 여부 먼저 공유드려요.",
-    likes: 22,
-    comments: 8,
-    views: 141,
-  },
-  {
-    id: "6",
-    category: "자유게시판",
-    name: "고르덕덕",
-    profileText: "덕",
-    profileColor: "#F0E7FF",
-    time: "3시간 전",
-    createdAt: 1,
-    title: "슬리브까지 끼워도 잘 들어가는 포카 바인더 추천해줄 사람",
-    content:
-      "기존에 쓰던 건 슬리브 끼우면 너무 빡빡해서 꺼낼 때 포카 휘어질까 봐 무서워요.",
-    likes: 16,
-    comments: 9,
-    views: 119,
-  },
-];
+function formatDate(value?: string) {
+  if (!value) return "";
 
-const sortOptions: { key: SortType; label: string }[] = [
-  { key: "latest", label: "최신순" },
-  { key: "likes", label: "좋아요순" },
-  { key: "views", label: "조회수순" },
-];
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return `${date.getMonth() + 1}.${date.getDate()}`;
+}
 
 export default function CommunityScreen() {
   const [selectedCategory, setSelectedCategory] = useState("전체");
   const [selectedSort, setSelectedSort] = useState<SortType>("latest");
-  const [savedPosts, setSavedPosts] = useState<CommunityPost[]>([]);
+  const [posts, setPosts] = useState<CommunityPost[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const loadSavedPosts = async () => {
-    try {
-      const saved = await AsyncStorage.getItem(STORAGE_KEY);
-      const parsed: CommunityPost[] = saved ? JSON.parse(saved) : [];
-      setSavedPosts(parsed);
-    } catch (error) {
-      console.log("커뮤니티 저장 글 불러오기 실패", error);
-    }
-  };
+  useEffect(() => {
+    const loadPosts = async () => {
+      try {
+        setLoading(true);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadSavedPosts();
-    }, [])
-  );
+        const response = await getCommunityPosts({
+          category: convertCategory(selectedCategory),
+          sort: selectedSort === "likes" ? "likes" : "latest",
+          page: 0,
+          size: 10,
+        });
 
-  const allPosts = useMemo(() => {
-    return [...savedPosts, ...dummyPosts];
-  }, [savedPosts]);
+        setPosts(response.content);
+      } catch (error) {
+        console.log("커뮤니티 목록 불러오기 실패", error);
+        setPosts([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadPosts();
+  }, [selectedCategory, selectedSort]);
 
   const filteredPosts = useMemo(() => {
-    const categoryFiltered =
-      selectedCategory === "전체"
-        ? allPosts
-        : allPosts.filter((post) => post.category === selectedCategory);
-
-    return [...categoryFiltered].sort((a, b) => {
+    return [...posts].sort((a, b) => {
       if (selectedSort === "likes") {
-        return b.likes - a.likes;
+        return b.likeCount - a.likeCount;
       }
 
       if (selectedSort === "views") {
-        return b.views - a.views;
+        return b.viewCount - a.viewCount;
       }
 
-      return b.createdAt - a.createdAt;
+      return 0;
     });
-  }, [allPosts, selectedCategory, selectedSort]);
+  }, [posts, selectedSort]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
@@ -264,18 +195,10 @@ export default function CommunityScreen() {
             return (
               <Pressable
                 key={option.key}
-                style={[
-                  styles.sortButton,
-                  active && styles.sortButtonActive,
-                ]}
+                style={[styles.sortButton, active && styles.sortButtonActive]}
                 onPress={() => setSelectedSort(option.key)}
               >
-                <Text
-                  style={[
-                    styles.sortText,
-                    active && styles.sortTextActive,
-                  ]}
-                >
+                <Text style={[styles.sortText, active && styles.sortTextActive]}>
                   {option.label}
                 </Text>
               </Pressable>
@@ -285,11 +208,24 @@ export default function CommunityScreen() {
 
         <FlatList
           data={filteredPosts}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
+          keyExtractor={(item) => String(item.postId)}
+          contentContainerStyle={[
+            styles.listContent,
+            filteredPosts.length === 0 && styles.emptyListContent,
+          ]}
           showsVerticalScrollIndicator={false}
+          ListEmptyComponent={
+            <View style={styles.emptyBox}>
+              <Text style={styles.emptyText}>
+                {loading
+                  ? "게시글을 불러오는 중이에요."
+                  : "게시글이 없어요."}
+              </Text>
+            </View>
+          }
           renderItem={({ item }) => {
-            const badgeColor = getCategoryBadgeColor(item.category);
+            const categoryLabel = convertCategoryLabel(item.category);
+            const badgeColor = getCategoryBadgeColor(categoryLabel);
 
             return (
               <Pressable
@@ -297,21 +233,18 @@ export default function CommunityScreen() {
                   styles.postBox,
                   pressed && styles.postBoxPressed,
                 ]}
-                onPress={() => router.push(`/community/${item.id}`)}
+                onPress={() => router.push(`/community/${item.postId}`)}
               >
                 <View style={styles.profileRow}>
-                  <View
-                    style={[
-                      styles.profileCircle,
-                      { backgroundColor: item.profileColor },
-                    ]}
-                  >
-                    <Text style={styles.profileText}>{item.profileText}</Text>
+                  <View style={styles.profileCircle}>
+                    <Text style={styles.profileText}>
+                      {item.authorNickname?.[0] ?? "덕"}
+                    </Text>
                   </View>
 
                   <View style={styles.writerBox}>
-                    <Text style={styles.name}>{item.name}</Text>
-                    <Text style={styles.time}>{item.time}</Text>
+                    <Text style={styles.name}>{item.authorNickname}</Text>
+                    <Text style={styles.time}>{formatDate(item.createdAt)}</Text>
                   </View>
                 </View>
 
@@ -328,7 +261,7 @@ export default function CommunityScreen() {
                         { color: badgeColor.textColor },
                       ]}
                     >
-                      {item.category}
+                      {categoryLabel}
                     </Text>
                   </View>
 
@@ -336,7 +269,7 @@ export default function CommunityScreen() {
                 </View>
 
                 <Text style={styles.content} numberOfLines={2}>
-                  {item.content}
+                  {item.contentPreview}
                 </Text>
 
                 <View style={styles.infoRow}>
@@ -346,7 +279,7 @@ export default function CommunityScreen() {
                       size={15}
                       color={COLORS.gray500}
                     />
-                    <Text style={styles.infoText}>{item.likes}</Text>
+                    <Text style={styles.infoText}>{item.likeCount}</Text>
                   </View>
 
                   <View style={styles.infoItem}>
@@ -355,7 +288,7 @@ export default function CommunityScreen() {
                       size={14}
                       color={COLORS.gray500}
                     />
-                    <Text style={styles.infoText}>{item.comments}</Text>
+                    <Text style={styles.infoText}>{item.commentCount}</Text>
                   </View>
 
                   <View style={styles.infoItem}>
@@ -364,7 +297,7 @@ export default function CommunityScreen() {
                       size={16}
                       color={COLORS.gray500}
                     />
-                    <Text style={styles.infoText}>{item.views}</Text>
+                    <Text style={styles.infoText}>{item.viewCount}</Text>
                   </View>
                 </View>
               </Pressable>
@@ -484,6 +417,22 @@ const styles = StyleSheet.create({
     paddingBottom: 105,
   },
 
+  emptyListContent: {
+    flexGrow: 1,
+  },
+
+  emptyBox: {
+    flex: 1,
+    paddingTop: 120,
+    alignItems: "center",
+  },
+
+  emptyText: {
+    fontSize: 14,
+    color: COLORS.gray400,
+    fontWeight: "600",
+  },
+
   postBox: {
     paddingHorizontal: SCREEN_PADDING,
     paddingVertical: 17,
@@ -509,6 +458,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,
+    backgroundColor: "#FFF1C6",
   },
 
   profileText: {

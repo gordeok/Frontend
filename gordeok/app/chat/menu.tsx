@@ -1,6 +1,7 @@
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Animated,
@@ -14,9 +15,13 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { cancelMemberItem } from "../../services/post";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const SHEET_HEIGHT = SCREEN_HEIGHT * 0.52;
+
+const CHAT_ROOMS_STORAGE_KEY = "GO_REUDEOK_CHAT_ROOMS";
+const COMPLETED_MEMBER_STORAGE_KEY = "GO_REUDEOK_COMPLETED_MEMBER_ITEMS";
 
 const COLORS = {
   white: "#FFFFFF",
@@ -48,136 +53,277 @@ type Member = {
   color: string;
   initialColor: string;
   isSeller?: boolean;
+  isMe?: boolean;
   receiver?: string;
   phone?: string;
   store?: string;
   request?: string;
 };
 
-const members: Member[] = [
-  {
-    id: "1",
-    nickname: "분철의달인",
-    member: "카리나",
-    initial: "분",
-    color: "#FFF1B8",
-    initialColor: "#D09A00",
-    isSeller: true,
-  },
-  {
-    id: "2",
-    nickname: "윈터러버",
-    member: "윈터",
-    initial: "윈",
-    color: "#DDF7EB",
-    initialColor: "#1E8E61",
-    receiver: "홍길동",
-    phone: "010-1234-5678",
-    store: "GS25 숙대입구점",
-    request: "포카 보호 포장 부탁드려요 :)",
-  },
-  {
-    id: "3",
-    nickname: "닝구르트",
-    member: "닝닝",
-    initial: "닝",
-    color: "#FFE0CA",
-    initialColor: "#E0702A",
-    receiver: "김수빈",
-    phone: "010-5678-1234",
-    store: "GS25 서울시립대점",
-    request: "배송 전 연락 부탁드려요.",
-  },
-  {
-    id: "4",
-    nickname: "지젤최고",
-    member: "지젤",
-    initial: "지",
-    color: "#EEEEEE",
-    initialColor: "#999999",
-    receiver: "이지현",
-    phone: "010-1111-2222",
-    store: "없음",
-    request: "없음",
-  },
-];
+function isMePlaceholderName(value?: string) {
+  const name = (value ?? "").trim();
+  return name.length === 0 || name === "나" || name.toLowerCase() === "me";
+}
 
-const noteMembers: Member[] = [
-    {
-        id: "note-me",
-        nickname: "범규와이프",
-        member: "",
-        initial: "범",
-        color: "#FFE0CA",
-        initialColor: "#E0702A",
-    },
-    {
-        id: "note-other",
-        nickname: "꿔바로우",
-        member: "",
-        initial: "꿔",
-        color: "#DDF7EB",
-        initialColor: "#1E8E61",
-    },
-];
+function isRealParticipantName(value?: string) {
+  const name = (value ?? "").trim();
+  return (
+    name.length > 0 &&
+    name !== "나" &&
+    name !== "구매자" &&
+    name.toLowerCase() !== "me"
+  );
+}
+
+async function loadStoredNickname() {
+  const keys = [
+    "nickname",
+    "userNickname",
+    "GO_REUDEOK_NICKNAME",
+    "GO_REUDEOK_USER_NICKNAME",
+    "GO_REUDEOK_USER",
+    "user",
+    "loginUser",
+  ];
+
+  for (const key of keys) {
+    const value = await AsyncStorage.getItem(key);
+
+    if (!value) continue;
+
+    try {
+      const parsed = JSON.parse(value);
+
+      if (typeof parsed === "string" && parsed.trim().length > 0) {
+        return parsed.trim();
+      }
+
+      if (parsed?.nickname && String(parsed.nickname).trim().length > 0) {
+        return String(parsed.nickname).trim();
+      }
+
+      if (
+        parsed?.user?.nickname &&
+        String(parsed.user.nickname).trim().length > 0
+      ) {
+        return String(parsed.user.nickname).trim();
+      }
+    } catch {
+      if (value.trim().length > 0) {
+        return value.trim();
+      }
+    }
+  }
+
+  return "";
+}
 
 export default function ChatMenuScreen() {
-  const { chatRoomId, role, title, type, status, reviewSubmitted } =
-    useLocalSearchParams<{
-      chatRoomId?: string;
-      role?: string;
-      title?: string;
-      type?: string;
-      status?: string;
-      reviewSubmitted?: string;
-    }>();
+  const {
+    chatRoomId,
+    postId,
+    memberItemId,
+    role,
+    title,
+    roomName,
+    type,
+    status,
+    reviewSubmitted,
+    sellerName,
+    buyerName,
+    opponentName,
+    selectedMember,
+    selectedPrice,
+    receiverName,
+    phoneNumber,
+    storeName,
+    requestText,
+  } = useLocalSearchParams<{
+    chatRoomId?: string;
+    postId?: string;
+    memberItemId?: string;
+    role?: string;
+    title?: string;
+    roomName?: string;
+    type?: string;
+    status?: string;
+    reviewSubmitted?: string;
+    sellerName?: string;
+    buyerName?: string;
+    opponentName?: string;
+    selectedMember?: string;
+    selectedPrice?: string;
+    receiverName?: string;
+    phoneNumber?: string;
+    storeName?: string;
+    requestText?: string;
+  }>();
 
-  const isNote = type === "note";
-  const isSeller = !isNote && role !== "buyer";
+  const [storedNickname, setStoredNickname] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+
+    loadStoredNickname()
+      .then((nickname) => {
+        if (alive) setStoredNickname(nickname);
+      })
+      .catch(() => {
+        if (alive) setStoredNickname("");
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const isNote = getString(type) === "note";
+
+  const normalizedRole = getString(role).toUpperCase();
+  const isBuyer = normalizedRole === "BUYER";
+  const isSeller = !isNote && !isBuyer;
 
   const roomTitle =
-    typeof title === "string" && title.length > 0
-      ? title
-      : isNote
-      ? "쪽지"
-      : "에스파 Drama 정규 1집";
+    getString(title) || getString(roomName) || (isNote ? "쪽지" : "분철 채팅방");
 
-  const initialStatus: TradeStatus =
-    status === "모집 완료" ||
-    status === "배송 중" ||
-    status === "거래 완료" ||
-    status === "거래 취소"
-      ? status
-      : "모집 중";
+  const sellerNameParam = getString(sellerName).trim();
+  const buyerNameParam = getString(buyerName).trim();
+  const opponentNameParam = getString(opponentName).trim();
+
+  const sellerNickname =
+    isSeller && isMePlaceholderName(sellerNameParam)
+      ? storedNickname || "판매자"
+      : sellerNameParam.length > 0 && !isMePlaceholderName(sellerNameParam)
+      ? sellerNameParam
+      : isBuyer && opponentNameParam.length > 0
+      ? opponentNameParam
+      : storedNickname || "판매자";
+
+  const buyerNickname =
+    isBuyer && isMePlaceholderName(buyerNameParam)
+      ? storedNickname || "나"
+      : buyerNameParam.length > 0 && !isMePlaceholderName(buyerNameParam)
+      ? buyerNameParam
+      : isSeller && isRealParticipantName(opponentNameParam)
+      ? opponentNameParam
+      : "구매자";
+
+  const mySelectedMember = getString(selectedMember) || "";
+
+  const hasBuyerParticipant =
+    isSeller &&
+    (isRealParticipantName(buyerNameParam) ||
+      mySelectedMember.trim().length > 0 ||
+      getString(receiverName).trim().length > 0 ||
+      getString(phoneNumber).trim().length > 0 ||
+      getString(storeName).trim().length > 0 ||
+      getString(requestText).trim().length > 0);
+
+  const initialStatus: TradeStatus = normalizeTradeStatus(status, isSeller);
 
   const [tradeStatus, setTradeStatus] = useState<TradeStatus>(initialStatus);
-  const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  const [selectedBuyer, setSelectedBuyer] = useState<Member | null>(null);
   const [isSheetVisible, setIsSheetVisible] = useState(false);
 
   const sheetTranslateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
   const dimOpacity = useRef(new Animated.Value(0)).current;
   const currentTranslateY = useRef(SHEET_HEIGHT);
 
-  const sellerMeId = "1";
-  const buyerMeId = "2";
-
   const isTradeCompleted = tradeStatus === "거래 완료";
 
-  const sortedMembers = isSeller
-    ? members
-    : [...members].sort((a, b) => {
-        if (a.id === buyerMeId) return -1;
-        if (b.id === buyerMeId) return 1;
-        return 0;
-      });
+  const visibleMembers = useMemo<Member[]>(() => {
+    if (isNote) {
+      return [
+        {
+          id: "me",
+          nickname: buyerNickname,
+          member: "",
+          initial: getInitial(buyerNickname),
+          color: "#FFE0CA",
+          initialColor: "#E0702A",
+          isMe: true,
+        },
+        {
+          id: "other",
+          nickname: getString(opponentName) || "상대방",
+          member: "",
+          initial: getInitial(getString(opponentName) || "상대방"),
+          color: "#DDF7EB",
+          initialColor: "#1E8E61",
+        },
+      ];
+    }
 
-  const visibleMembers = isNote ? noteMembers : sortedMembers;
+    if (isBuyer) {
+      return [
+        {
+          id: "me",
+          nickname: buyerNickname,
+          member: mySelectedMember,
+          initial: getInitial(buyerNickname),
+          color: "#DDF7EB",
+          initialColor: "#1E8E61",
+          isMe: true,
+          receiver: getString(receiverName) || "-",
+          phone: getString(phoneNumber) || "-",
+          store: getString(storeName) || "-",
+          request: getString(requestText) || "-",
+        },
+        {
+          id: "seller",
+          nickname: sellerNickname,
+          member: "",
+          initial: getInitial(sellerNickname),
+          color: "#FFF1B8",
+          initialColor: "#D09A00",
+          isSeller: true,
+        },
+      ];
+    }
 
-  const getIsMe = (member: Member) => {
-    if (isNote) return member.id === "note-me";
-    if (isSeller) return member.id === sellerMeId;
-    return member.id === buyerMeId;
-  };
+    const sellerMember: Member = {
+      id: "seller-me",
+      nickname: sellerNickname,
+      member: "",
+      initial: getInitial(sellerNickname),
+      color: "#FFF1B8",
+      initialColor: "#D09A00",
+      isSeller: true,
+      isMe: true,
+    };
+
+    if (!hasBuyerParticipant) {
+      return [sellerMember];
+    }
+
+    return [
+      sellerMember,
+      {
+        id: "buyer",
+        nickname: buyerNickname,
+        member: mySelectedMember,
+        initial: getInitial(buyerNickname),
+        color: "#DDF7EB",
+        initialColor: "#1E8E61",
+        receiver: getString(receiverName) || "-",
+        phone: getString(phoneNumber) || "-",
+        store: getString(storeName) || "-",
+        request: getString(requestText) || "-",
+      },
+    ];
+  }, [
+    isNote,
+    isBuyer,
+    sellerNickname,
+    buyerNickname,
+    opponentName,
+    mySelectedMember,
+    receiverName,
+    phoneNumber,
+    storeName,
+    requestText,
+    hasBuyerParticipant,
+  ]);
 
   const getStatusStyle = (targetStatus: TradeStatus) => {
     switch (targetStatus) {
@@ -210,7 +356,7 @@ export default function ChatMenuScreen() {
   };
 
   const openBuyerSheet = (member: Member) => {
-    setSelectedMember(member);
+    setSelectedBuyer(member);
     setIsSheetVisible(true);
   };
 
@@ -251,7 +397,7 @@ export default function ChatMenuScreen() {
     ]).start(() => {
       currentTranslateY.current = SHEET_HEIGHT;
       setIsSheetVisible(false);
-      setSelectedMember(null);
+      setSelectedBuyer(null);
     });
   };
 
@@ -306,34 +452,180 @@ export default function ChatMenuScreen() {
     })
   ).current;
 
-  const moveToChatWithCompletedStatus = () => {
+  const removeChatRoomFromStorage = async () => {
+    try {
+      const targetChatRoomId = getString(chatRoomId);
+
+      const saved = await AsyncStorage.getItem(CHAT_ROOMS_STORAGE_KEY);
+      const parsed = saved ? JSON.parse(saved) : [];
+
+      if (!Array.isArray(parsed)) return;
+
+      const nextRooms = parsed.filter((room: any) => {
+        const roomId = String(room.chatRoomId ?? room.id);
+        return roomId !== String(targetChatRoomId);
+      });
+
+      await AsyncStorage.setItem(
+        CHAT_ROOMS_STORAGE_KEY,
+        JSON.stringify(nextRooms)
+      );
+    } catch (error) {
+      console.log("채팅방 로컬 삭제 실패:", error);
+    }
+  };
+
+  const updateCompletedChatRoomInStorage = async () => {
+    try {
+      const targetChatRoomId = getString(chatRoomId) || "1";
+      const now = new Date().toISOString();
+
+      const saved = await AsyncStorage.getItem(CHAT_ROOMS_STORAGE_KEY);
+      const parsed = saved ? JSON.parse(saved) : [];
+
+      if (!Array.isArray(parsed)) return;
+
+      const nextRooms = parsed.map((room: any) => {
+        const roomId = String(room.chatRoomId ?? room.id);
+
+        if (roomId !== String(targetChatRoomId)) {
+          return room;
+        }
+
+        return {
+          ...room,
+          chatRoomId: room.chatRoomId ?? targetChatRoomId,
+          id: room.id ?? targetChatRoomId,
+          title: room.title ?? roomTitle,
+          roomName: room.roomName ?? roomTitle,
+          status: "done",
+          tradeStatus: "거래 완료",
+          postStatus: "거래 완료",
+          completed: true,
+          isCompleted: true,
+          canWriteReview: true,
+          reviewSubmitted: false,
+          lastMessage: "거래가 완료되었습니다.",
+          lastMessageTime: now,
+          lastMessageAt: now,
+          sellerName: sellerNickname,
+          buyerName: buyerNickname,
+          selectedMember: mySelectedMember,
+          selectedPrice: getString(selectedPrice),
+          receiverName: getString(receiverName),
+          phoneNumber: getString(phoneNumber),
+          storeName: getString(storeName),
+          requestText: getString(requestText),
+        };
+      });
+
+      await AsyncStorage.setItem(
+        CHAT_ROOMS_STORAGE_KEY,
+        JSON.stringify(nextRooms)
+      );
+    } catch (error) {
+      console.log("거래 완료 상태 저장 실패:", error);
+    }
+  };
+
+  const removeCompletedMemberFromStorage = async () => {
+    try {
+      const currentPostId = getString(postId);
+      const currentMemberItemId = getString(memberItemId);
+      const currentSelectedMember = getString(selectedMember);
+
+      const saved = await AsyncStorage.getItem(COMPLETED_MEMBER_STORAGE_KEY);
+      const parsed = saved ? JSON.parse(saved) : [];
+
+      if (!Array.isArray(parsed)) return;
+
+      const nextItems = parsed.filter((item: any) => {
+        const samePost =
+          currentPostId && String(item.postId) === String(currentPostId);
+
+        const sameMemberItem =
+          currentMemberItemId &&
+          String(item.memberItemId) === String(currentMemberItemId);
+
+        const sameMemberName =
+          currentSelectedMember &&
+          String(item.selectedMember) === String(currentSelectedMember);
+
+        if (samePost && (sameMemberItem || sameMemberName)) {
+          return false;
+        }
+
+        return true;
+      });
+
+      await AsyncStorage.setItem(
+        COMPLETED_MEMBER_STORAGE_KEY,
+        JSON.stringify(nextItems)
+      );
+    } catch (error) {
+      console.log("모집완료 상태 삭제 실패:", error);
+    }
+  };
+
+  const moveToChatWithCompletedStatus = async () => {
     const nextStatus: TradeStatus = "거래 완료";
 
     setTradeStatus(nextStatus);
+    await updateCompletedChatRoomInStorage();
 
     router.replace({
       pathname: "/chat/[chatRoomId]",
       params: {
-        chatRoomId: typeof chatRoomId === "string" ? chatRoomId : "1",
+        chatRoomId: getString(chatRoomId) || "1",
+        postId: getString(postId),
+        memberItemId: getString(memberItemId),
         type: "divide",
-        role: isSeller ? "seller" : "buyer",
+        role: isSeller ? "SELLER" : "BUYER",
         title: roomTitle,
+        roomName: roomTitle,
         tradeEvent: "completed",
+        systemMessage: "거래가 완료되었습니다.",
         status: nextStatus,
-        reviewSubmitted:
-          typeof reviewSubmitted === "string" ? reviewSubmitted : "false",
+        reviewSubmitted: "false",
+        canWriteReview: "true",
+        sellerName: sellerNickname,
+        buyerName: buyerNickname,
+        selectedMember: mySelectedMember,
+        selectedPrice: getString(selectedPrice),
+        receiverName: getString(receiverName),
+        phoneNumber: getString(phoneNumber),
+        storeName: getString(storeName),
+        requestText: getString(requestText),
       },
     });
   };
 
-  const moveToChatListAfterLeave = () => {
-    const targetId = typeof chatRoomId === "string" ? chatRoomId : "1";
+  const moveToChatListAfterLeave = async () => {
+    const targetId = getString(chatRoomId) || "1";
+    const targetMemberItemId = getString(memberItemId);
+
+    await removeChatRoomFromStorage();
+
+    if (isBuyer && tradeStatus !== "거래 완료") {
+      await removeCompletedMemberFromStorage();
+
+      if (targetMemberItemId) {
+        try {
+          await cancelMemberItem(targetMemberItemId);
+          console.log("멤버 선택 취소 성공:", targetMemberItemId);
+        } catch (error) {
+          console.log("멤버 선택 취소 실패:", error);
+        }
+      } else {
+        console.log("memberItemId가 없어서 멤버 선택 취소 API 호출 못 함");
+      }
+    }
 
     router.replace({
-        pathname: "/(tabs)/chats",
-        params: {
-          removedChatRoomId: targetId,
-        },
+      pathname: "/(tabs)/chats",
+      params: {
+        removedChatRoomId: targetId,
+      },
     });
   };
 
@@ -346,9 +638,9 @@ export default function ChatMenuScreen() {
       {
         text: "예",
         style: "destructive",
-        onPress: () => {
+        onPress: async () => {
           setTradeStatus("거래 취소");
-          moveToChatListAfterLeave();
+          await moveToChatListAfterLeave();
         },
       },
     ]);
@@ -433,10 +725,12 @@ export default function ChatMenuScreen() {
                   </View>
                 </View>
 
-                {!isSeller && (
+                {isBuyer && mySelectedMember.length > 0 && (
                   <View style={styles.buyerInfoBox}>
                     <Text style={styles.buyerInfoLabel}>내 참여 멤버</Text>
-                    <Text style={styles.buyerInfoValue}>윈터</Text>
+                    <Text style={styles.buyerInfoValue}>
+                      {mySelectedMember}
+                    </Text>
                   </View>
                 )}
               </View>
@@ -484,7 +778,7 @@ export default function ChatMenuScreen() {
           </Text>
 
           {visibleMembers.map((member, index) => {
-            const isMe = getIsMe(member);
+            const isMe = Boolean(member.isMe);
 
             return (
               <View key={member.id}>
@@ -554,7 +848,7 @@ export default function ChatMenuScreen() {
           })}
         </View>
 
-        {(isNote || !isSeller) && (
+        {(isNote || isBuyer) && (
           <TouchableOpacity
             style={styles.leaveRoomCard}
             activeOpacity={0.78}
@@ -571,7 +865,7 @@ export default function ChatMenuScreen() {
       </ScrollView>
 
       <BuyerInfoBottomSheet
-        member={selectedMember}
+        member={selectedBuyer}
         visible={isSheetVisible}
         sheetTranslateY={sheetTranslateY}
         dimOpacity={dimOpacity}
@@ -666,6 +960,70 @@ function InfoItem({ label, value }: { label: string; value: string }) {
       <Text style={styles.infoValue}>{value}</Text>
     </View>
   );
+}
+
+function getString(value: string | string[] | undefined) {
+  if (Array.isArray(value)) return value[0] ?? "";
+  return value ?? "";
+}
+
+function normalizeTradeStatus(
+  value: string | string[] | undefined,
+  isSellerMenu = false
+): TradeStatus {
+  const raw = getString(value).trim();
+  const normalized = raw.replace(/\s/g, "").toUpperCase();
+
+  if (
+    normalized === "거래완료" ||
+    normalized === "COMPLETED" ||
+    normalized === "COMPLETE" ||
+    normalized === "TRADECOMPLETED" ||
+    normalized === "TRADE_COMPLETE"
+  ) {
+    return "거래 완료";
+  }
+
+  if (
+    normalized === "거래취소" ||
+    normalized === "CANCELLED" ||
+    normalized === "CANCELED" ||
+    normalized === "CANCEL"
+  ) {
+    return "거래 취소";
+  }
+
+  if (
+    normalized === "배송중" ||
+    normalized === "SHIPPING" ||
+    normalized === "DELIVERING"
+  ) {
+    return "배송 중";
+  }
+
+  if (isSellerMenu) {
+    return "모집 중";
+  }
+
+  if (
+    normalized === "모집완료" ||
+    normalized === "RECRUITCLOSED" ||
+    normalized === "RECRUIT_CLOSED" ||
+    normalized === "POSTCLOSED" ||
+    normalized === "POST_CLOSED"
+  ) {
+    return "모집 완료";
+  }
+
+  return "모집 중";
+}
+
+function getInitial(name: string) {
+  const trimmed = name.trim();
+
+  if (!trimmed) return "?";
+
+  return trimmed.slice(0, 1);
 }
 
 const styles = StyleSheet.create({

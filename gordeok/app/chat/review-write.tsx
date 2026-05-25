@@ -12,6 +12,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { createReview } from "../../services/review";
 
 const COLORS = {
   white: "#FFFFFF",
@@ -28,11 +29,12 @@ const COLORS = {
 const MAX_LENGTH = 1000;
 
 export default function ReviewWriteScreen() {
-  const { chatRoomId, role, title, status } = useLocalSearchParams<{
+  const { chatRoomId, role, title, status, targetUserId } = useLocalSearchParams<{
     chatRoomId?: string;
     role?: string;
     title?: string;
     status?: string;
+    targetUserId?: string;
   }>();
 
   const [content, setContent] = useState("");
@@ -43,8 +45,20 @@ export default function ReviewWriteScreen() {
 
   const isValid = content.trim().length > 0;
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!isValid) return;
+
+    try {
+      await createReview({
+        targetUserId: Number(targetUserId ?? 1),
+        chatRoomId: Number(chatRoomId ?? 1),
+        rating: 5,
+        content: content.trim(),
+      });
+    } catch (error) {
+      Alert.alert("등록 실패", "거래 후기 등록에 실패했어요. 다시 시도해주세요.");
+      return;
+    }
 
     Alert.alert("등록 완료", "거래 후기가 등록되었습니다.", [
       {

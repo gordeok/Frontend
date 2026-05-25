@@ -55,6 +55,30 @@ export default function RootLayout() {
             <Stack.Screen name="bookmark-list" />
 
             <Stack.Screen
+              name="chat/tracking-ststus"
+              options={{
+                headerShown: false,
+                presentation: "transparentModal",
+                animation: "fade",
+                contentStyle: {
+                  backgroundColor: "transparent",
+                },
+              }}
+            />
+
+            <Stack.Screen
+              name="chat/tracking-status"
+              options={{
+                headerShown: false,
+                presentation: "transparentModal",
+                animation: "fade",
+                contentStyle: {
+                  backgroundColor: "transparent",
+                },
+              }}
+            />
+
+            <Stack.Screen
               name="modal"
               options={{ presentation: "modal", title: "Modal" }}
             />

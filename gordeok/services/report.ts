@@ -1,14 +1,10 @@
+import { API_BASE_URL, getStoredUserId } from "../utils/api";
 import type { CreateReportData, CreateReportResponse } from "../types/report";
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL;
-const REPORTER_ID = 1;
 
 export async function createReport(
   data: CreateReportData
 ): Promise<CreateReportResponse> {
-  if (!API_URL) {
-    throw new Error("API 주소가 설정되지 않았습니다.");
-  }
+  const reporterId = await getStoredUserId();
 
   const formData = new FormData();
 
@@ -36,14 +32,24 @@ export async function createReport(
   });
 
   const response = await fetch(
-    `${API_URL}/api/reports?reporterId=${REPORTER_ID}`,
+    `${API_BASE_URL}/api/reports?reporterId=${reporterId}`,
     {
       method: "POST",
+      headers: {
+        "ngrok-skip-browser-warning": "true",
+      },
       body: formData,
     }
   );
 
-  const result = await response.json();
+  const text = await response.text();
+
+  let result: any = null;
+  try {
+    result = text ? JSON.parse(text) : null;
+  } catch {
+    result = text;
+  }
 
   if (!response.ok) {
     throw new Error(result?.message || "신고 등록 실패");

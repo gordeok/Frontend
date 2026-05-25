@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   Modal,
@@ -14,10 +14,56 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import {
+  getMyProfile,
+  getTrustScore,
+  MyProfile,
+  TrustScoreDetail,
+} from "../../services/user";
+
 const YELLOW = "#F3C24F";
+
+function formatJoinDate(value?: string) {
+  if (!value) return "-";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleDateString("ko-KR");
+}
 
 export default function MyPageScreen() {
   const [scoreModalVisible, setScoreModalVisible] = useState(false);
+  const [profile, setProfile] = useState<MyProfile | null>(null);
+  const [trustScore, setTrustScore] = useState<TrustScoreDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadMyPage = async () => {
+      try {
+        setLoading(true);
+
+        const profileData = await getMyProfile();
+        setProfile(profileData);
+
+        const trustData = await getTrustScore(profileData.userId);
+        setTrustScore(trustData);
+      } catch (error) {
+        console.log("마이페이지 불러오기 실패", error);
+        setProfile(null);
+        setTrustScore(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadMyPage();
+  }, []);
+
+  const score = trustScore?.totalScore ?? profile?.trustScore ?? 0;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
@@ -43,12 +89,18 @@ export default function MyPageScreen() {
 
             <View style={styles.profileTop}>
               <View style={styles.profileCircle}>
-                <Text style={styles.profileInitial}>범</Text>
+                <Text style={styles.profileInitial}>
+                  {profile?.nickname?.[0] ?? "덕"}
+                </Text>
               </View>
 
               <View style={styles.profileInfo}>
-                <Text style={styles.nickname}>범규와이프</Text>
-                <Text style={styles.subText}>가입 2023.08.12</Text>
+                <Text style={styles.nickname}>
+                  {loading ? "불러오는 중..." : profile?.nickname ?? "사용자"}
+                </Text>
+                <Text style={styles.subText}>
+                  가입 {formatJoinDate(profile?.createdAt)}
+                </Text>
                 <Text style={styles.subText}>팔로워 0명 · 팔로잉 0명</Text>
               </View>
             </View>
@@ -70,13 +122,20 @@ export default function MyPageScreen() {
                 </View>
 
                 <View style={styles.trustScoreRow}>
-                  <Text style={styles.trustScore}>78</Text>
+                  <Text style={styles.trustScore}>{score}</Text>
                   <Text style={styles.trustPoint}>점</Text>
                 </View>
               </View>
 
               <View style={styles.progressBg}>
-                <View style={styles.progressFill} />
+                <View
+                  style={[
+                    styles.progressFill,
+                    {
+                      width: `${score}%`,
+                    },
+                  ]}
+                />
               </View>
             </TouchableOpacity>
           </View>
@@ -124,21 +183,11 @@ export default function MyPageScreen() {
           <View style={styles.menuCard}>
             <Text style={styles.cardTitle}>설정</Text>
 
-            <MenuItem
-              icon="notifications-outline"
-              title="알림 설정"
-            />
+            <MenuItem icon="notifications-outline" title="알림 설정" />
 
-            <MenuItem
-              icon="help-circle-outline"
-              title="고객센터"
-            />
+            <MenuItem icon="help-circle-outline" title="고객센터" />
 
-            <MenuItem
-              icon="settings-outline"
-              title="앱 설정"
-              isLast
-            />
+            <MenuItem icon="settings-outline" title="앱 설정" isLast />
           </View>
 
           <View style={styles.footerInfo}>
@@ -392,7 +441,6 @@ const styles = StyleSheet.create({
   },
 
   progressFill: {
-    width: "78%",
     height: "100%",
     backgroundColor: YELLOW,
     borderRadius: 99,

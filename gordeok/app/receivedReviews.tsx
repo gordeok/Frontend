@@ -1,6 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   ScrollView,
   StyleSheet,
   Text,
@@ -8,6 +10,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { getMyReviews, MyReview } from "../services/user";
 
 const COLORS = {
   white: "#FFFFFF",
@@ -21,34 +24,53 @@ const COLORS = {
   line: "#F2EDE6",
 };
 
+type ReviewItem = {
+  id: number;
+  name: string;
+  date: string;
+  text: string;
+};
+
+function formatDate(value?: string) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10).replaceAll("-", ".");
+  return date.toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" }).replace(/\. /g, ".").replace(/\.$/, "");
+}
+
+function mapReview(review: MyReview): ReviewItem {
+  return {
+    id: review.reviewId,
+    name: review.reviewerNickname,
+    date: formatDate(review.createdAt),
+    text: review.content,
+  };
+}
+
 export default function ReceivedReviewsScreen() {
-  const reviews = [
-    {
-      name: "덕질왕",
-      date: "2025.04.22",
-      text: "응답도 빠르고 친절하게 거래해주셔서 너무 좋았어요. 믿을 수 있는 판매자!",
-    },
-    {
-      name: "껌규",
-      date: "2025.04.11",
-      text: "포카 상태 너무 좋아요 굿굿 감사합니다",
-    },
-    {
-      name: "꿔바로우많이두개더",
-      date: "2025.03.24",
-      text: "믿고 분철 탑니다~ 항상 빠른 응답 감사해요",
-    },
-    {
-      name: "수빈이라고 나 수빈",
-      date: "2025.03.12",
-      text: "다음에도 또 분철 타겠습니다 열어주세요~",
-    },
-    {
-      name: "강태현왜안해?",
-      date: "2025.02.14",
-      text: "투바투 분철은 역시 범규와이프님!!",
-    },
-  ];
+  const [reviews, setReviews] = useState<ReviewItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    const loadReviews = async () => {
+      try {
+        setIsLoading(true);
+        setErrorMessage("");
+
+        const data = await getMyReviews();
+        setReviews(data.map(mapReview));
+      } catch (error: any) {
+        console.log("받은 후기 조회 실패:", error);
+        setReviews([]);
+        setErrorMessage(error?.message || "받은 후기를 불러오지 못했습니다.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadReviews();
+  }, []);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
@@ -75,31 +97,44 @@ export default function ReceivedReviewsScreen() {
             <Text style={styles.summaryTitle}>후기 {reviews.length}개</Text>
           </View>
 
-          {reviews.map((review, index) => (
-            <View key={index} style={styles.reviewCard}>
-              <View style={styles.reviewTop}>
-                <View style={styles.profileCircle}>
-                  <Text style={styles.profileInitial}>
-                    {review.name.slice(0, 1)}
-                  </Text>
-                </View>
-
-                <View style={styles.reviewInfo}>
-                  <Text style={styles.reviewName} numberOfLines={1}>
-                    {review.name}
-                  </Text>
-                  <Text style={styles.reviewDate}>{review.date}</Text>
-                </View>
-              </View>
-
-              <Text style={styles.reviewText}>{review.text}</Text>
+          {isLoading ? (
+            <View style={{ alignItems: "center", paddingTop: 80 }}>
+              <ActivityIndicator size="small" color="#F7C94B" />
             </View>
-          ))}
+          ) : reviews.length > 0 ? (
+            reviews.map((review) => (
+              <View key={review.id} style={styles.reviewCard}>
+                <View style={styles.reviewTop}>
+                  <View style={styles.profileCircle}>
+                    <Text style={styles.profileInitial}>
+                      {review.name.slice(0, 1)}
+                    </Text>
+                  </View>
+
+                  <View style={styles.reviewInfo}>
+                    <Text style={styles.reviewName} numberOfLines={1}>
+                      {review.name}
+                    </Text>
+                    <Text style={styles.reviewDate}>{review.date}</Text>
+                  </View>
+                </View>
+
+                <Text style={styles.reviewText}>{review.text}</Text>
+              </View>
+            ))
+          ) : (
+            <View style={{ alignItems: "center", paddingTop: 80 }}>
+              <Text style={{ fontSize: 13, fontWeight: "700", color: COLORS.gray500 }}>
+                {errorMessage || "아직 받은 후기가 없어요"}
+              </Text>
+            </View>
+          )}
         </ScrollView>
       </View>
     </SafeAreaView>
   );
 }
+
 
 const styles = StyleSheet.create({
   safeArea: {

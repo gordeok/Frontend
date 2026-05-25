@@ -1,21 +1,38 @@
-import { apiRequest } from "../utils/api";
-
-import type {
-  BookmarkItem,
-  ToggleBookmarkResponse,
-} from "../types/bookmark";
-
-const USER_ID = 1;
+import { apiRequest, getStoredUserId } from "../utils/api";
+import type { BookmarkItem } from "../types/bookmark";
 
 export async function getBookmarks() {
-  return apiRequest<BookmarkItem[]>(`/api/bookmarks?userId=${USER_ID}`);
+  const userId = await getStoredUserId();
+
+  return apiRequest<BookmarkItem[]>("/api/bookmarks", {
+    method: "GET",
+    query: { userId },
+  });
+}
+
+export async function checkBookmark(postId: number | string) {
+  const userId = await getStoredUserId();
+
+  return apiRequest<{ bookmarked: boolean }>("/api/bookmarks/check", {
+    method: "GET",
+    query: {
+      userId,
+      postId,
+    },
+  });
 }
 
 export async function toggleBookmark(postId: number | string) {
-  return apiRequest<ToggleBookmarkResponse>(
-    `/api/bookmarks/toggle?userId=${USER_ID}&postId=${postId}`,
+  const userId = await getStoredUserId();
+
+  return apiRequest<{ bookmarked: boolean; message: string }>(
+    "/api/bookmarks/toggle",
     {
       method: "POST",
+      query: {
+        userId,
+        postId,
+      },
     }
   );
 }

@@ -1,7 +1,6 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Dimensions,
   Keyboard,
@@ -21,6 +20,13 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 
+import {
+  createCommunityComment,
+  getCommunityPost,
+  toggleCommunityLike,
+} from "../../services/community";
+import type { CommunityDetail } from "../../types/community";
+
 const COLORS = {
   white: "#FFFFFF",
   black: "#111111",
@@ -34,7 +40,6 @@ const COLORS = {
 };
 
 const SCREEN_PADDING = 22;
-const STORAGE_KEY = "communityPosts";
 const COMMENT_MENU_HEIGHT = 44;
 const SCREEN_HEIGHT = Dimensions.get("window").height;
 
@@ -63,22 +68,6 @@ const CATEGORY_STYLES: Record<
   },
 };
 
-type CommunityPost = {
-  id: string;
-  category: string;
-  name: string;
-  profileText: string;
-  profileColor: string;
-  time: string;
-  createdAt: number;
-  title: string;
-  content: string;
-  likes: number;
-  comments: number;
-  views: number;
-  photoCount?: number;
-};
-
 type Comment = {
   id: string;
   name: string;
@@ -93,125 +82,20 @@ type CommentMenuState = {
   top: number;
 } | null;
 
-const dummyPosts: CommunityPost[] = [
-  {
-    id: "1",
-    category: "포카교환",
-    name: "범규와이프",
-    profileText: "범",
-    profileColor: "#FFF1C6",
-    time: "방금 전",
-    createdAt: 6,
-    title: "범규 포카 교환 구해요",
-    content:
-      "미니소드 럭드 범규 보유 중이고 수빈이나 연준 포카랑 교환 원해요. 상태 사진 바로 보내드릴게요.",
-    likes: 18,
-    comments: 5,
-    views: 92,
-  },
-  {
-    id: "2",
-    category: "질문게시판",
-    name: "포카초보",
-    profileText: "초",
-    profileColor: "#EAF1FF",
-    time: "12분 전",
-    createdAt: 5,
-    title: "분철 입금 전 확인할 것 알려주세요",
-    content:
-      "처음 참여하는 분철이라 인증, 후기, 입금 방식 중에서 꼭 확인해야 할 부분이 궁금해요.",
-    likes: 31,
-    comments: 14,
-    views: 208,
-  },
-  {
-    id: "3",
-    category: "오프동행",
-    name: "콘서트가자",
-    profileText: "콘",
-    profileColor: "#E8F6EE",
-    time: "35분 전",
-    createdAt: 4,
-    title: "이번 주 음악방송 같이 가실 분 있나요?",
-    content:
-      "혼자 가기 애매해서 같이 대기하고 끝나고 카페까지 갈 분 구해요. 너무 시끄러운 분위기는 아니었으면 좋겠어요.",
-    likes: 12,
-    comments: 3,
-    views: 76,
-  },
-  {
-    id: "4",
-    category: "자유게시판",
-    name: "앨깡요정",
-    profileText: "앨",
-    profileColor: "#FFE6F2",
-    time: "1시간 전",
-    createdAt: 3,
-    title: "오늘 앨범깡 결과 진짜 레전드였어요",
-    content:
-      "중복 없이 최애까지 나와서 하루 종일 기분 좋음... 다들 앨깡 성공했나요?",
-    likes: 45,
-    comments: 11,
-    views: 263,
-  },
-  {
-    id: "5",
-    category: "포카교환",
-    name: "해찬찾아요",
-    profileText: "해",
-    profileColor: "#E7FFF7",
-    time: "2시간 전",
-    createdAt: 2,
-    title: "NCT 해찬 포카 교환 가능하신 분 찾습니다",
-    content:
-      "재현 포카 여러 장 보유 중이고 해찬 위주로 교환 원합니다. 상태 사진이랑 하자 여부 먼저 공유드려요.",
-    likes: 22,
-    comments: 8,
-    views: 141,
-  },
-  {
-    id: "6",
-    category: "자유게시판",
-    name: "고르덕덕",
-    profileText: "덕",
-    profileColor: "#F0E7FF",
-    time: "3시간 전",
-    createdAt: 1,
-    title: "슬리브까지 끼워도 잘 들어가는 포카 바인더 추천해줄 사람",
-    content:
-      "기존에 쓰던 건 슬리브 끼우면 너무 빡빡해서 꺼낼 때 포카 휘어질까 봐 무서워요.",
-    likes: 16,
-    comments: 9,
-    views: 119,
-  },
-];
-
-const dummyComments: Comment[] = [
-  {
-    id: "1",
-    name: "거래조심해",
-    profileText: "거",
-    profileColor: "#FFF1C6",
-    time: "5분 전",
-    content: "후기 캡처랑 계정 생성일은 꼭 확인하는 게 좋아요.",
-  },
-  {
-    id: "2",
-    name: "포카수집중",
-    profileText: "포",
-    profileColor: "#EAF1FF",
-    time: "8분 전",
-    content: "입금 전에는 배송 방식이랑 환불 기준도 물어보세요!",
-  },
-  {
-    id: "3",
-    name: "덕메구함",
-    profileText: "덕",
-    profileColor: "#F0E7FF",
-    time: "10분 전",
-    content: "저는 인증 사진에 날짜랑 닉네임 적어달라고 해요.",
-  },
-];
+function convertCategoryLabel(category: string) {
+  switch (category) {
+    case "PHOTO_EXCHANGE":
+      return "포카교환";
+    case "OFFLINE_COMPANION":
+      return "오프동행";
+    case "QUESTION":
+      return "질문게시판";
+    case "FREE":
+      return "자유게시판";
+    default:
+      return category || "자유게시판";
+  }
+}
 
 function getCategoryStyle(category: string) {
   return (
@@ -229,6 +113,33 @@ function getSafeMenuTop(pageY: number) {
   return Math.min(Math.max(pageY - 18, minTop), maxTop);
 }
 
+function formatDate(value?: string) {
+  if (!value) return "";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return `${date.getMonth() + 1}.${date.getDate()}`;
+}
+
+function getProfileText(name?: string | null) {
+  return name?.trim()?.[0] ?? "덕";
+}
+
+function convertComments(post?: CommunityDetail | null): Comment[] {
+  return (post?.comments ?? []).map((comment) => ({
+    id: String(comment.commentId),
+    name: comment.nickname,
+    profileText: getProfileText(comment.nickname),
+    profileColor: "#FFF1C6",
+    time: formatDate(comment.createdAt),
+    content: comment.content,
+  }));
+}
+
 export default function CommunityDetailScreen() {
   const params = useLocalSearchParams<{
     postId?: string;
@@ -237,27 +148,40 @@ export default function CommunityDetailScreen() {
   }>();
 
   const insets = useSafeAreaInsets();
+  const postId = String(params.postId ?? params.id ?? params.communityId ?? "");
 
-  const [savedPosts, setSavedPosts] = useState<CommunityPost[]>([]);
+  const [post, setPost] = useState<CommunityDetail | null>(null);
+  const [loading, setLoading] = useState(true);
   const [postMenuVisible, setPostMenuVisible] = useState(false);
   const [commentMenu, setCommentMenu] = useState<CommentMenuState>(null);
   const [commentText, setCommentText] = useState("");
-  const [comments, setComments] = useState<Comment[]>(dummyComments);
+  const [comments, setComments] = useState<Comment[]>([]);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [submittingComment, setSubmittingComment] = useState(false);
 
   useEffect(() => {
-    const loadSavedPosts = async () => {
+    const loadPost = async () => {
+      if (!postId) {
+        setLoading(false);
+        return;
+      }
+
       try {
-        const saved = await AsyncStorage.getItem(STORAGE_KEY);
-        const parsed: CommunityPost[] = saved ? JSON.parse(saved) : [];
-        setSavedPosts(parsed);
+        setLoading(true);
+        const data = await getCommunityPost(postId);
+        setPost(data);
+        setComments(convertComments(data));
       } catch (error) {
-        console.log("상세 게시글 불러오기 실패", error);
+        console.log("커뮤니티 상세 조회 실패", error);
+        setPost(null);
+        setComments([]);
+      } finally {
+        setLoading(false);
       }
     };
 
-    loadSavedPosts();
-  }, []);
+    loadPost();
+  }, [postId]);
 
   useEffect(() => {
     const showEvent =
@@ -279,18 +203,8 @@ export default function CommunityDetailScreen() {
     };
   }, []);
 
-  const post = useMemo(() => {
-    const currentId = String(
-      params.postId ?? params.id ?? params.communityId ?? "1"
-    );
-
-    return (
-      [...savedPosts, ...dummyPosts].find((item) => item.id === currentId) ??
-      dummyPosts[0]
-    );
-  }, [params.postId, params.id, params.communityId, savedPosts]);
-
-  const categoryStyle = getCategoryStyle(post.category);
+  const categoryLabel = convertCategoryLabel(post?.category ?? "");
+  const categoryStyle = getCategoryStyle(categoryLabel);
 
   const closeMenusAndKeyboard = () => {
     setCommentMenu(null);
@@ -301,25 +215,93 @@ export default function CommunityDetailScreen() {
     setCommentMenu(null);
   };
 
-  const handleAddComment = () => {
+  const handleToggleLike = async () => {
+    if (!post) return;
+
+    try {
+      const result = await toggleCommunityLike(post.postId);
+      setPost((prev) =>
+        prev
+          ? {
+              ...prev,
+              liked: result.liked,
+              likeCount: result.likeCount,
+            }
+          : prev
+      );
+    } catch (error) {
+      console.log("좋아요 토글 실패", error);
+    }
+  };
+
+  const handleAddComment = async () => {
     const trimmed = commentText.trim();
 
-    if (!trimmed) return;
+    if (!trimmed || !post || submittingComment) return;
 
-    const newComment: Comment = {
-      id: String(Date.now()),
-      name: "나",
-      profileText: "나",
-      profileColor: COLORS.yellow,
-      time: "방금 전",
-      content: trimmed,
-    };
+    try {
+      setSubmittingComment(true);
+      const newComment = await createCommunityComment(post.postId, {
+        content: trimmed,
+      });
 
-    setComments((prev) => [newComment, ...prev]);
-    setCommentText("");
-    setCommentMenu(null);
-    Keyboard.dismiss();
+      setComments((prev) => [
+        {
+          id: String(newComment.commentId),
+          name: newComment.nickname,
+          profileText: getProfileText(newComment.nickname),
+          profileColor: COLORS.yellow,
+          time: formatDate(newComment.createdAt),
+          content: newComment.content,
+        },
+        ...prev,
+      ]);
+
+      setPost((prev) =>
+        prev
+          ? {
+              ...prev,
+              commentCount: prev.commentCount + 1,
+            }
+          : prev
+      );
+      setCommentText("");
+      setCommentMenu(null);
+      Keyboard.dismiss();
+    } catch (error) {
+      console.log("댓글 작성 실패", error);
+    } finally {
+      setSubmittingComment(false);
+    }
   };
+
+  if (loading || !post) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={["top"]}>
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.headerIconButton}
+            activeOpacity={0.7}
+            onPress={() => router.back()}
+          >
+            <Ionicons name="arrow-back" size={21} color={COLORS.black} />
+          </TouchableOpacity>
+
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle}>커뮤니티</Text>
+          </View>
+
+          <View style={styles.headerIconButton} />
+        </View>
+
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <Text style={{ color: COLORS.gray400, fontWeight: "700" }}>
+            {loading ? "게시글을 불러오는 중이에요." : "게시글을 불러오지 못했어요."}
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
@@ -351,7 +333,7 @@ export default function CommunityDetailScreen() {
                   { color: categoryStyle.textColor },
                 ]}
               >
-                {post.category}
+                {categoryLabel}
               </Text>
             </View>
           </View>
@@ -387,15 +369,17 @@ export default function CommunityDetailScreen() {
                 <View
                   style={[
                     styles.profileCircle,
-                    { backgroundColor: post.profileColor },
+                    { backgroundColor: "#FFF1C6" },
                   ]}
                 >
-                  <Text style={styles.profileText}>{post.profileText}</Text>
+                  <Text style={styles.profileText}>
+                    {getProfileText(post.authorNickname)}
+                  </Text>
                 </View>
 
                 <View style={styles.writerBox}>
-                  <Text style={styles.name}>{post.name}</Text>
-                  <Text style={styles.time}>{post.time}</Text>
+                  <Text style={styles.name}>{post.authorNickname}</Text>
+                  <Text style={styles.time}>{formatDate(post.createdAt)}</Text>
                 </View>
               </View>
 
@@ -405,14 +389,18 @@ export default function CommunityDetailScreen() {
             </View>
 
             <View style={styles.infoRow}>
-              <View style={styles.infoItem}>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                style={styles.infoItem}
+                onPress={handleToggleLike}
+              >
                 <Ionicons
-                  name="heart-outline"
+                  name={post.liked ? "heart" : "heart-outline"}
                   size={16}
-                  color={COLORS.gray500}
+                  color={post.liked ? COLORS.yellow : COLORS.gray500}
                 />
-                <Text style={styles.infoText}>{post.likes}</Text>
-              </View>
+                <Text style={styles.infoText}>{post.likeCount}</Text>
+              </TouchableOpacity>
 
               <View style={styles.infoItem}>
                 <Ionicons
@@ -429,7 +417,7 @@ export default function CommunityDetailScreen() {
                   size={17}
                   color={COLORS.gray500}
                 />
-                <Text style={styles.infoText}>{post.views}</Text>
+                <Text style={styles.infoText}>{post.viewCount}</Text>
               </View>
             </View>
           </Pressable>
@@ -474,7 +462,7 @@ export default function CommunityDetailScreen() {
             activeOpacity={0.75}
             style={[
               styles.sendButton,
-              !commentText.trim() && styles.sendButtonDisabled,
+              (!commentText.trim() || submittingComment) && styles.sendButtonDisabled,
             ]}
             onPress={handleAddComment}
           >

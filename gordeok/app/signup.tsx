@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Alert, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import AppInput from "@/components/common/AppInput";
 import AppButton from "@/components/common/AppButton";
@@ -42,6 +43,14 @@ export default function SignupScreen() {
         password,
         passwordConfirm,
       });
+
+      console.log("회원가입 성공:", data);
+
+      await AsyncStorage.setItem("userId", String(data.userId));
+      await AsyncStorage.setItem("nickname", nickname.trim());
+
+      const savedUserId = await AsyncStorage.getItem("userId");
+      console.log("저장된 userId:", savedUserId);
 
       Alert.alert("회원가입 성공", data.message || "가입이 완료되었습니다.");
       router.push("/onboarding/favorite-groups" as any);

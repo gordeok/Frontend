@@ -1,5 +1,5 @@
-import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
+import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Animated,
@@ -15,6 +15,9 @@ import {
   Swipeable,
 } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getChatRooms, leaveChatRoom } from "../../services/chat";
+import type { ChatRoomApiItem } from "../../types/chat";
 
 type ChatTab = "divide" | "note";
 type UserRole = "seller" | "buyer";
@@ -31,6 +34,14 @@ type DivideRoom = {
   color: "yellow" | "purple" | "pink" | "gray";
   role: UserRole;
   reviewSubmitted?: boolean;
+
+  buyerName?: string;
+  selectedMember?: string;
+  selectedPrice?: string;
+  receiverName?: string;
+  phoneNumber?: string;
+  storeName?: string;
+  requestText?: string;
 };
 
 type NoteRoom = {
@@ -56,85 +67,289 @@ const COLORS = {
 
 const SCREEN_PADDING = 22;
 const LEAVE_WIDTH = 88;
+const CHAT_ROOMS_STORAGE_KEY = "GO_REUDEOK_CHAT_ROOMS";
 
-const initialDivideRooms: DivideRoom[] = [
-  {
-    id: 1,
-    title: "에스파 Drama 정규 1집",
-    organizer: "분철의달인",
-    memberCount: "4/4명",
-    lastMessage: "카리나 슬롯 입금 완료했어요!",
-    time: "오후 2:14",
-    unreadCount: 3,
-    status: "progress",
-    color: "yellow",
-    role: "seller",
-    reviewSubmitted: false,
-  },
-  {
-    id: 3,
-    title: "아이브 I'VE MINE",
-    organizer: "덕질러",
-    memberCount: "5/6명",
-    lastMessage: "안녕하세요~",
-    time: "어제",
-    unreadCount: 1,
-    status: "progress",
-    color: "pink",
-    role: "buyer",
-    reviewSubmitted: false,
-  },
-  {
-    id: 4,
-    title: "세븐틴 FML 미니 10집",
-    organizer: "캐럿하우스",
-    memberCount: "13/13명",
-    lastMessage: "거래가 완료되었습니다.",
-    time: "05.08",
-    unreadCount: 0,
-    status: "done",
-    color: "gray",
-    role: "buyer",
-    reviewSubmitted: false,
-  },
-];
+function formatChatTime(value?: string) {
+  if (!value) return "";
 
-const initialNoteRooms: NoteRoom[] = [
-  {
-    id: 101,
-    title: "에스파 Drama 정규 1집",
-    boardName: "질문 게시판",
-    userName: "범규와이프",
-    lastMessage: "카리나 슬롯 입금 완료했어요!",
-    time: "오후 2:14",
-    unreadCount: 3,
-  },
-  {
-    id: 102,
-    title: "투바투 포카 교환 문의",
-    boardName: "질문 게시판",
-    userName: "포카매니아",
-    lastMessage: "혹시 연준 포카 아직 가능할까요?",
-    time: "오후 12:40",
-    unreadCount: 2,
-  },
-  {
-    id: 103,
-    title: "앤팀 미개봉 앨범 양도",
-    boardName: "거래 게시판",
-    userName: "덕메이트",
-    lastMessage: "네! 편의점 반값택배 가능해요.",
-    time: "오전 10:18",
-    unreadCount: 1,
-  },
-];
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
 
-async function leaveDivideRoomApi(chatRoomId: number) {
-  return true;
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+
+  if (isToday) {
+    return date.toLocaleTimeString("ko-KR", {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+
+  return `${String(date.getMonth() + 1).padStart(2, "0")}.${String(
+    date.getDate()
+  ).padStart(2, "0")}`;
 }
 
-async function leaveNoteRoomApi(noteRoomId: number) {
-  return true;
+function getRoomColor(index: number): DivideRoom["color"] {
+  const colors: DivideRoom["color"][] = ["yellow", "purple", "pink", "gray"];
+  return colors[index % colors.length];
+}
+
+function getRawRoomType(room: any) {
+  return String(room?.type ?? room?.chatRoomType ?? room?.roomType ?? "")
+    .trim()
+    .toUpperCase();
+}
+
+function getRawRoomRole(room: any) {
+  return String(room?.myRole ?? room?.role ?? room?.userRole ?? "")
+    .trim()
+    .toUpperCase();
+}
+
+function isDivideRoom(room: any) {
+  const type = getRawRoomType(room);
+  const role = getRawRoomRole(room);
+
+  if (type === "GROUP" || type === "DIVIDE") return true;
+  if (type === "DIRECT" || type === "NOTE") return false;
+
+  // 백엔드 응답에서 type이 빠지거나 소문자로 오더라도,
+  // SELLER / BUYER 역할이 있으면 분철 채팅방으로 처리
+  return role === "SELLER" || role === "BUYER";
+}
+
+function isNoteRoom(room: any) {
+  const type = getRawRoomType(room);
+  return type === "DIRECT" || type === "NOTE";
+}
+
+function getChatRoomId(room: any) {
+  return Number(room?.chatRoomId ?? room?.id ?? room?.roomId);
+}
+
+function getRoomStatus(room: any): DivideRoom["status"] {
+  const raw = String(room?.status ?? room?.tradeStatus ?? room?.postStatus ?? "")
+    .trim()
+    .replace(/\s/g, "")
+    .toUpperCase();
+
+  if (
+    raw === "DONE" ||
+    raw === "COMPLETED" ||
+    raw === "COMPLETE" ||
+    raw === "거래완료"
+  ) {
+    return "done";
+  }
+
+  return "progress";
+}
+
+function extractChatRooms(response: unknown): ChatRoomApiItem[] {
+  if (Array.isArray(response)) return response as ChatRoomApiItem[];
+
+  const maybeObject = response as any;
+
+  if (Array.isArray(maybeObject?.content)) {
+    return maybeObject.content as ChatRoomApiItem[];
+  }
+
+  if (Array.isArray(maybeObject?.data)) {
+    return maybeObject.data as ChatRoomApiItem[];
+  }
+
+  if (Array.isArray(maybeObject?.items)) {
+    return maybeObject.items as ChatRoomApiItem[];
+  }
+
+  return [];
+}
+
+async function loadSavedChatRooms() {
+  try {
+    const saved = await AsyncStorage.getItem(CHAT_ROOMS_STORAGE_KEY);
+    const parsed = saved ? JSON.parse(saved) : [];
+
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.log("로컬 채팅방 목록 불러오기 실패:", error);
+    return [];
+  }
+}
+
+function mergeRawChatRooms(localRooms: any[], serverRooms: any[]) {
+  const merged = new Map<string, any>();
+
+  localRooms.forEach((room) => {
+    const id = String(room?.chatRoomId ?? room?.id ?? room?.roomId ?? "");
+    if (id) merged.set(id, room);
+  });
+
+  serverRooms.forEach((serverRoom) => {
+    const id = String(
+      serverRoom?.chatRoomId ?? serverRoom?.id ?? serverRoom?.roomId ?? ""
+    );
+
+    if (!id) return;
+
+    const localRoom = merged.get(id);
+
+    if (!localRoom) {
+      merged.set(id, serverRoom);
+      return;
+    }
+
+    merged.set(id, {
+      ...serverRoom,
+
+      postTitle:
+        localRoom.postTitle ||
+        localRoom.post?.title ||
+        localRoom.dividePostTitle ||
+        localRoom.roomName ||
+        localRoom.title ||
+        serverRoom.postTitle ||
+        serverRoom.post?.title ||
+        serverRoom.dividePostTitle,
+
+      roomName:
+        localRoom.roomName ||
+        localRoom.postTitle ||
+        localRoom.post?.title ||
+        localRoom.dividePostTitle ||
+        localRoom.title ||
+        serverRoom.roomName,
+
+      title:
+        localRoom.postTitle ||
+        localRoom.post?.title ||
+        localRoom.dividePostTitle ||
+        localRoom.roomName ||
+        localRoom.title ||
+        serverRoom.postTitle ||
+        serverRoom.post?.title ||
+        serverRoom.dividePostTitle ||
+        serverRoom.roomName ||
+        serverRoom.title,
+
+      sellerName:
+        serverRoom.sellerName ||
+        localRoom.sellerName ||
+        localRoom.organizer,
+
+      buyerName:
+        serverRoom.buyerName ||
+        localRoom.buyerName ||
+        localRoom.buyerNickname,
+
+      selectedMember:
+        serverRoom.selectedMember ||
+        serverRoom.memberName ||
+        localRoom.selectedMember ||
+        localRoom.memberName,
+
+      selectedPrice:
+        serverRoom.selectedPrice ||
+        localRoom.selectedPrice,
+
+      receiverName:
+        serverRoom.receiverName ||
+        serverRoom.realName ||
+        localRoom.receiverName ||
+        localRoom.realName,
+
+      phoneNumber:
+        serverRoom.phoneNumber ||
+        localRoom.phoneNumber,
+
+      storeName:
+        serverRoom.storeName ||
+        serverRoom.convenienceStore ||
+        localRoom.storeName ||
+        localRoom.convenienceStore,
+
+      requestText:
+        serverRoom.requestText ||
+        serverRoom.requestMessage ||
+        localRoom.requestText ||
+        localRoom.requestMessage,
+    });
+  });
+
+  return Array.from(merged.values()).sort((a, b) => {
+    const aTime = new Date(
+      a?.lastMessageTime ?? a?.lastMessageAt ?? 0
+    ).getTime();
+    const bTime = new Date(
+      b?.lastMessageTime ?? b?.lastMessageAt ?? 0
+    ).getTime();
+
+    return bTime - aTime;
+  });
+}
+
+function normalizeChatRooms(response: unknown) {
+  const rooms = extractChatRooms(response).filter((room: any) => {
+    const id = getChatRoomId(room);
+    return Number.isFinite(id);
+  });
+
+  const divideRooms = rooms
+  .filter((room: any) => isDivideRoom(room))
+  .map<DivideRoom>((room: any, index) => {
+    const roomStatus = getRoomStatus(room);
+    const role = getRawRoomRole(room);
+
+    return {
+      id: getChatRoomId(room),
+      title:
+        room.postTitle ||
+        room.post?.title ||
+        room.dividePostTitle ||
+        room.roomName ||
+        room.title ||
+        "분철 채팅방",
+      organizer: room.sellerName || room.organizer || "판매자",
+      memberCount: `${room.currentMembers ?? room.currentMemberCount ?? 1}/${
+        room.maxMembers ?? room.maxMemberCount ?? 2
+      }명`,
+      lastMessage: room.lastMessage || "",
+      time: formatChatTime(room.lastMessageTime ?? room.lastMessageAt),
+      unreadCount: room.unreadCount ?? 0,
+      status: roomStatus,
+      color: roomStatus === "done" ? "gray" : getRoomColor(index),
+      role: role === "SELLER" ? "seller" : "buyer",
+      reviewSubmitted: Boolean(room.reviewSubmitted),
+
+      buyerName: room.buyerName || room.buyerNickname || "",
+      selectedMember: room.selectedMember || room.memberName || "",
+      selectedPrice: room.selectedPrice ? String(room.selectedPrice) : "",
+      receiverName: room.receiverName || room.realName || "",
+      phoneNumber: room.phoneNumber || "",
+      storeName: room.storeName || room.convenienceStore || "",
+      requestText: room.requestText || room.requestMessage || "",
+    };
+  })
+  .sort((a, b) => {
+    if (a.status === "done" && b.status !== "done") return 1;
+    if (a.status !== "done" && b.status === "done") return -1;
+    return 0;
+  });
+
+  const noteRooms = rooms
+    .filter((room: any) => isNoteRoom(room))
+    .map<NoteRoom>((room: any) => ({
+      id: getChatRoomId(room),
+      title: room.title || room.roomName || "쪽지",
+      boardName: "쪽지",
+      userName: room.sellerName || room.opponentName || "상대방",
+      lastMessage: room.lastMessage || "",
+      time: formatChatTime(room.lastMessageTime ?? room.lastMessageAt),
+      unreadCount: room.unreadCount ?? 0,
+    }));
+
+  return { divideRooms, noteRooms };
 }
 
 export default function ChatsScreen() {
@@ -148,9 +363,8 @@ export default function ChatsScreen() {
     }>();
 
   const [selectedTab, setSelectedTab] = useState<ChatTab>("divide");
-  const [divideRooms, setDivideRooms] =
-    useState<DivideRoom[]>(initialDivideRooms);
-  const [noteRooms, setNoteRooms] = useState<NoteRoom[]>(initialNoteRooms);
+  const [divideRooms, setDivideRooms] = useState<DivideRoom[]>([]);
+  const [noteRooms, setNoteRooms] = useState<NoteRoom[]>([]);
   const [isAnyRowOpen, setIsAnyRowOpen] = useState(false);
 
   const swipeRefs = useRef<Record<string, Swipeable | null>>({});
@@ -158,6 +372,39 @@ export default function ChatsScreen() {
   const removedIdRef = useRef<string | null>(null);
   const completedIdRef = useRef<string | null>(null);
   const reviewSubmittedIdRef = useRef<string | null>(null);
+
+  const loadChatRooms = useCallback(async () => {
+    const savedRooms = await loadSavedChatRooms();
+
+    try {
+      const response = await getChatRooms();
+      console.log("채팅방 목록 API 응답:", response);
+
+      const serverRooms = extractChatRooms(response);
+      const mergedRooms = mergeRawChatRooms(savedRooms, serverRooms);
+      const normalized = normalizeChatRooms(mergedRooms);
+
+      setDivideRooms(normalized.divideRooms);
+      setNoteRooms(normalized.noteRooms);
+    } catch (error) {
+      console.log("채팅방 목록 조회 실패:", error);
+
+      const normalized = normalizeChatRooms(savedRooms);
+
+      setDivideRooms(normalized.divideRooms);
+      setNoteRooms(normalized.noteRooms);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadChatRooms();
+  }, [loadChatRooms]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadChatRooms();
+    }, [loadChatRooms])
+  );
 
   useEffect(() => {
     if (!removedChatRoomId) return;
@@ -241,12 +488,28 @@ export default function ChatsScreen() {
       params: {
         chatRoomId: String(room.id),
         type: "divide",
-        role: room.role,
+        role: room.role === "seller" ? "SELLER" : "BUYER",
+
         title: room.title,
+        roomName: room.title,
+
+        sellerName: room.organizer,
+        opponentName: room.organizer,
+
+        buyerName: room.buyerName || "나",
+
+        selectedMember: room.selectedMember || "",
+        selectedPrice: room.selectedPrice || "",
+
+        receiverName: room.receiverName || "",
+        phoneNumber: room.phoneNumber || "",
+        storeName: room.storeName || "",
+        requestText: room.requestText || "",
+
         status: room.status === "done" ? "거래 완료" : "모집 중",
         reviewSubmitted: room.reviewSubmitted ? "true" : "false",
       },
-    });
+    } as any);
   };
 
   const handlePressNoteRoom = (room: NoteRoom) => {
@@ -278,14 +541,12 @@ export default function ChatsScreen() {
         style: "destructive",
         onPress: async () => {
           try {
-            await leaveDivideRoomApi(room.id);
+            await leaveChatRoom(room.id);
+          } catch (error) {
+            console.log("서버 채팅방 나가기 실패:", error);
+          } finally {
             setDivideRooms((prev) => prev.filter((item) => item.id !== room.id));
             closeOpenedRow();
-          } catch (error) {
-            Alert.alert(
-              "오류",
-              "채팅방 나가기에 실패했어요. 다시 시도해주세요."
-            );
           }
         },
       },
@@ -304,7 +565,7 @@ export default function ChatsScreen() {
         style: "destructive",
         onPress: async () => {
           try {
-            await leaveNoteRoomApi(room.id);
+            await leaveChatRoom(room.id);
             setNoteRooms((prev) => prev.filter((item) => item.id !== room.id));
             closeOpenedRow();
           } catch (error) {
@@ -570,16 +831,10 @@ function DivideRoomItem({
             {room.lastMessage}
           </Text>
 
-          {isDone ? (
-            <View style={styles.doneBadge}>
+          {isDone && (
+              <View style={styles.doneBadge}>
               <Text style={styles.doneBadgeText}>완료</Text>
             </View>
-          ) : (
-            room.unreadCount > 0 && (
-              <View style={styles.unreadBadge}>
-                <Text style={styles.unreadText}>{room.unreadCount}</Text>
-              </View>
-            )
           )}
         </View>
       </View>
@@ -617,11 +872,6 @@ function NoteRoomItem({
             {room.lastMessage}
           </Text>
 
-          {room.unreadCount > 0 && (
-            <View style={styles.unreadBadge}>
-              <Text style={styles.unreadText}>{room.unreadCount}</Text>
-            </View>
-          )}
         </View>
       </View>
     </Pressable>
@@ -896,20 +1146,6 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: "#777777",
     marginRight: 10,
-  },
-  unreadBadge: {
-    minWidth: 25,
-    height: 25,
-    paddingHorizontal: 7,
-    borderRadius: 13,
-    backgroundColor: COLORS.yellow,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  unreadText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: COLORS.white,
   },
   doneBadge: {
     height: 28,

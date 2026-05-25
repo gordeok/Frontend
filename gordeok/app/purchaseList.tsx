@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -9,6 +10,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { getMyPurchases, MyPurchase } from "../services/user";
 
 const COLORS = {
   white: "#FFFFFF",
@@ -31,57 +33,67 @@ type PurchaseStatus = "예약중" | "배송중" | "거래완료";
 
 type PurchaseItem = {
   id: number;
+  postId: number;
   title: string;
   member: string;
   date: string;
   status: PurchaseStatus;
+  canWriteReview: boolean;
 };
 
+function formatDate(value?: string) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10).replaceAll("-", ".");
+  return date.toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" }).replace(/\. /g, ".").replace(/\.$/, "");
+}
+
+function mapPurchase(item: MyPurchase): PurchaseItem {
+  const isDone = item.postStatus === "COMPLETED" || item.postStatus === "CLOSED" || item.postStatus === "거래완료";
+
+  return {
+    id: item.participationId,
+    postId: item.postId,
+    title: item.postTitle,
+    member: `${item.memberName} 참여`,
+    date: formatDate(item.createdAt),
+    status: isDone ? "거래완료" : "예약중",
+    canWriteReview: item.canWriteReview,
+  };
+}
+
 export default function PurchaseListScreen() {
-  const [selectedTab, setSelectedTab] = useState<"progress" | "done">(
-    "progress"
-  );
+  const [selectedTab, setSelectedTab] = useState<"progress" | "done">("progress");
+  const [progressList, setProgressList] = useState<PurchaseItem[]>([]);
+  const [doneList, setDoneList] = useState<PurchaseItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
 
-  const progressList: PurchaseItem[] = [
-    {
-      id: 1,
-      title: "별의 장: TOGETHER 앨범 분철",
-      member: "최범규 참여",
-      date: "2026.05.20",
-      status: "예약중",
-    },
-    {
-      id: 2,
-      title: "2026 MOA CON 특전 포카 분철",
-      member: "강태현 참여",
-      date: "2026.05.18",
-      status: "배송중",
-    },
-  ];
+  useEffect(() => {
+    const loadPurchases = async () => {
+      try {
+        setIsLoading(true);
+        setErrorMessage("");
 
-  const doneList: PurchaseItem[] = [
-    {
-      id: 3,
-      title: "꿈의 장: MAGIC 앨범 포카",
-      member: "최수빈 참여",
-      date: "2026.05.03",
-      status: "거래완료",
-    },
-    {
-      id: 4,
-      title: "SWEET 앨범 포카 분철",
-      member: "최연준 참여",
-      date: "2026.04.27",
-      status: "거래완료",
-    },
-    {
-      id: 5,
-      title: "minisode 3: TOMORROW 앨범 분철",
-      member: "휴닝카이 참여",
-      date: "2026.04.12",
-      status: "거래완료",
-    },
-  ];
+        const [openData, completedData] = await Promise.all([
+          getMyPurchases("OPEN"),
+          getMyPurchases("COMPLETED"),
+        ]);
+
+        setProgressList(openData.map(mapPurchase));
+        setDoneList(completedData.map(mapPurchase));
+      } catch (error: any) {
+        console.log("구매 목록 조회 실패:", error);
+        setProgressList([]);
+        setDoneList([]);
+        setErrorMessage(error?.message || "구매 목록을 불러오지 못했습니다.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadPurchases();
+  }, []);
 
   const currentList = selectedTab === "progress" ? progressList : doneList;
 
@@ -167,7 +179,12 @@ export default function PurchaseListScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
         >
-          {currentList.length > 0 ? (
+          {isLoading ? (
+            <View style={styles.emptyBox}>
+              <ActivityIndicator size="small" color={COLORS.yellow} />
+              <Text style={styles.emptyTitle}>구매 목록을 불러오는 중이에요</Text>
+            </View>
+          ) : currentList.length > 0 ? (
             currentList.map((item) => {
               const statusStyle = getStatusStyle(item.status);
 
@@ -179,6 +196,12 @@ export default function PurchaseListScreen() {
                     selectedTab === "done" && styles.doneListCard,
                     (pressed || hovered) && styles.listCardHover,
                   ]}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/divide-detail",
+                      params: { postId: String(item.postId) },
+                    } as any)
+                  }
                 >
                   <View style={styles.cardTop}>
                     <View style={styles.imageBox}>
@@ -206,14 +229,21 @@ export default function PurchaseListScreen() {
                     )}
                   </View>
 
-                  {selectedTab === "done" && (
+                  {selectedTab === "done" && item.canWriteReview && (
                     <Pressable
                       style={({ pressed, hovered }) => [
                         styles.reviewButton,
                         (pressed || hovered) && styles.reviewButtonHover,
                       ]}
-                      onPress={() => {
-                        console.log("후기 작성하기");
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        router.push({
+                          pathname: "/review-write",
+                          params: {
+                            postId: String(item.postId),
+                            participationId: String(item.id),
+                          },
+                        } as any);
                       }}
                     >
                       <Text style={styles.reviewButtonText}>후기 작성하기</Text>
@@ -231,7 +261,7 @@ export default function PurchaseListScreen() {
               />
               <Text style={styles.emptyTitle}>구매 내역이 없어요</Text>
               <Text style={styles.emptyText}>
-                참여한 분철이 생기면 여기에 표시돼요.
+                {errorMessage || "참여한 분철이 생기면 여기에 표시돼요."}
               </Text>
             </View>
           )}
@@ -240,6 +270,7 @@ export default function PurchaseListScreen() {
     </SafeAreaView>
   );
 }
+
 
 const styles = StyleSheet.create({
   safeArea: {

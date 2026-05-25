@@ -1,4 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
+import { Client, IMessage, StompSubscription } from "@stomp/stompjs";
+import SockJS from "sockjs-client";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -20,6 +22,9 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
+
+import { getChatMessages } from "../../services/chat";
+import { API_BASE_URL, getStoredUserId } from "../../utils/api";
 
 if (
   Platform.OS === "android" &&
@@ -65,109 +70,409 @@ type Message = {
   initialColor?: string;
 };
 
-const divideMessages: Message[] = [
-  {
-    id: "1",
-    type: "system",
-    text: "분철의달인 님이 단톡방을 만들었어요",
-  },
-  {
-    id: "2",
-    type: "system",
-    text: "윈터러버 님이 단톡방에 들어왔어요",
-  },
-  {
-    id: "3",
-    type: "system",
-    text: "닝구르트 님이 단톡방에 들어왔어요",
-  },
-  {
-    id: "4",
-    type: "me",
-    text: "안녕하세요! Drama 분철 참여해주셔서 감사합니다 🙌 아래 계좌로 입금 부탁드려요.",
-    time: "2:01 PM",
-  },
-  {
-    id: "5",
-    type: "me",
-    text: "입금 계좌\n카카오뱅크: 3333-01-1234567\n예금주: 김○철\n입금 시 닉네임 + 멤버명 기재",
-    time: "2:01 PM",
-  },
-  {
-    id: "6",
-    type: "image",
-    time: "2:22 PM",
-  },
-  {
-    id: "7",
-    type: "other",
-    nickname: "닝구르트",
-    initial: "닝",
-    color: "#FFF3CD",
-    initialColor: "#D98B00",
-    text: "카리나 슬롯 입금 완료했어요!",
-    time: "2:10 PM",
-  },
-  {
-    id: "8",
-    type: "other",
-    nickname: "윈터러버",
-    initial: "윈",
-    color: "#DDF7EB",
-    initialColor: "#1E8E61",
-    text: "저도 윈터 슬롯 방금 보냈습니다 :)",
-    time: "2:18 PM",
-  },
-];
-
 const noteMessages: Message[] = [
   {
     id: "note-1",
     type: "system",
     text: "쪽지가 시작되었어요",
   },
-  {
-    id: "note-2",
-    type: "other",
-    nickname: "꿔바로우",
-    initial: "꿔",
-    color: "#DDF7EB",
-    initialColor: "#1E8E61",
-    text: "범규 포카 교환 가능할까요?",
-    time: "2:10 PM",
-  },
-  {
-    id: "note-3",
-    type: "me",
-    text: "네 가능합니다!",
-    time: "2:20 PM",
-  },
 ];
+
+function getParamString(value: string | string[] | undefined, fallback = "") {
+  if (Array.isArray(value)) return value[0] ?? fallback;
+  return value ?? fallback;
+}
+
+function extractUserId(value: any): number {
+  if (value === null || value === undefined) {
+    throw new Error("로그인된 userId가 없습니다.");
+  }
+
+  if (typeof value === "number") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+
+    if (!trimmed) {
+      throw new Error("로그인된 userId가 없습니다.");
+    }
+
+    const parsed = Number(trimmed);
+
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+
+    try {
+      return extractUserId(JSON.parse(trimmed));
+    } catch {
+      throw new Error("userId를 숫자로 변환할 수 없습니다.");
+    }
+  }
+
+  if (typeof value === "object") {
+    if (value.userId !== undefined) return extractUserId(value.userId);
+    if (value.id !== undefined) return extractUserId(value.id);
+    if (value.user?.userId !== undefined) {
+      return extractUserId(value.user.userId);
+    }
+    if (value.user?.id !== undefined) {
+      return extractUserId(value.user.id);
+    }
+    if (value.data?.userId !== undefined) {
+      return extractUserId(value.data.userId);
+    }
+    if (value.data?.id !== undefined) {
+      return extractUserId(value.data.id);
+    }
+    if (value.result?.userId !== undefined) {
+      return extractUserId(value.result.userId);
+    }
+    if (value.result?.id !== undefined) {
+      return extractUserId(value.result.id);
+    }
+  }
+
+  throw new Error("userId를 찾을 수 없습니다.");
+}
+
+
+function formatMessageTime(value?: string | null) {
+  if (!value) return "";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "";
+
+  return date.toLocaleTimeString("ko-KR", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function normalizeTradeStatus(value: string | string[] | undefined): TradeStatus {
+  const raw = getParamString(value).trim();
+  const normalized = raw.replace(/\s/g, "").toUpperCase();
+
+  if (
+    normalized === "거래완료" ||
+    normalized === "COMPLETED" ||
+    normalized === "COMPLETE" ||
+    normalized === "DONE" ||
+    normalized === "TRADECOMPLETED" ||
+    normalized === "TRADE_COMPLETE"
+  ) {
+    return "거래 완료";
+  }
+
+  if (
+    normalized === "거래취소" ||
+    normalized === "CANCELLED" ||
+    normalized === "CANCELED" ||
+    normalized === "CANCEL"
+  ) {
+    return "거래 취소";
+  }
+
+  if (
+    normalized === "배송중" ||
+    normalized === "SHIPPING" ||
+    normalized === "DELIVERING"
+  ) {
+    return "배송 중";
+  }
+
+  if (
+    normalized === "모집완료" ||
+    normalized === "RECRUITCLOSED" ||
+    normalized === "RECRUIT_CLOSED" ||
+    normalized === "CLOSED"
+  ) {
+    return "모집 완료";
+  }
+
+  return "모집 중";
+}
+
+function getDefaultSystemMessage(
+  isSeller: boolean,
+  opponentDisplayName: string
+): Message {
+  return {
+    id: "system-created",
+    type: "system",
+    text: isSeller
+      ? "분철 채팅방이 생성되었어요."
+      : `${opponentDisplayName} 님과의 채팅방이 시작되었어요`,
+  };
+}
+
+function ensureStatusMessage(
+  messages: Message[],
+  status: TradeStatus
+): Message[] {
+  const statusText =
+    status === "거래 완료"
+      ? "거래가 완료되었습니다."
+      : status === "거래 취소"
+      ? "거래가 취소되었습니다."
+      : "";
+
+  if (!statusText) return messages;
+
+  const alreadyExists = messages.some(
+    (message) => message.type === "trade" && message.text === statusText
+  );
+
+  if (alreadyExists) return messages;
+
+  const statusMessage: Message = {
+    id: `trade-${status.replace(/\s/g, "-")}`,
+    type: "trade",
+    text: statusText,
+  };
+
+  return [...messages, statusMessage];
+}
+
+function normalizeApiMessages(
+  apiMessages: any[],
+  myUserId: number | null,
+  opponentDisplayName: string
+): Message[] {
+  if (!Array.isArray(apiMessages)) return [];
+
+  return apiMessages.map((message: any) => {
+    const messageType = String(message.messageType ?? "").toUpperCase();
+
+    if (
+      messageType === "TRANSACTION_COMPLETE" ||
+      messageType === "TRACKING_SHARED"
+    ) {
+      return {
+        id: String(message.messageId ?? `trade-${Date.now()}`),
+        type: "trade",
+        text: message.content ?? "",
+        time: formatMessageTime(message.createdAt),
+      };
+    }
+
+    if (messageType === "FRAUD_WARNING" || messageType === "FRAUD_DANGER") {
+      return {
+        id: String(message.messageId ?? `fraud-${Date.now()}`),
+        type: "system",
+        text:
+          message.reason ||
+          message.content ||
+          "사기 의심 알림이 도착했어요.",
+        time: formatMessageTime(message.createdAt),
+      };
+    }
+
+    if (message.senderId === null || message.senderNickname === "SYSTEM") {
+      return {
+        id: String(message.messageId ?? `system-${Date.now()}`),
+        type: "system",
+        text: message.content ?? "",
+        time: formatMessageTime(message.createdAt),
+      };
+    }
+
+    if (messageType === "IMAGE") {
+      return {
+        id: String(message.messageId ?? `image-${Date.now()}`),
+        type: "image",
+        time: formatMessageTime(message.createdAt),
+      };
+    }
+
+    const isMine =
+      myUserId !== null && Number(message.senderId) === Number(myUserId);
+
+    if (isMine) {
+      return {
+        id: String(message.messageId ?? `me-${Date.now()}`),
+        type: "me",
+        text: message.content ?? "",
+        time: formatMessageTime(message.createdAt),
+      };
+    }
+
+    const nickname = message.senderNickname || opponentDisplayName || "상대방";
+
+    return {
+      id: String(message.messageId ?? `other-${Date.now()}`),
+      type: "other",
+      nickname,
+      initial: nickname.slice(0, 1),
+      color: COLORS.yellowLight,
+      initialColor: COLORS.gray700,
+      text: message.content ?? "",
+      time: formatMessageTime(message.createdAt),
+    };
+  });
+}
+
+function normalizeSocketMessage(
+  socketMessage: any,
+  myUserId: number | null,
+  opponentDisplayName: string
+): Message {
+  const messageType = String(socketMessage?.messageType ?? "").toUpperCase();
+
+  if (
+    messageType === "TRANSACTION_COMPLETE" ||
+    messageType === "TRACKING_SHARED"
+  ) {
+    return {
+      id: String(socketMessage.messageId ?? `trade-${Date.now()}`),
+      type: "trade",
+      text: socketMessage.content || "거래 상태가 변경되었습니다.",
+      time: formatMessageTime(socketMessage.createdAt) || "지금",
+    };
+  }
+
+  if (messageType === "FRAUD_WARNING" || messageType === "FRAUD_DANGER") {
+    return {
+      id: String(socketMessage.messageId ?? `fraud-${Date.now()}`),
+      type: "system",
+      text:
+        socketMessage.reason ||
+        socketMessage.content ||
+        "사기 의심 알림이 도착했어요.",
+      time: formatMessageTime(socketMessage.createdAt) || "지금",
+    };
+  }
+
+  if (
+    socketMessage.senderId === null ||
+    socketMessage.senderNickname === "SYSTEM"
+  ) {
+    return {
+      id: String(socketMessage.messageId ?? `system-${Date.now()}`),
+      type: "system",
+      text: socketMessage.content || "",
+      time: formatMessageTime(socketMessage.createdAt) || "지금",
+    };
+  }
+
+  const isMine =
+    myUserId !== null && Number(socketMessage.senderId) === Number(myUserId);
+
+  if (isMine) {
+    return {
+      id: String(socketMessage.messageId ?? `socket-me-${Date.now()}`),
+      type: "me",
+      text: socketMessage.content || "",
+      time: formatMessageTime(socketMessage.createdAt) || "지금",
+    };
+  }
+
+  const nickname =
+    socketMessage.senderNickname || opponentDisplayName || "상대방";
+
+  return {
+    id: String(socketMessage.messageId ?? `socket-other-${Date.now()}`),
+    type: "other",
+    nickname,
+    initial: nickname.slice(0, 1),
+    color: COLORS.yellowLight,
+    initialColor: COLORS.gray700,
+    text: socketMessage.content || "",
+    time: formatMessageTime(socketMessage.createdAt) || "지금",
+  };
+}
 
 export default function ChatRoomDetailScreen() {
   const insets = useSafeAreaInsets();
 
   const {
     chatRoomId,
+    postId,
+    memberItemId,
     role,
     title,
+    roomName,
+    sellerName,
+    opponentName,
+    buyerName,
+    selectedMember,
+    selectedPrice,
+    receiverName,
+    phoneNumber,
+    storeName,
+    requestText,
     type,
     tradeEvent,
     status,
     reviewSubmitted,
+    canWriteReview,
   } = useLocalSearchParams<{
     chatRoomId: string;
+    postId?: string;
+    memberItemId?: string;
     role?: string;
     title?: string;
+    roomName?: string;
+    sellerName?: string;
+    opponentName?: string;
+    buyerName?: string;
+    selectedMember?: string;
+    selectedPrice?: string;
+    receiverName?: string;
+    phoneNumber?: string;
+    storeName?: string;
+    requestText?: string;
     type?: string;
     tradeEvent?: string;
     status?: string;
     reviewSubmitted?: string;
+    canWriteReview?: string;
   }>();
 
-  const isNote = type === "note";
-  const isSeller = !isNote && role !== "buyer";
-  const isBuyer = !isSeller;
+  const normalizedRole = getParamString(role).trim().toLowerCase();
+
+  const isNote = getParamString(type) === "note";
+  const isSeller = !isNote && normalizedRole === "seller";
+  const isBuyer = !isNote && !isSeller;
+  const currentRole = isSeller ? "seller" : "buyer";
+
+  const roomTitle =
+    getParamString(title).trim().length > 0
+      ? getParamString(title).trim()
+      : getParamString(roomName).trim().length > 0
+      ? getParamString(roomName).trim()
+      : isNote
+      ? "쪽지"
+      : "분철 채팅방";
+
+  const opponentDisplayName =
+    getParamString(opponentName).trim().length > 0
+      ? getParamString(opponentName).trim()
+      : getParamString(sellerName).trim().length > 0
+      ? getParamString(sellerName).trim()
+      : isBuyer
+      ? "판매자"
+      : "구매자";
+
+  const sellerDisplayName =
+    getParamString(sellerName).trim().length > 0
+      ? getParamString(sellerName).trim()
+      : isBuyer
+      ? opponentDisplayName
+      : "판매자";
+
+  const buyerDisplayName =
+    getParamString(buyerName).trim().length > 0
+      ? getParamString(buyerName).trim()
+      : isBuyer
+      ? "나"
+      : opponentDisplayName;
+
+  const selectedMemberName = getParamString(selectedMember);
+  const selectedMemberPrice = getParamString(selectedPrice);
 
   const scrollRef = useRef<ScrollView | null>(null);
   const inputRef = useRef<TextInput | null>(null);
@@ -177,32 +482,26 @@ export default function ChatRoomDetailScreen() {
   const lastKeyboardHeight = useRef(DEFAULT_PANEL_HEIGHT);
   const openedPlusFromKeyboard = useRef(false);
 
-  const [messages, setMessages] = useState<Message[]>(
-    isNote ? noteMessages : divideMessages
-  );
+  const stompClientRef = useRef<Client | null>(null);
+  const subscriptionRef = useRef<StompSubscription | null>(null);
+  const myUserIdRef = useRef<number | null>(null);
+
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [isPlusOpen, setIsPlusOpen] = useState(false);
   const [isReturningKeyboard, setIsReturningKeyboard] = useState(false);
+  const [isSocketConnected, setIsSocketConnected] = useState(false);
 
-  const roomTitle =
-    typeof title === "string" && title.length > 0
-      ? title
-      : isNote
-      ? "쪽지"
-      : "에스파 Drama 정규 1집";
-
-  const currentStatus: TradeStatus =
-    status === "모집 완료" ||
-    status === "배송 중" ||
-    status === "거래 완료" ||
-    status === "거래 취소"
-      ? status
-      : "모집 중";
-
+  const currentStatus: TradeStatus = normalizeTradeStatus(status);
   const isCompleted = currentStatus === "거래 완료";
-  const isReviewSubmitted = reviewSubmitted === "true";
+  const isReviewSubmitted = getParamString(reviewSubmitted) === "true";
+  const shouldShowReviewButton =
+    isBuyer &&
+    isCompleted &&
+    !isReviewSubmitted &&
+    getParamString(canWriteReview, "true") !== "false";
 
   const keyboardSpace = Math.max(keyboardHeight - insets.bottom, 0);
 
@@ -243,10 +542,149 @@ export default function ChatRoomDetailScreen() {
   };
 
   useEffect(() => {
-    setMessages(isNote ? noteMessages : divideMessages);
-    appliedTradeEvent.current = null;
-    scrollToBottom(120);
-  }, [isNote, chatRoomId]);
+    const loadMessages = async () => {
+      if (isNote) {
+        setMessages(noteMessages);
+        appliedTradeEvent.current = null;
+        scrollToBottom(120);
+        return;
+      }
+
+      try {
+        const storedUserId = await getStoredUserId();
+        const myUserId = extractUserId(storedUserId);
+        myUserIdRef.current = myUserId;
+
+        const response = await getChatMessages(chatRoomId);
+        const normalized = normalizeApiMessages(
+          response as any[],
+          myUserId,
+          opponentDisplayName
+        );
+
+        const baseMessages: Message[] =
+          normalized.length > 0
+            ? normalized
+            : [getDefaultSystemMessage(isSeller, opponentDisplayName)];
+
+        setMessages(ensureStatusMessage(baseMessages, currentStatus));
+      } catch (error) {
+        console.log("채팅 메시지 조회 실패:", error);
+
+        const fallbackMessages: Message[] = [
+          getDefaultSystemMessage(isSeller, opponentDisplayName),
+        ];
+
+        setMessages(ensureStatusMessage(fallbackMessages, currentStatus));
+      } finally {
+        appliedTradeEvent.current = null;
+        scrollToBottom(120);
+      }
+    };
+
+    loadMessages();
+  }, [isNote, chatRoomId, opponentDisplayName, currentStatus, isSeller]);
+
+  useEffect(() => {
+    if (isNote) return;
+
+    let alive = true;
+
+    const connectSocket = async () => {
+      try {
+        const storedUserId = await getStoredUserId();
+        const myUserId = extractUserId(storedUserId);
+
+        if (!alive) return;
+
+        myUserIdRef.current = myUserId;
+
+        subscriptionRef.current?.unsubscribe();
+        subscriptionRef.current = null;
+
+        if (stompClientRef.current?.active) {
+          await stompClientRef.current.deactivate();
+        }
+
+        const client = new Client({
+          webSocketFactory: () => {
+            return new SockJS(`${API_BASE_URL}/ws`) as any;
+          },
+          reconnectDelay: 3000,
+          heartbeatIncoming: 0,
+          heartbeatOutgoing: 0,
+          connectionTimeout: 8000,
+          debug: () => {},
+          onConnect: () => {
+            if (!alive) return;
+
+            console.log("채팅 소켓 연결 성공");
+            setIsSocketConnected(true);
+
+            subscriptionRef.current = client.subscribe(
+              `/sub/chat/rooms/${chatRoomId}`,
+              (frame: IMessage) => {
+                try {
+                  const body = JSON.parse(frame.body);
+                  const nextMessage = normalizeSocketMessage(
+                    body,
+                    myUserIdRef.current,
+                    opponentDisplayName
+                  );
+
+                  setMessages((prev) => {
+                    const alreadyExists = prev.some(
+                      (message) => message.id === nextMessage.id
+                    );
+
+                    if (alreadyExists) return prev;
+
+                    return [...prev, nextMessage];
+                  });
+
+                  scrollToBottom(80);
+                } catch (error) {
+                  console.log("채팅 소켓 메시지 파싱 실패:", error, frame.body);
+                }
+              }
+            );
+          },
+          onDisconnect: () => {
+            setIsSocketConnected(false);
+          },
+          onStompError: (frame) => {
+            console.log("STOMP 오류:", frame.headers, frame.body);
+            setIsSocketConnected(false);
+          },
+          onWebSocketClose: (event) => {
+            setIsSocketConnected(false);
+            console.log("채팅 소켓 닫힘:", event.code, event.reason);
+          },
+          onWebSocketError: (error) => {
+            console.log("채팅 소켓 오류:", error);
+            setIsSocketConnected(false);
+          },
+        });
+
+        stompClientRef.current = client;
+        client.activate();
+      } catch (error) {
+        console.log("채팅 소켓 초기화 실패:", error);
+        setIsSocketConnected(false);
+      }
+    };
+
+    connectSocket();
+
+    return () => {
+      alive = false;
+      setIsSocketConnected(false);
+      subscriptionRef.current?.unsubscribe();
+      subscriptionRef.current = null;
+      stompClientRef.current?.deactivate();
+      stompClientRef.current = null;
+    };
+  }, [chatRoomId, opponentDisplayName, isNote]);
 
   useEffect(() => {
     const showEvent =
@@ -313,14 +751,13 @@ export default function ChatRoomDetailScreen() {
 
       if (alreadyExists) return prev;
 
-      return [
-        ...prev,
-        {
-          id: `trade-${Date.now()}`,
-          type: "trade",
-          text,
-        },
-      ];
+      const tradeMessage: Message = {
+        id: `trade-${Date.now()}`,
+        type: "trade",
+        text,
+      };
+
+      return [...prev, tradeMessage];
     });
 
     scrollToBottom(100);
@@ -330,25 +767,7 @@ export default function ChatRoomDetailScreen() {
     if (isNote) return;
     if (currentStatus !== "거래 완료") return;
 
-    setMessages((prev) => {
-      const alreadyExists = prev.some(
-        (message) =>
-          message.type === "trade" &&
-          message.text === "거래가 완료되었습니다."
-      );
-
-      if (alreadyExists) return prev;
-
-      return [
-        ...prev,
-        {
-          id: `trade-completed-${Date.now()}`,
-          type: "trade",
-          text: "거래가 완료되었습니다.",
-        },
-      ];
-    });
-
+    setMessages((prev) => ensureStatusMessage(prev, "거래 완료"));
     scrollToBottom(100);
   }, [currentStatus, isNote]);
 
@@ -371,14 +790,33 @@ export default function ChatRoomDetailScreen() {
     router.push({
       pathname: "/chat/menu",
       params: {
-        chatRoomId,
+        chatRoomId: String(chatRoomId),
+        postId: getParamString(postId),
+        memberItemId: getParamString(memberItemId),
+
         type: isNote ? "note" : "divide",
-        role: isSeller ? "seller" : "buyer",
+        role: currentRole,
+
         title: roomTitle,
+        roomName: roomTitle,
+
+        opponentName: opponentDisplayName,
+        sellerName: sellerDisplayName,
+        buyerName: buyerDisplayName,
+
+        selectedMember: selectedMemberName,
+        selectedPrice: selectedMemberPrice,
+
+        receiverName: getParamString(receiverName),
+        phoneNumber: getParamString(phoneNumber),
+        storeName: getParamString(storeName),
+        requestText: getParamString(requestText),
+
         status: currentStatus,
         reviewSubmitted: isReviewSubmitted ? "true" : "false",
+        canWriteReview: shouldShowReviewButton ? "true" : "false",
       },
-    });
+    } as any);
   };
 
   const closePlusMenu = () => {
@@ -446,18 +884,60 @@ export default function ChatRoomDetailScreen() {
   };
 
   const handleSend = () => {
-    if (!inputText.trim()) return;
+    const content = inputText.trim();
 
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      type: "me",
-      text: inputText.trim(),
-      time: "지금",
-    };
+    if (!content) return;
 
-    setMessages((prev) => [...prev, newMessage]);
-    setInputText("");
-    scrollToBottom(90);
+    if (isNote) {
+      const newMessage: Message = {
+        id: Date.now().toString(),
+        type: "me",
+        text: content,
+        time: "지금",
+      };
+
+      setMessages((prev) => [...prev, newMessage]);
+      setInputText("");
+      scrollToBottom(90);
+      return;
+    }
+
+    const senderId = myUserIdRef.current;
+
+    if (!senderId) {
+      Alert.alert("오류", "로그인 정보를 찾을 수 없어요. 다시 로그인해주세요.");
+      return;
+    }
+
+    const client = stompClientRef.current;
+
+    if (!client || !client.connected) {
+      Alert.alert(
+        "전송 실패",
+        isSocketConnected
+          ? "메시지 전송에 실패했어요."
+          : "채팅 서버에 연결되지 않았어요. 잠시 후 다시 시도해주세요."
+      );
+      return;
+    }
+
+    try {
+      client.publish({
+        destination: "/pub/chat/message",
+        body: JSON.stringify({
+          chatRoomId: Number(chatRoomId),
+          senderId: Number(senderId),
+          content,
+          messageType: "TEXT",
+        }),
+      });
+
+      setInputText("");
+      scrollToBottom(90);
+    } catch (error) {
+      console.log("메시지 전송 실패:", error);
+      Alert.alert("전송 실패", "메시지 전송에 실패했어요.");
+    }
   };
 
   const handleImagePress = () => {
@@ -472,7 +952,7 @@ export default function ChatRoomDetailScreen() {
       pathname: "/chat/tracking-share",
       params: {
         chatRoomId,
-        role,
+        role: currentRole,
       },
     });
   };
@@ -480,10 +960,14 @@ export default function ChatRoomDetailScreen() {
   const handleDeliveryStatusPress = () => {
     closePlusMenu();
 
-    Alert.alert(
-      "배송 현황 확인",
-      "나중에 배송사와 운송장 번호를 받아와 배송 조회 URL로 연결하면 돼."
-    );
+    router.push({
+      pathname: "/chat/tracking-status",
+      params: {
+        chatRoomId,
+        role: currentRole,
+        title: roomTitle,
+      },
+    } as any);
   };
 
   const handleReviewPress = () => {
@@ -491,9 +975,12 @@ export default function ChatRoomDetailScreen() {
       pathname: "/chat/review-write",
       params: {
         chatRoomId,
-        role,
+        role: currentRole,
         title: roomTitle,
         status: currentStatus,
+        sellerName: sellerDisplayName,
+        buyerName: buyerDisplayName,
+        selectedMember: selectedMemberName,
       },
     });
   };
@@ -581,8 +1068,7 @@ export default function ChatRoomDetailScreen() {
                     key={message.id}
                     text={message.text ?? ""}
                     showReviewButton={
-                      isBuyer &&
-                      isCompleted &&
+                      shouldShowReviewButton &&
                       message.text === "거래가 완료되었습니다."
                     }
                     reviewSubmitted={isReviewSubmitted}
@@ -608,8 +1094,8 @@ export default function ChatRoomDetailScreen() {
               return (
                 <OtherMessage
                   key={message.id}
-                  nickname={message.nickname ?? ""}
-                  initial={message.initial ?? ""}
+                  nickname={message.nickname ?? opponentDisplayName}
+                  initial={message.initial ?? opponentDisplayName.slice(0, 1)}
                   color={message.color ?? COLORS.gray200}
                   initialColor={message.initialColor ?? COLORS.gray700}
                   text={message.text ?? ""}

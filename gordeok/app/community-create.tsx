@@ -1,4 +1,3 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useState } from "react";
@@ -17,6 +16,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { createCommunityPost } from "../services/community";
+import type { CommunityCategory } from "../types/community";
+
 const COLORS = {
   white: "#FFFFFF",
   black: "#111111",
@@ -30,8 +32,6 @@ const COLORS = {
 };
 
 const SCREEN_PADDING = 22;
-const STORAGE_KEY = "communityPosts";
-
 const categories = ["포카교환", "오프동행", "질문게시판", "자유게시판"];
 
 const CATEGORY_BADGE_COLORS: Record<
@@ -59,29 +59,6 @@ const CATEGORY_BADGE_COLORS: Record<
   },
 };
 
-type CommunityPost = {
-  id: string;
-  category: string;
-  name: string;
-  profileText: string;
-  profileColor: string;
-  time: string;
-  createdAt: number;
-  title: string;
-  content: string;
-  likes: number;
-  comments: number;
-  views: number;
-  photoCount: number;
-};
-
-type CreateCommunityPostPayload = {
-  category: string;
-  title: string;
-  content: string;
-  photoCount: number;
-};
-
 function getCategoryBadgeColor(category: string) {
   return (
     CATEGORY_BADGE_COLORS[category] ?? {
@@ -91,22 +68,19 @@ function getCategoryBadgeColor(category: string) {
   );
 }
 
-function createCommunityPost(payload: CreateCommunityPostPayload): CommunityPost {
-  return {
-    id: String(Date.now()),
-    category: payload.category,
-    name: "범규와이프",
-    profileText: "범",
-    profileColor: "#FFF1C6",
-    time: "방금 전",
-    createdAt: Date.now(),
-    title: payload.title,
-    content: payload.content,
-    likes: 0,
-    comments: 0,
-    views: 0,
-    photoCount: payload.photoCount,
-  };
+function convertCategory(category: string): Exclude<CommunityCategory, "ALL"> {
+  switch (category) {
+    case "포카교환":
+      return "PHOTO_EXCHANGE";
+    case "오프동행":
+      return "OFFLINE_COMPANION";
+    case "질문게시판":
+      return "QUESTION";
+    case "자유게시판":
+      return "FREE";
+    default:
+      return "FREE";
+  }
 }
 
 export default function CommunityCreateScreen() {
@@ -156,22 +130,12 @@ export default function CommunityCreateScreen() {
     try {
       setIsSubmitting(true);
 
-      const newPost = createCommunityPost({
-        category: selectedCategory,
+      await createCommunityPost({
+        category: convertCategory(selectedCategory),
         title: trimmedTitle,
         content: trimmedContent,
-        photoCount,
+        imageUrls: [],
       });
-
-      const savedPosts = await AsyncStorage.getItem(STORAGE_KEY);
-      const parsedPosts: CommunityPost[] = savedPosts
-        ? JSON.parse(savedPosts)
-        : [];
-
-      await AsyncStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify([newPost, ...parsedPosts])
-      );
 
       Alert.alert("등록 완료", "게시글이 등록되었습니다.", [
         {
@@ -179,21 +143,6 @@ export default function CommunityCreateScreen() {
           onPress: () => router.back(),
         },
       ]);
-
-      /*
-        나중에 백엔드 연동 시 여기만 교체하면 됨.
-
-        await fetch("백엔드주소/community", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            category: selectedCategory,
-            title: trimmedTitle,
-            content: trimmedContent,
-            photoCount,
-          }),
-        });
-      */
     } catch (error) {
       Alert.alert("오류", "게시글 등록 중 문제가 발생했어요.");
     } finally {

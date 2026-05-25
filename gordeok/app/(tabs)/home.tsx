@@ -1,6 +1,6 @@
 // 홈 화면
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -11,10 +11,13 @@ import {
   Dimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+
 import { getPosts } from "@/services/post";
+import { getIdolMembers } from "@/services/idol";
+import { getFavoriteIdols, getFavoriteMembers } from "@/services/user";
 import type { PostListItem } from "@/types/post";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -36,166 +39,27 @@ const COLORS = {
   beige: "#EDE8DE",
 };
 
-const idolData = [
-  {
-    id: "boynextdoor",
-    name: "BOYNEXTDOOR",
-    displayName: "보이넥스트도어",
-    shortName: "BND",
-    color: "#F6C74F",
-    members: ["성호", "리우", "명재현", "태산", "이한", "운학"],
-  },
-  {
-    id: "txt",
-    name: "TXT",
-    displayName: "투모로우바이투게더",
-    shortName: "TXT",
-    color: "#D9E8FF",
-    members: ["연준", "수빈", "범규", "태현", "휴닝카이"],
-  },
-  {
-    id: "bts",
-    name: "BTS",
-    displayName: "방탄소년단",
-    shortName: "BTS",
-    color: "#E8D8FF",
-    members: ["RM", "진", "슈가", "제이홉", "지민", "뷔", "정국"],
-  },
-  {
-    id: "straykids",
-    name: "Stray Kids",
-    displayName: "스트레이 키즈",
-    shortName: "SKZ",
-    color: "#FFE1E1",
-    members: ["방찬", "리노", "창빈", "현진", "한", "필릭스"],
-  },
-  {
-    id: "seventeen",
-    name: "SEVENTEEN",
-    displayName: "세븐틴",
-    shortName: "SVT",
-    color: "#DDEFFF",
-    members: ["에스쿱스", "정한", "조슈아", "준", "호시", "원우"],
-  },
-  {
-    id: "nct",
-    name: "NCT",
-    displayName: "엔시티",
-    shortName: "NCT",
-    color: "#DFFFE1",
-    members: ["태용", "재현", "도영", "정우", "마크", "해찬"],
-  },
-  {
-    id: "enhypen",
-    name: "ENHYPEN",
-    displayName: "엔하이픈",
-    shortName: "ENH",
-    color: "#F1E6FF",
-    members: ["정원", "희승", "제이", "제이크", "성훈", "선우"],
-  },
-  {
-    id: "ive",
-    name: "IVE",
-    displayName: "아이브",
-    shortName: "IVE",
-    color: "#FFE6F2",
-    members: ["안유진", "가을", "레이", "장원영", "리즈", "이서"],
-  },
-  {
-    id: "aespa",
-    name: "aespa",
-    displayName: "에스파",
-    shortName: "AES",
-    color: "#E5E9FF",
-    members: ["카리나", "윈터", "지젤", "닝닝"],
-  },
-  {
-    id: "newjeans",
-    name: "NewJeans",
-    displayName: "뉴진스",
-    shortName: "NWJ",
-    color: "#E7FFF7",
-    members: ["민지", "하니", "다니엘", "해린", "혜인"],
-  },
-  {
-    id: "zerobaseone",
-    name: "ZEROBASEONE",
-    displayName: "제로베이스원",
-    shortName: "ZB1",
-    color: "#EEF0FF",
-    members: ["성한빈", "김지웅", "장하오", "석매튜", "김태래"],
-  },
-  {
-    id: "riize",
-    name: "RIIZE",
-    displayName: "라이즈",
-    shortName: "RIIZE",
-    color: "#FFF1D8",
-    members: ["쇼타로", "은석", "성찬", "원빈", "소희", "앤톤"],
-  },
-  {
-    id: "theboyz",
-    name: "THE BOYZ",
-    displayName: "더보이즈",
-    shortName: "TBZ",
-    color: "#F2F2F2",
-    members: ["상연", "현재", "주연", "케빈", "선우", "에릭"],
-  },
-  {
-    id: "stayc",
-    name: "STAYC",
-    displayName: "스테이씨",
-    shortName: "STC",
-    color: "#FFEAF3",
-    members: ["수민", "시은", "아이사", "세은", "윤", "재이"],
-  },
-  {
-    id: "le_sserafim",
-    name: "LE SSERAFIM",
-    displayName: "르세라핌",
-    shortName: "LSF",
-    color: "#FFFFFF",
-    members: ["사쿠라", "김채원", "허윤진", "카즈하", "홍은채"],
-  },
-  {
-    id: "monstax",
-    name: "MONSTA X",
-    displayName: "몬스타엑스",
-    shortName: "MX",
-    color: "#E9ECFF",
-    members: ["셔누", "민혁", "기현", "형원", "주헌", "아이엠"],
-  },
-  {
-    id: "exo",
-    name: "EXO",
-    displayName: "엑소",
-    shortName: "EXO",
-    color: "#EFEFEF",
-    members: ["수호", "찬열", "백현", "디오", "카이", "세훈"],
-  },
-  {
-    id: "twice",
-    name: "TWICE",
-    displayName: "트와이스",
-    shortName: "TWC",
-    color: "#FFE8EF",
-    members: ["나연", "정연", "모모", "사나", "지효", "쯔위"],
-  },
-  {
-    id: "itzy",
-    name: "ITZY",
-    displayName: "있지",
-    shortName: "ITZY",
-    color: "#F0E6FF",
-    members: ["예지", "리아", "류진", "채령", "유나"],
-  },
-];
-
 const MEMBER_GAP = 8;
 const MEMBER_BOX_WIDTH = (SCREEN_WIDTH - 44 - 32 - MEMBER_GAP * 2) / 3;
 
-const FAVORITE_GROUPS_KEY = "GO_REUDEOK_FAVORITE_GROUPS";
-const FAVORITE_MEMBERS_KEY = "GO_REUDEOK_FAVORITE_MEMBERS";
+const COMPLETED_MEMBER_STORAGE_KEY = "GO_REUDEOK_COMPLETED_MEMBER_ITEMS";
+
+type FavoriteGroupForHome = {
+  id: string;
+  name: string;
+  displayName: string;
+  shortName: string;
+  color: string;
+  members: string[];
+  favorites: string[];
+};
+
+type CompletedMemberItem = {
+  postId: string;
+  memberItemId: string;
+  selectedMember?: string;
+  completedAt?: string;
+};
 
 type DisplayPost = {
   id: string;
@@ -212,6 +76,7 @@ type DisplayPost = {
   components: string[];
   deliveryMethod: string;
   members: {
+    memberItemId: string;
     name: string;
     state: string;
     price: number;
@@ -220,89 +85,12 @@ type DisplayPost = {
 
 export default function HomeScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams();
-  const routeGroupParam =
-    typeof params.groups === "string" && params.groups.length > 0
-      ? params.groups
-      : "";
+  const postRequestIdRef = useRef(0);
 
-  const routeMemberParam =
-    typeof params.members === "string" && params.members.length > 0
-      ? params.members
-      : "";
-
-  const [savedGroupParam, setSavedGroupParam] = useState("");
-  const [savedMemberParam, setSavedMemberParam] = useState("");
+  const [selectedGroups, setSelectedGroups] = useState<FavoriteGroupForHome[]>(
+    []
+  );
   const [isFavoriteLoaded, setIsFavoriteLoaded] = useState(false);
-
-  const groupParam = routeGroupParam || savedGroupParam;
-  const memberParam = routeMemberParam || savedMemberParam;
-
-  useEffect(() => {
-    const loadFavorites = async () => {
-      try {
-        const savedGroups = await AsyncStorage.getItem(FAVORITE_GROUPS_KEY);
-        const savedMembers = await AsyncStorage.getItem(FAVORITE_MEMBERS_KEY);
-
-        if (!routeGroupParam && savedGroups) {
-          setSavedGroupParam(savedGroups);
-        }
-
-        if (!routeMemberParam && savedMembers) {
-          setSavedMemberParam(savedMembers);
-        }
-      } catch (error) {
-        console.log("최애 정보 불러오기 실패", error);
-      } finally {
-        setIsFavoriteLoaded(true);
-      }
-    };
-
-    loadFavorites();
-  }, [routeGroupParam, routeMemberParam]);
-
-  useEffect(() => {
-    const saveFavorites = async () => {
-      try {
-        if (routeGroupParam) {
-          await AsyncStorage.setItem(FAVORITE_GROUPS_KEY, routeGroupParam);
-          setSavedGroupParam(routeGroupParam);
-        }
-
-        if (routeMemberParam) {
-          await AsyncStorage.setItem(FAVORITE_MEMBERS_KEY, routeMemberParam);
-          setSavedMemberParam(routeMemberParam);
-        }
-      } catch (error) {
-        console.log("최애 정보 저장 실패", error);
-      }
-    };
-
-    saveFavorites();
-  }, [routeGroupParam, routeMemberParam]);
-
-  const selectedGroupIds = useMemo(() => {
-    return groupParam.split(",").filter(Boolean);
-  }, [groupParam]);
-
-  const selectedMemberIds = useMemo(() => {
-    return memberParam.split(",").filter(Boolean);
-  }, [memberParam]);
-
-  const selectedGroups = useMemo(() => {
-    return idolData
-      .filter((group) => selectedGroupIds.includes(group.id))
-      .map((group) => {
-        const favorites = selectedMemberIds
-          .filter((memberId) => memberId.startsWith(`${group.id}-`))
-          .map((memberId) => memberId.replace(`${group.id}-`, ""));
-
-        return {
-          ...group,
-          favorites,
-        };
-      });
-  }, [selectedGroupIds, selectedMemberIds]);
 
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [selectedFavoriteMember, setSelectedFavoriteMember] = useState<
@@ -312,61 +100,177 @@ export default function HomeScreen() {
   const [apiPosts, setApiPosts] = useState<PostListItem[]>([]);
   const [isPostsLoading, setIsPostsLoading] = useState(false);
   const [postError, setPostError] = useState("");
+  const [completedMembers, setCompletedMembers] = useState<
+    CompletedMemberItem[]
+  >([]);
+
+  const groupParam = useMemo(() => {
+    return selectedGroups.map((group) => group.id).join(",");
+  }, [selectedGroups]);
+
+  const memberParam = useMemo(() => {
+    return selectedGroups
+      .flatMap((group) =>
+        group.favorites.map((favorite) => `${group.id}-${favorite}`)
+      )
+      .join(",");
+  }, [selectedGroups]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const loadCompletedMembers = async () => {
+        try {
+          const saved = await AsyncStorage.getItem(
+            COMPLETED_MEMBER_STORAGE_KEY
+          );
+          const parsed = saved ? JSON.parse(saved) : [];
+
+          setCompletedMembers(Array.isArray(parsed) ? parsed : []);
+        } catch (error) {
+          console.log("모집완료 상태 불러오기 실패:", error);
+          setCompletedMembers([]);
+        }
+      };
+
+      loadCompletedMembers();
+    }, [])
+  );
 
   useEffect(() => {
-    if (selectedGroups.length === 1) {
-      setSelectedGroupId(selectedGroups[0].id);
-      return;
-    }
-
-    if (
-      selectedGroupId &&
-      !selectedGroups.some((group) => group.id === selectedGroupId)
-    ) {
-      setSelectedGroupId(null);
-      setSelectedFavoriteMember(null);
-    }
-  }, [selectedGroups, selectedGroupId]);
-
-  useEffect(() => {
-    const loadPosts = async () => {
+    const loadFavorites = async () => {
       try {
-        setIsPostsLoading(true);
-        setPostError("");
+        setIsFavoriteLoaded(false);
 
-        const selectedGroup = selectedGroups.find(
-          (group) => group.id === selectedGroupId
+        const favoriteIdols = await getFavoriteIdols();
+        const favoriteMembers = await getFavoriteMembers();
+
+        const groupsWithMembers = await Promise.all(
+          favoriteIdols.map(async (idol) => {
+            let allMembers: { id: number; idolId: number; name: string }[] = [];
+
+            try {
+              allMembers = await getIdolMembers(idol.id);
+            } catch (error) {
+              console.log("아이돌 멤버 목록 조회 실패:", error);
+              allMembers = [];
+            }
+
+            const myFavoriteNames = favoriteMembers
+              .filter((member) => Number(member.idolId) === Number(idol.id))
+              .map((member) => member.name);
+
+            return {
+              id: String(idol.id),
+              name: idol.name,
+              displayName: idol.name,
+              shortName: idol.code
+                ? idol.code.toUpperCase().slice(0, 5)
+                : idol.name.slice(0, 3),
+              color: getGroupColor(idol.code || idol.name),
+              members: allMembers.map((member) => member.name),
+              favorites: myFavoriteNames,
+            };
+          })
         );
 
-        const response = await getPosts({
-          page: 0,
-          size: 20,
-          sort: "latest",
-          idolName: selectedGroup?.displayName,
+        setSelectedGroups(groupsWithMembers);
+
+        setSelectedGroupId((prev) => {
+          if (prev && groupsWithMembers.some((group) => group.id === prev)) {
+            return prev;
+          }
+
+          return groupsWithMembers[0]?.id ?? null;
         });
-
-        const list = Array.isArray(response) ? response : response.content;
-
-        setApiPosts(list ?? []);
       } catch (error) {
-        console.log("게시글 조회 실패:", error);
-        setApiPosts([]);
-        setPostError("게시글을 불러오지 못했어요");
+        console.log("최애 정보 불러오기 실패:", error);
+        setSelectedGroups([]);
+        setSelectedGroupId(null);
       } finally {
-        setIsPostsLoading(false);
+        setIsFavoriteLoaded(true);
       }
     };
 
-    if (selectedGroups.length > 0) {
-      loadPosts();
-    } else {
-      setApiPosts([]);
+    loadFavorites();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedGroupId) {
+      setSelectedFavoriteMember(null);
+      return;
     }
-  }, [selectedGroups, selectedGroupId]);
+
+    const selectedGroup = selectedGroups.find(
+      (group) => group.id === selectedGroupId
+    );
+
+    if (
+      selectedFavoriteMember &&
+      selectedGroup &&
+      !selectedGroup.favorites.includes(selectedFavoriteMember)
+    ) {
+      setSelectedFavoriteMember(null);
+    }
+  }, [selectedGroups, selectedGroupId, selectedFavoriteMember]);
+
+  const loadPosts = useCallback(async () => {
+    if (!isFavoriteLoaded) return;
+
+    if (selectedGroups.length === 0) {
+      setApiPosts([]);
+      return;
+    }
+
+    const selectedGroup = selectedGroupId
+      ? selectedGroups.find((group) => group.id === selectedGroupId)
+      : null;
+
+    const requestId = postRequestIdRef.current + 1;
+    postRequestIdRef.current = requestId;
+
+    try {
+      setIsPostsLoading(true);
+      setPostError("");
+
+      const response = await getPosts({
+        page: 0,
+        size: 20,
+        sort: "latest",
+        idolName: selectedGroup?.displayName,
+      });
+
+      if (postRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      const list = extractPostList(response);
+      const uniqueList = removeDuplicateApiPosts(list);
+
+      setApiPosts(uniqueList);
+    } catch (error) {
+      if (postRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      console.log("게시글 조회 실패:", error);
+      setApiPosts([]);
+      setPostError("게시글을 불러오지 못했어요");
+    } finally {
+      if (postRequestIdRef.current === requestId) {
+        setIsPostsLoading(false);
+      }
+    }
+  }, [isFavoriteLoaded, selectedGroups, selectedGroupId]);
+
+  useEffect(() => {
+    loadPosts();
+  }, [loadPosts]);
 
   const posts = useMemo(() => {
-    return normalizeApiPosts(apiPosts, selectedGroups);
-  }, [selectedGroups, apiPosts]);
+    return removeDuplicateDisplayPosts(
+      normalizeApiPosts(apiPosts, selectedGroups, completedMembers)
+    );
+  }, [selectedGroups, apiPosts, completedMembers]);
 
   const filteredPosts: DisplayPost[] = posts.filter((post) => {
     const matchesGroup = selectedGroupId
@@ -475,9 +379,9 @@ export default function HomeScreen() {
                     <Pressable
                       key={group.id}
                       onPress={() => {
-                        if (selectedGroups.length === 1) return;
-
-                        setSelectedGroupId(isSelected ? null : group.id);
+                        setSelectedGroupId((prev) =>
+                          prev === group.id ? null : group.id
+                        );
                         setSelectedFavoriteMember(null);
                       }}
                       style={styles.groupItem}
@@ -601,23 +505,12 @@ export default function HomeScreen() {
                 )}
               </ScrollView>
 
-              <View style={styles.listHeader}>
-                <View />
-
-                <Pressable style={styles.sortButton}>
-                  <Text style={styles.sortText}>최신 등록순</Text>
-                  <Ionicons
-                    name="swap-vertical"
-                    size={16}
-                    color={COLORS.black}
-                  />
-                </Pressable>
-              </View>
-
               <View style={styles.postList}>
-                {isPostsLoading ? (
+                {isPostsLoading && filteredPosts.length === 0 ? (
                   <View style={styles.noPostBox}>
-                    <Text style={styles.noPostTitle}>분철 글을 불러오는 중이에요</Text>
+                    <Text style={styles.noPostTitle}>
+                      분철 글을 불러오는 중이에요
+                    </Text>
                   </View>
                 ) : postError ? (
                   <View style={styles.noPostBox}>
@@ -625,12 +518,14 @@ export default function HomeScreen() {
                   </View>
                 ) : filteredPosts.length === 0 ? (
                   <View style={styles.noPostBox}>
-                    <Text style={styles.noPostTitle}>모집중인 분철 글이 없어요</Text>
+                    <Text style={styles.noPostTitle}>
+                      모집중인 분철 글이 없어요
+                    </Text>
                   </View>
                 ) : (
                   filteredPosts.map((post) => (
                     <PostCard
-                      key={String(post.id)}
+                      key={`post-${post.id}`}
                       post={post}
                       onPress={() =>
                         router.push({
@@ -671,22 +566,77 @@ export default function HomeScreen() {
   );
 }
 
+function extractPostList(response: any): PostListItem[] {
+  if (Array.isArray(response)) return response;
+  if (Array.isArray(response?.content)) return response.content;
+  if (Array.isArray(response?.data)) return response.data;
+  if (Array.isArray(response?.data?.content)) return response.data.content;
+  if (Array.isArray(response?.items)) return response.items;
+  return [];
+}
+
 function normalizeApiPosts(
   apiPosts: PostListItem[],
-  selectedGroups: typeof idolData
+  selectedGroups: FavoriteGroupForHome[],
+  completedMembers: CompletedMemberItem[]
 ): DisplayPost[] {
-  return apiPosts.reduce<DisplayPost[]>((result, post) => {
+  return apiPosts.reduce<DisplayPost[]>((result, post: any) => {
+    const postId = post.id ?? post.postId;
+
+    if (postId === undefined || postId === null) {
+      return result;
+    }
+
     const matchedGroup = selectedGroups.find(
       (group) =>
         group.displayName === post.idolName ||
         group.name === post.idolName ||
-        group.id === post.idolName
+        group.id === String(post.idolName)
     );
 
     if (!matchedGroup) return result;
 
+    const members = Array.isArray(post.memberItems)
+      ? post.memberItems.map((member: any) => {
+          const memberItemId = String(
+            member.id ??
+              member.memberItemId ??
+              member.itemId ??
+              member.divideMemberItemId ??
+              member.postMemberItemId ??
+              member.memberName
+          );
+
+          const isCompletedByLocal = isCompletedMember(
+            String(postId),
+            memberItemId,
+            completedMembers
+          );
+
+          return {
+            memberItemId,
+            name: member.memberName,
+            state: isCompletedByLocal
+              ? "모집완료"
+              : getMemberStatus(member.status),
+            price: Number(member.price ?? 0),
+          };
+        })
+      : [];
+
+    const baseCompleted =
+      post.status === "COMPLETED" ||
+      post.status === "CLOSED" ||
+      post.status === "모집완료";
+
+    const allMembersCompleted =
+      members.length > 0 &&
+      members.every(
+        (member: DisplayPost["members"][number]) => member.state === "모집완료"
+      );
+
     result.push({
-      id: String(post.id),
+      id: String(postId),
       groupId: matchedGroup.id,
       groupName: post.idolName,
       userName: post.nickname || "알 수 없음",
@@ -694,23 +644,121 @@ function normalizeApiPosts(
       albumName: post.albumName || "",
       time: formatTime(post.createdAt),
       date: post.createdAt?.slice(0, 10) ?? "",
-      status: getPostStatus(post.status, post.almostFull),
-      completed:
-        post.status === "COMPLETED" ||
-        post.status === "CLOSED" ||
-        post.status === "모집완료",
+      status:
+        baseCompleted || allMembersCompleted
+          ? "모집완료"
+          : getPostStatus(post.status, Boolean(post.almostFull)),
+      completed: baseCompleted || allMembersCompleted,
       content: post.description || "",
-      components: post.components || [],
+      components: Array.isArray(post.components) ? post.components : [],
       deliveryMethod: post.shippingFeeType || "",
-      members: (post.memberItems || []).map((member) => ({
-        name: member.memberName,
-        state: getMemberStatus(member.status),
-        price: member.price,
-      })),
+      members,
     });
 
     return result;
   }, []);
+}
+
+function isCompletedMember(
+  postId: string,
+  memberItemId: string,
+  completedMembers: CompletedMemberItem[]
+) {
+  return completedMembers.some((item) => {
+    return (
+      String(item.postId) === String(postId) &&
+      String(item.memberItemId) === String(memberItemId)
+    );
+  });
+}
+
+function removeDuplicateApiPosts(posts: PostListItem[]) {
+  const map = new Map<string, any>();
+
+  posts.forEach((post: any) => {
+    const semanticKey = [
+      post.userId ?? post.nickname ?? "",
+      post.idolName ?? "",
+      post.albumName ?? "",
+      post.title ?? "",
+      post.description ?? "",
+    ].join("|");
+
+    const current = map.get(semanticKey);
+
+    if (!current) {
+      map.set(semanticKey, post);
+      return;
+    }
+
+    const currentMemberCount = Array.isArray(current.memberItems)
+      ? current.memberItems.length
+      : 0;
+
+    const nextMemberCount = Array.isArray(post.memberItems)
+      ? post.memberItems.length
+      : 0;
+
+    const currentTime = current.createdAt
+      ? new Date(current.createdAt).getTime()
+      : 0;
+
+    const nextTime = post.createdAt ? new Date(post.createdAt).getTime() : 0;
+
+    const shouldReplace =
+      nextMemberCount > currentMemberCount ||
+      (nextMemberCount === currentMemberCount && nextTime > currentTime);
+
+    if (shouldReplace) {
+      map.set(semanticKey, post);
+    }
+  });
+
+  return Array.from(map.values());
+}
+
+function removeDuplicateDisplayPosts(posts: DisplayPost[]) {
+  const map = new Map<string, DisplayPost>();
+
+  posts.forEach((post) => {
+    const semanticKey = [
+      post.userName,
+      post.groupName,
+      post.albumName,
+      post.title,
+      post.content,
+    ].join("|");
+
+    const current = map.get(semanticKey);
+
+    if (!current) {
+      map.set(semanticKey, post);
+      return;
+    }
+
+    if (post.members.length > current.members.length) {
+      map.set(semanticKey, post);
+    }
+  });
+
+  return Array.from(map.values());
+}
+
+function getGroupColor(codeOrName: string) {
+  const key = codeOrName.toLowerCase();
+
+  if (key.includes("bts")) return "#E8D8FF";
+  if (key.includes("seventeen")) return "#DDEFFF";
+  if (key.includes("stray")) return "#FFE1E1";
+  if (key.includes("aespa")) return "#E5E9FF";
+  if (key.includes("newjeans")) return "#E7FFF7";
+  if (key.includes("ive")) return "#FFE6F2";
+  if (key.includes("exo")) return "#EFEFEF";
+  if (key.includes("nct")) return "#DFFFE1";
+  if (key.includes("twice")) return "#FFE8EF";
+  if (key.includes("blackpink")) return "#F1E6FF";
+
+  return "#F6C74F";
 }
 
 function getPostStatus(status: string, almostFull: boolean) {
@@ -750,7 +798,7 @@ function PostCard({
   post,
   onPress,
 }: {
-  post: any;
+  post: DisplayPost;
   onPress: () => void;
 }) {
   return (
@@ -776,9 +824,7 @@ function PostCard({
 
           <View style={styles.titleRow}>
             <View style={styles.titleTextWrap}>
-              <Text style={styles.postTitle} numberOfLines={1}>
-                {post.title}
-              </Text>
+              <Text style={styles.postTitle}>{post.title}</Text>
             </View>
 
             {post.status === "마감임박" && (
@@ -797,9 +843,9 @@ function PostCard({
       </View>
 
       <View style={styles.memberGrid}>
-        {post.members.map((member: any, index: number) => (
+        {post.members.map((member, index) => (
           <View
-            key={`${member.name}-${index}`}
+            key={`${post.id}-${member.memberItemId}-${member.name}-${index}`}
             style={[
               styles.memberBox,
               member.state === "모집완료" && styles.memberBoxCompleted,
@@ -868,7 +914,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingTop: 0,
     paddingHorizontal: 22,
-    paddingBottom: 120,
+    paddingBottom: 170,
   },
 
   header: {
@@ -1063,12 +1109,13 @@ const styles = StyleSheet.create({
 
   favoriteName: {
     fontSize: 13,
-    fontWeight: "900",
+    fontWeight: "700",
     color: COLORS.black,
   },
 
   favoriteNameSelected: {
     color: COLORS.white,
+    fontWeight: "700",
   },
 
   favoriteGroupName: {
@@ -1087,12 +1134,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 12,
-  },
-
-  listTitle: {
-    fontSize: 17,
-    fontWeight: "900",
-    color: COLORS.black,
   },
 
   sortButton: {
@@ -1178,7 +1219,7 @@ const styles = StyleSheet.create({
 
   titleRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     marginTop: 3,
   },
 
@@ -1191,6 +1232,7 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "900",
     color: COLORS.black,
+    lineHeight: 23,
   },
 
   deadlineBadge: {
@@ -1198,6 +1240,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: 10,
+    marginTop: 2,
   },
 
   deadlineText: {
@@ -1211,6 +1254,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: 10,
+    marginTop: 2,
   },
 
   completeText: {

@@ -1,6 +1,6 @@
 // 분철 상세 화면
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -13,10 +13,19 @@ import {
   PanResponder,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import {
+  useFocusEffect,
+  useLocalSearchParams,
+  useRouter,
+} from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useBookmark } from "@/contexts/BookmarkContext";
-import { getPostDetail, reserveMemberItem } from "../services/post";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+import { getPostDetail } from "../services/post";
+import {
+  checkBookmark,
+  toggleBookmark as toggleBookmarkApi,
+} from "../services/bookmark";
 import type { PostDetailResponse } from "../types/post";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -24,6 +33,8 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const SHEET_HALF_HEIGHT = SCREEN_HEIGHT * 0.52;
 const SHEET_EXPANDED_HEIGHT = SCREEN_HEIGHT * 0.82;
 const SHEET_HIDDEN_HEIGHT = 0;
+
+const COMPLETED_MEMBER_STORAGE_KEY = "GO_REUDEOK_COMPLETED_MEMBER_ITEMS";
 
 const COLORS = {
   white: "#FFFFFF",
@@ -57,6 +68,7 @@ type DivideMember = {
 
 type DividePost = {
   id: string;
+  sellerId?: string;
   groupId: string;
   groupName: string;
   userName: string;
@@ -70,8 +82,17 @@ type DividePost = {
   components?: string[];
   deliveryMethod: string;
   members: DivideMember[];
+  scrapCount?: number;
+  viewCount?: number;
+  sellerTrustScore?: number;
 };
 
+type CompletedMemberItem = {
+  postId: string;
+  memberItemId: string;
+  selectedMember?: string;
+  completedAt?: string;
+};
 
 function getMemberState(status: string): MemberState {
   if (status === "COMPLETED" || status === "CLOSED" || status === "모집완료") {
@@ -85,9 +106,43 @@ function getMemberState(status: string): MemberState {
   return "모집중";
 }
 
+function formatShippingFeeType(value?: string | null) {
+  if (!value) return "배송 방법 미정";
+
+  const raw = String(value).trim();
+  const normalized = raw.toUpperCase().replace(/\s/g, "");
+
+  if (
+    normalized === "GS" ||
+    normalized === "GSHALF" ||
+    normalized === "HALFGS" ||
+    normalized === "GS_HALF" ||
+    normalized === "HALF_GS" ||
+    raw === "GS 반값택배" ||
+    raw === "GS반값택배"
+  ) {
+    return "GS 반값택배";
+  }
+
+  if (
+    normalized === "CU" ||
+    normalized === "CUHALF" ||
+    normalized === "HALFCU" ||
+    normalized === "CU_HALF" ||
+    normalized === "HALF_CU" ||
+    raw === "CU 반값택배" ||
+    raw === "CU반값택배"
+  ) {
+    return "CU 반값택배";
+  }
+
+  return raw;
+}
+
 function mapApiPostToDetailPost(post: PostDetailResponse): DividePost {
   return {
     id: String(post.postId),
+    sellerId: String(post.seller?.sellerId ?? "1"),
     groupId: post.idolName,
     groupName: post.idolName,
     userName: post.seller?.nickname ?? "판매자",
@@ -99,7 +154,10 @@ function mapApiPostToDetailPost(post: PostDetailResponse): DividePost {
     completed: post.status === "COMPLETED" || post.status === "CLOSED",
     content: post.description ?? "",
     components: post.components ?? [],
-    deliveryMethod: post.shippingFeeType ?? "",
+    deliveryMethod: formatShippingFeeType(post.shippingFeeType),
+    scrapCount: post.scrapCount ?? 0,
+    viewCount: undefined,
+    sellerTrustScore: post.seller?.trustScore ?? 0,
     members: (post.memberItems ?? []).map((member) => ({
       memberItemId: member.id,
       name: member.memberName,
@@ -109,10 +167,68 @@ function mapApiPostToDetailPost(post: PostDetailResponse): DividePost {
   };
 }
 
+function normalizePassedPost(post: DividePost): DividePost {
+  return {
+    ...post,
+    sellerId: post.sellerId ?? "1",
+    deliveryMethod: formatShippingFeeType(post.deliveryMethod),
+    scrapCount: post.scrapCount ?? 0,
+    viewCount: post.viewCount ?? 0,
+    sellerTrustScore: post.sellerTrustScore ?? 0,
+  };
+}
+
+function isCompletedMember(
+  postId: string,
+  member: DivideMember,
+  completedMembers: CompletedMemberItem[]
+) {
+  return completedMembers.some((item) => {
+    const samePost = String(item.postId) === String(postId);
+
+    const sameMemberItemId =
+      member.memberItemId !== undefined &&
+      member.memberItemId !== null &&
+      String(item.memberItemId) === String(member.memberItemId);
+
+    const sameMemberName =
+      item.selectedMember &&
+      String(item.selectedMember) === String(member.name);
+
+    return samePost && (sameMemberItemId || sameMemberName);
+  });
+}
+
+function applyCompletedMembersToPost(
+  post: DividePost,
+  completedMembers: CompletedMemberItem[]
+): DividePost {
+  const nextMembers = post.members.map((member) => {
+    const completed = isCompletedMember(post.id, member, completedMembers);
+
+    if (!completed) return member;
+
+    return {
+      ...member,
+      state: "모집완료" as MemberState,
+    };
+  });
+
+  const allMembersCompleted =
+    nextMembers.length > 0 &&
+    nextMembers.every((member) => member.state === "모집완료");
+
+  return {
+    ...post,
+    members: nextMembers,
+    completed: post.completed || allMembersCompleted,
+    status: post.completed || allMembersCompleted ? "모집완료" : post.status,
+  };
+}
+
 export default function DivideDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { isBookmarked, toggleBookmark } = useBookmark();
 
   const [isMemberSheetOpen, setIsMemberSheetOpen] = useState(false);
   const [selectedMemberName, setSelectedMemberName] = useState<string | null>(
@@ -132,10 +248,55 @@ export default function DivideDetailScreen() {
   const memberParam = typeof params.members === "string" ? params.members : "";
 
   const [apiPost, setApiPost] = useState<DividePost | null>(null);
-  const [isReserving, setIsReserving] = useState(false);
+  const [bookmarked, setBookmarked] = useState(false);
+  const [isBookmarkLoading, setIsBookmarkLoading] = useState(false);
+  const [completedMembers, setCompletedMembers] = useState<
+    CompletedMemberItem[]
+  >([]);
+  const [currentUserId, setCurrentUserId] = useState<string>("");
 
   useEffect(() => {
-    if (postData || !postIdParam) return;
+    const loadCurrentUserId = async () => {
+      try {
+        const savedUserId =
+          (await AsyncStorage.getItem("userId")) ??
+          (await AsyncStorage.getItem("USER_ID")) ??
+          (await AsyncStorage.getItem("storedUserId")) ??
+          (await AsyncStorage.getItem("goReudeokUserId")) ??
+          "";
+
+        setCurrentUserId(String(savedUserId));
+      } catch (error) {
+        console.log("현재 유저 ID 불러오기 실패:", error);
+        setCurrentUserId("");
+      }
+    };
+
+    loadCurrentUserId();
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      const loadCompletedMembers = async () => {
+        try {
+          const saved = await AsyncStorage.getItem(
+            COMPLETED_MEMBER_STORAGE_KEY
+          );
+          const parsed = saved ? JSON.parse(saved) : [];
+
+          setCompletedMembers(Array.isArray(parsed) ? parsed : []);
+        } catch (error) {
+          console.log("모집완료 상태 불러오기 실패:", error);
+          setCompletedMembers([]);
+        }
+      };
+
+      loadCompletedMembers();
+    }, [])
+  );
+
+  useEffect(() => {
+    if (!postIdParam) return;
 
     let alive = true;
 
@@ -147,7 +308,7 @@ export default function DivideDetailScreen() {
 
         setApiPost(mapApiPostToDetailPost(data));
       } catch (error) {
-        console.log("게시글 상세 API 연결 전이거나 조회 실패:", error);
+        console.log("게시글 상세 조회 실패:", error);
       }
     };
 
@@ -156,25 +317,74 @@ export default function DivideDetailScreen() {
     return () => {
       alive = false;
     };
-  }, [postData, postIdParam]);
+  }, [postIdParam]);
 
   const post = useMemo<DividePost | null>(() => {
-    if (postData) {
+    let basePost: DividePost | null = null;
+
+    if (apiPost) {
+      basePost = apiPost;
+    } else if (postData) {
       try {
-        return JSON.parse(postData);
+        const parsed = JSON.parse(postData);
+        basePost = normalizePassedPost(parsed);
       } catch {
-        return null;
+        basePost = null;
       }
     }
 
-    return apiPost;
-  }, [postData, apiPost]);
+    if (!basePost) return null;
+
+    return applyCompletedMembersToPost(basePost, completedMembers);
+  }, [postData, apiPost, completedMembers]);
+
+  useEffect(() => {
+    const loadBookmarkState = async () => {
+      if (!post?.id) return;
+
+      try {
+        const result = await checkBookmark(post.id);
+        setBookmarked(Boolean(result.bookmarked));
+      } catch (error) {
+        console.log("북마크 여부 조회 실패:", error);
+      }
+    };
+
+    loadBookmarkState();
+  }, [post?.id]);
+
+  useEffect(() => {
+    if (!post || !selectedMemberName) return;
+
+    const selected = post.members.find(
+      (member) => member.name === selectedMemberName
+    );
+
+    if (!selected || selected.state !== "모집중") {
+      setSelectedMemberName(null);
+    }
+  }, [post, selectedMemberName]);
 
   const selectedMember = post?.members.find(
-    (member) => member.name === selectedMemberName
+    (member) =>
+      member.name === selectedMemberName && member.state === "모집중"
   );
 
-  const isJoinEnabled = !!selectedMember && !isReserving;
+  const hasOpenMember = post?.members.some(
+    (member) => member.state === "모집중"
+  );
+
+  const isMyPost =
+    !!currentUserId &&
+    !!post?.sellerId &&
+    String(currentUserId) === String(post.sellerId);
+
+  const sellerTrustScore = Math.max(
+    0,
+    Math.min(100, Number(post?.sellerTrustScore ?? 0))
+  );
+
+  const isJoinEnabled = !!selectedMember && !isMyPost;
 
   const moveSheetTo = (toValue: number) => {
     currentSheetHeight.current = toValue;
@@ -310,63 +520,60 @@ export default function DivideDetailScreen() {
     );
   }
 
-  const bookmarked = isBookmarked(post.id);
+  const handleBookmark = async () => {
+    if (isBookmarkLoading) return;
 
-  const handleBookmark = () => {
-    toggleBookmark({
-      id: post.id,
-      title: post.title,
-      sellerName: post.userName,
-      groupName: post.groupName,
-      postData: JSON.stringify(post),
-      groups: groupParam,
-      members: memberParam,
-    });
+    try {
+      setIsBookmarkLoading(true);
+
+      const result = await toggleBookmarkApi(post.id);
+      setBookmarked(Boolean(result.bookmarked));
+    } catch (error) {
+      console.log("북마크 토글 실패:", error);
+    } finally {
+      setIsBookmarkLoading(false);
+    }
   };
 
   const handleOpenMemberSheet = () => {
+    if (isMyPost || !hasOpenMember) return;
+
     setIsMemberSheetOpen(true);
   };
 
   const handleSelectMember = (member: DivideMember) => {
-    if (member.state !== "모집중") return;
+    if (isMyPost || member.state !== "모집중") return;
 
     setSelectedMemberName((prev) =>
       prev === member.name ? null : member.name
     );
   };
 
-  const handleJoin = async () => {
-    if (!selectedMember) return;
+  const handleJoin = () => {
+    if (isMyPost || !selectedMember) return;
 
-    try {
-      setIsReserving(true);
+    setIsMemberSheetOpen(false);
 
-      if (selectedMember.memberItemId) {
-        await reserveMemberItem(selectedMember.memberItemId);
-      }
-    } catch (error) {
-      console.log("멤버 예약 API 연결 전이거나 예약 실패:", error);
-    } finally {
-      setIsReserving(false);
-      setIsMemberSheetOpen(false);
-
-      router.push({
-        pathname: "/divide-join",
-        params: {
-          postId: post.id,
-          memberItemId: selectedMember.memberItemId
-            ? String(selectedMember.memberItemId)
-            : "",
-          postData: JSON.stringify(post),
-          selectedMember: selectedMember.name,
-          selectedPrice: String(selectedMember.price),
-          groups: groupParam,
-          members: memberParam,
-        },
-      } as any);
-    }
+    router.push({
+      pathname: "/divide-join",
+      params: {
+        postId: post.id,
+        memberItemId: selectedMember.memberItemId
+          ? String(selectedMember.memberItemId)
+          : "",
+        postData: JSON.stringify(post),
+        selectedMember: selectedMember.name,
+        selectedPrice: String(selectedMember.price),
+        groups: groupParam,
+        members: memberParam,
+      },
+    } as any);
   };
+
+  const bookmarkCount = Math.max(
+    0,
+    (post.scrapCount ?? 0) + (bookmarked ? 1 : 0)
+  );
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
@@ -385,11 +592,18 @@ export default function DivideDetailScreen() {
             </View>
           </View>
 
-          <Pressable style={styles.profileSection} 
-            onPress={() => router.push({
-              pathname: "/seller-profile/[id]",
-              params: { id: "1" },
-            })}>
+          <Pressable
+            style={styles.profileSection}
+            onPress={() =>
+              router.push({
+                pathname: "/seller-profile/[id]",
+                params: {
+                  id: post.sellerId ?? "1",
+                  nickname: post.userName,
+                },
+              } as any)
+            }
+          >
             <View style={styles.profileCircle}>
               <Text style={styles.profileInitial}>{post.userName[0]}</Text>
             </View>
@@ -401,10 +615,15 @@ export default function DivideDetailScreen() {
 
               <View style={styles.scoreRow}>
                 <View style={styles.scoreBar}>
-                  <View style={styles.scoreFill} />
+                  <View
+                    style={[
+                      styles.scoreFill,
+                      { width: `${sellerTrustScore}%` },
+                    ]}
+                  />
                 </View>
 
-                <Text style={styles.score}>87점</Text>
+                <Text style={styles.score}>{sellerTrustScore}점</Text>
                 <Text style={styles.scoreLabel}> 신뢰점수</Text>
               </View>
             </View>
@@ -420,17 +639,23 @@ export default function DivideDetailScreen() {
               <Text style={styles.dateText}>{post.date}</Text>
             </View>
 
-            <Text style={styles.title}>{post.title}</Text>
+            <View style={styles.titleRow}>
+              <Text style={styles.title}>{post.title}</Text>
+
+              {post.completed && (
+                <View style={styles.completeBadge}>
+                  <Text style={styles.completeText}>모집완료</Text>
+                </View>
+              )}
+            </View>
 
             <View style={styles.smallDivider} />
 
             <Text style={styles.contentText}>{post.content}</Text>
 
             <View style={styles.countRow}>
-              <Text style={styles.countText}>
-                북마크 {bookmarked ? "12" : "11"}
-              </Text>
-              <Text style={styles.countText}>조회 705</Text>
+              <Text style={styles.countText}>북마크 {bookmarkCount}</Text>
+              <Text style={styles.countText}>조회 {post.viewCount ?? 0}</Text>
             </View>
 
             <View style={styles.sectionDivider} />
@@ -438,26 +663,42 @@ export default function DivideDetailScreen() {
             <Text style={styles.sectionTitle}>멤버별 모집 상태</Text>
 
             <View style={styles.memberGrid}>
-              {post.members.map((member, index) => (
-                <View key={`${member.name}-${index}`} style={styles.memberCard}>
-                  <View style={styles.memberInfo}>
-                    <Text style={styles.memberName} numberOfLines={1}>
-                      {member.name}
-                    </Text>
+              {post.members.map((member, index) => {
+                const isDone = member.state === "모집완료";
 
-                    <Text
-                      style={[
-                        styles.priceText,
-                        member.state === "모집완료" && styles.donePriceText,
-                      ]}
-                    >
-                      ₩{member.price.toLocaleString()}
-                    </Text>
+                return (
+                  <View
+                    key={`${member.name}-${member.memberItemId ?? index}`}
+                    style={[
+                      styles.memberCard,
+                      isDone && styles.memberCardDone,
+                    ]}
+                  >
+                    <View style={styles.memberInfo}>
+                      <Text
+                        style={[
+                          styles.memberName,
+                          isDone && styles.memberDoneText,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {member.name}
+                      </Text>
+
+                      <Text
+                        style={[
+                          styles.priceText,
+                          isDone && styles.donePriceText,
+                        ]}
+                      >
+                        ₩{member.price.toLocaleString()}
+                      </Text>
+                    </View>
+
+                    <StatusBadge state={member.state} />
                   </View>
-
-                  <StatusBadge state={member.state} />
-                </View>
-              ))}
+                );
+              })}
             </View>
 
             {post.components && post.components.length > 0 && (
@@ -469,7 +710,11 @@ export default function DivideDetailScreen() {
                 <View style={styles.itemList}>
                   {post.components.map((item) => (
                     <View key={item} style={styles.itemRow}>
-                      <Ionicons name="checkmark" size={17} color={COLORS.green} />
+                      <Ionicons
+                        name="checkmark"
+                        size={17}
+                        color={COLORS.green}
+                      />
                       <Text style={styles.itemText}>{item}</Text>
                     </View>
                   ))}
@@ -488,7 +733,11 @@ export default function DivideDetailScreen() {
         </ScrollView>
 
         <View style={styles.bottomBar}>
-          <Pressable style={styles.bookmarkButton} onPress={handleBookmark}>
+          <Pressable
+            style={styles.bookmarkButton}
+            onPress={handleBookmark}
+            disabled={isBookmarkLoading}
+          >
             <Ionicons
               name={bookmarked ? "bookmark" : "bookmark-outline"}
               size={28}
@@ -496,8 +745,21 @@ export default function DivideDetailScreen() {
             />
           </Pressable>
 
-          <Pressable style={styles.selectButton} onPress={handleOpenMemberSheet}>
-            <Text style={styles.selectButtonText}>분철 멤버 선택</Text>
+          <Pressable
+            style={[
+              styles.selectButton,
+              (isMyPost || !hasOpenMember) && styles.selectButtonDisabled,
+            ]}
+            onPress={handleOpenMemberSheet}
+            disabled={isMyPost || !hasOpenMember}
+          >
+            <Text style={styles.selectButtonText}>
+              {isMyPost
+                ? "내가 작성한 글"
+                : hasOpenMember
+                ? "분철 멤버 선택"
+                : "모집완료"}
+            </Text>
           </Pressable>
         </View>
 
@@ -541,11 +803,11 @@ export default function DivideDetailScreen() {
                 <View style={styles.sheetMemberList}>
                   {post.members.map((member, index) => {
                     const isSelected = selectedMemberName === member.name;
-                    const isDisabled = member.state !== "모집중";
+                    const isDisabled = isMyPost || member.state !== "모집중";
 
                     return (
                       <Pressable
-                        key={`${member.name}-${index}`}
+                        key={`${member.name}-${member.memberItemId ?? index}`}
                         disabled={isDisabled}
                         onPress={() => handleSelectMember(member)}
                         style={[
@@ -762,7 +1024,6 @@ const styles = StyleSheet.create({
   },
 
   scoreFill: {
-    width: "87%",
     height: "100%",
     borderRadius: 999,
     backgroundColor: COLORS.yellow,
@@ -805,12 +1066,33 @@ const styles = StyleSheet.create({
     color: COLORS.gray400,
   },
 
-  title: {
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
     marginTop: 8,
+    gap: 8,
+  },
+
+  title: {
+    flex: 1,
     fontSize: 20,
     fontWeight: "900",
     color: COLORS.black,
     lineHeight: 27,
+  },
+
+  completeBadge: {
+    marginTop: 2,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: COLORS.gray100,
+  },
+
+  completeText: {
+    fontSize: 11,
+    fontWeight: "900",
+    color: COLORS.gray500,
   },
 
   smallDivider: {
@@ -872,6 +1154,11 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
 
+  memberCardDone: {
+    backgroundColor: "#FAFAFA",
+    opacity: 0.72,
+  },
+
   memberInfo: {
     flex: 1,
     marginRight: 8,
@@ -883,6 +1170,10 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     color: COLORS.black,
     lineHeight: 19,
+  },
+
+  memberDoneText: {
+    color: COLORS.gray400,
   },
 
   priceText: {
@@ -1000,6 +1291,10 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.yellow,
     alignItems: "center",
     justifyContent: "center",
+  },
+
+  selectButtonDisabled: {
+    backgroundColor: COLORS.gray300,
   },
 
   selectButtonText: {

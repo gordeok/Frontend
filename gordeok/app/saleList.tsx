@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -9,6 +10,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { getMySales, MySale } from "../services/user";
 
 const COLORS = {
   white: "#FFFFFF",
@@ -35,46 +37,56 @@ type SaleItem = {
   status: SaleStatus;
 };
 
+function formatDate(value?: string) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10).replaceAll("-", ".");
+  return date.toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" }).replace(/\. /g, ".").replace(/\.$/, "");
+}
+
+function mapSale(item: MySale): SaleItem {
+  const isDone = item.postStatus === "COMPLETED" || item.postStatus === "CLOSED" || item.postStatus === "거래완료";
+
+  return {
+    id: item.postId,
+    title: item.postTitle,
+    subText: isDone ? formatDate(item.createdAt) : `참여자 ${item.participantCount ?? 0}명`,
+    status: isDone ? "거래완료" : "모집중",
+  };
+}
+
 export default function SaleListScreen() {
-  const [selectedTab, setSelectedTab] = useState<"progress" | "done">(
-    "progress"
-  );
+  const [selectedTab, setSelectedTab] = useState<"progress" | "done">("progress");
+  const [progressList, setProgressList] = useState<SaleItem[]>([]);
+  const [doneList, setDoneList] = useState<SaleItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
 
-  const progressList: SaleItem[] = [
-    {
-      id: 1,
-      title: "별의 장: TOGETHER 앨범 분철",
-      subText: "여석: 최범규, 강태현, 휴닝카이",
-      status: "모집중",
-    },
-    {
-      id: 2,
-      title: "2026 MOA CON 특전 포카 분철",
-      subText: "여석: 최연준, 강태현, 휴닝카이",
-      status: "배송중",
-    },
-  ];
+  useEffect(() => {
+    const loadSales = async () => {
+      try {
+        setIsLoading(true);
+        setErrorMessage("");
 
-  const doneList: SaleItem[] = [
-    {
-      id: 3,
-      title: "꿈의 장: MAGIC 앨범 포카",
-      subText: "2026.05.03",
-      status: "거래완료",
-    },
-    {
-      id: 4,
-      title: "SWEET 앨범 포카 분철",
-      subText: "2026.04.27",
-      status: "거래완료",
-    },
-    {
-      id: 5,
-      title: "minisode 3: TOMORROW 앨범 분철",
-      subText: "2026.04.12",
-      status: "거래완료",
-    },
-  ];
+        const [openData, completedData] = await Promise.all([
+          getMySales("OPEN"),
+          getMySales("COMPLETED"),
+        ]);
+
+        setProgressList(openData.map(mapSale));
+        setDoneList(completedData.map(mapSale));
+      } catch (error: any) {
+        console.log("판매 목록 조회 실패:", error);
+        setProgressList([]);
+        setDoneList([]);
+        setErrorMessage(error?.message || "판매 목록을 불러오지 못했습니다.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadSales();
+  }, []);
 
   const currentList = selectedTab === "progress" ? progressList : doneList;
 
@@ -160,57 +172,80 @@ export default function SaleListScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
         >
-          {currentList.map((item) => {
-            const statusStyle = getStatusStyle(item.status);
+          {isLoading ? (
+            <View style={{ alignItems: "center", paddingTop: 100 }}>
+              <ActivityIndicator size="small" color={COLORS.yellow} />
+            </View>
+          ) : currentList.length > 0 ? (
+            currentList.map((item) => {
+              const statusStyle = getStatusStyle(item.status);
 
-            return (
-              <Pressable
-                key={item.id}
-                style={({ pressed, hovered }) => [
-                  styles.listCard,
-                  selectedTab === "done" && styles.doneListCard,
-                  (pressed || hovered) && styles.listCardHover,
-                ]}
-              >
-                <View style={styles.cardTop}>
-                  <View style={styles.imageBox}>
-                    <Ionicons
-                      name="albums-outline"
-                      size={22}
-                      color={COLORS.black}
-                    />
-                  </View>
-
-                  <View style={styles.itemInfo}>
-                    <Text style={styles.itemTitle}>{item.title}</Text>
-                    <Text style={styles.itemSubText}>{item.subText}</Text>
-                  </View>
-
-                  {selectedTab === "progress" && (
-                    <View style={statusStyle.box}>
-                      <Text style={statusStyle.text}>{item.status}</Text>
+              return (
+                <Pressable
+                  key={item.id}
+                  style={({ pressed, hovered }) => [
+                    styles.listCard,
+                    selectedTab === "done" && styles.doneListCard,
+                    (pressed || hovered) && styles.listCardHover,
+                  ]}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/divide-detail",
+                      params: { postId: String(item.id) },
+                    } as any)
+                  }
+                >
+                  <View style={styles.cardTop}>
+                    <View style={styles.imageBox}>
+                      <Ionicons
+                        name="albums-outline"
+                        size={22}
+                        color={COLORS.black}
+                      />
                     </View>
-                  )}
-                </View>
 
-                {selectedTab === "done" && (
-                  <Pressable
-                    style={({ pressed, hovered }) => [
-                      styles.reviewButton,
-                      (pressed || hovered) && styles.reviewButtonHover,
-                    ]}
-                  >
-                    <Text style={styles.reviewButtonText}>받은 후기 보기</Text>
-                  </Pressable>
-                )}
-              </Pressable>
-            );
-          })}
+                    <View style={styles.itemInfo}>
+                      <Text style={styles.itemTitle}>{item.title}</Text>
+                      <Text style={styles.itemSubText}>{item.subText}</Text>
+                    </View>
+
+                    {selectedTab === "progress" && (
+                      <View style={statusStyle.box}>
+                        <Text style={statusStyle.text}>{item.status}</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  {selectedTab === "done" && (
+                    <Pressable
+                      style={({ pressed, hovered }) => [
+                        styles.reviewButton,
+                        (pressed || hovered) && styles.reviewButtonHover,
+                      ]}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        router.push("/receivedReviews" as any);
+                      }}
+                    >
+                      <Text style={styles.reviewButtonText}>받은 후기 보기</Text>
+                    </Pressable>
+                  )}
+                </Pressable>
+              );
+            })
+          ) : (
+            <View style={{ alignItems: "center", paddingTop: 100 }}>
+              <Text style={{ fontSize: 13, fontWeight: "700", color: COLORS.gray500 }}>
+                {errorMessage || "판매 내역이 없어요"}
+              </Text>
+            </View>
+          )}
         </ScrollView>
       </View>
     </SafeAreaView>
   );
 }
+
 
 const styles = StyleSheet.create({
   safeArea: {
