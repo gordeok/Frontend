@@ -96,7 +96,7 @@ export default function MyPageScreen() {
 
               <View style={styles.profileInfo}>
                 <Text style={styles.nickname}>
-                  {loading ? "불러오는 중..." : profile?.nickname ?? "사용자"}
+                  {profile?.nickname ?? "사용자"}
                 </Text>
                 <Text style={styles.subText}>
                   가입 {formatJoinDate(profile?.createdAt)}

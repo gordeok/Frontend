@@ -1,9 +1,16 @@
 // 커뮤니티 목록
 
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useMemo, useState } from "react";
+import {
+  FlatList,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
@@ -117,11 +124,14 @@ export default function CommunityScreen() {
   const [selectedSort, setSelectedSort] = useState<SortType>("latest");
   const [posts, setPosts] = useState<CommunityPost[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    const loadPosts = async () => {
+  const loadPosts = useCallback(
+    async (showLoading = true) => {
       try {
-        setLoading(true);
+        if (showLoading) {
+          setLoading(true);
+        }
 
         const response = await getCommunityPosts({
           category: convertCategory(selectedCategory),
@@ -130,17 +140,28 @@ export default function CommunityScreen() {
           size: 10,
         });
 
-        setPosts(response.content);
+        setPosts(response.content ?? []);
       } catch (error) {
         console.log("커뮤니티 목록 불러오기 실패", error);
         setPosts([]);
       } finally {
         setLoading(false);
+        setRefreshing(false);
       }
-    };
+    },
+    [selectedCategory, selectedSort]
+  );
 
-    loadPosts();
-  }, [selectedCategory, selectedSort]);
+  useFocusEffect(
+    useCallback(() => {
+      loadPosts(posts.length === 0);
+    }, [loadPosts, posts.length])
+  );
+
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadPosts(false);
+  }, [loadPosts]);
 
   const filteredPosts = useMemo(() => {
     return [...posts].sort((a, b) => {
@@ -208,17 +229,25 @@ export default function CommunityScreen() {
 
         <FlatList
           data={filteredPosts}
+          extraData={posts}
           keyExtractor={(item) => String(item.postId)}
           contentContainerStyle={[
             styles.listContent,
             filteredPosts.length === 0 && styles.emptyListContent,
           ]}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={COLORS.yellow}
+            />
+          }
           ListEmptyComponent={
             <View style={styles.emptyBox}>
               <Text style={styles.emptyText}>
                 {loading
-                  ? "게시글을 불러오는 중이에요."
+                  ? "게시글이 없어요."
                   : "게시글이 없어요."}
               </Text>
             </View>
@@ -428,9 +457,11 @@ const styles = StyleSheet.create({
   },
 
   emptyText: {
-    fontSize: 14,
-    color: COLORS.gray400,
-    fontWeight: "600",
+    fontSize: 16,
+    fontWeight: "900",
+    color: COLORS.black,
+    marginTop: 40,
+    marginBottom: 6,
   },
 
   postBox: {
@@ -550,13 +581,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 18,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
     elevation: 4,
   },
 

@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -10,6 +11,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { getMyProfile } from "../services/user";
 
 const COLORS = {
   white: "#FFFFFF",
@@ -26,15 +28,63 @@ const COLORS = {
 
 export default function EditProfileScreen() {
   const router = useRouter();
-  const [nickname, setNickname] = useState("범규와이프");
 
-  const handleSave = () => {
-    Alert.alert("저장 완료", "프로필이 수정되었습니다.", [
-      {
-        text: "확인",
-        style: "default",
-      },
-    ]);
+  const [nickname, setNickname] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const savedNickname = await AsyncStorage.getItem("nickname");
+
+        if (savedNickname) {
+          setNickname(savedNickname);
+          return;
+        }
+
+        const profile = await getMyProfile();
+        setNickname(profile.nickname || "");
+      } catch (error) {
+        console.log("프로필 정보 조회 실패:", error);
+        setNickname("");
+      }
+    };
+
+    loadProfile();
+  }, []);
+
+  const profileText = nickname.trim()?.[0] || "덕";
+
+  const handleSave = async () => {
+    const trimmedNickname = nickname.trim();
+
+    if (!trimmedNickname) {
+      Alert.alert("알림", "닉네임을 입력해주세요.");
+      return;
+    }
+
+    if (isSaving) return;
+
+    try {
+      setIsSaving(true);
+
+      await AsyncStorage.setItem("nickname", trimmedNickname);
+
+      setNickname(trimmedNickname);
+
+      Alert.alert("저장 완료", "프로필이 수정되었습니다.", [
+        {
+          text: "확인",
+          style: "default",
+          onPress: () => router.back(),
+        },
+      ]);
+    } catch (error) {
+      console.log("프로필 저장 실패:", error);
+      Alert.alert("저장 실패", "프로필 저장 중 오류가 발생했습니다.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -61,7 +111,7 @@ export default function EditProfileScreen() {
 
           <View style={styles.profileArea}>
             <View style={styles.profileCircle}>
-              <Text style={styles.profileText}>범</Text>
+              <Text style={styles.profileText}>{profileText}</Text>
 
               <Pressable
                 style={({ pressed, hovered }) => [
@@ -94,10 +144,14 @@ export default function EditProfileScreen() {
           style={({ pressed, hovered }) => [
             styles.saveButton,
             (pressed || hovered) && styles.saveButtonHover,
+            isSaving && styles.saveButtonDisabled,
           ]}
           onPress={handleSave}
+          disabled={isSaving}
         >
-          <Text style={styles.saveButtonText}>저장하기</Text>
+          <Text style={styles.saveButtonText}>
+            {isSaving ? "저장 중" : "저장하기"}
+          </Text>
         </Pressable>
       </View>
     </SafeAreaView>
@@ -227,6 +281,10 @@ const styles = StyleSheet.create({
   saveButtonHover: {
     opacity: 0.82,
     transform: [{ scale: 0.99 }],
+  },
+
+  saveButtonDisabled: {
+    opacity: 0.6,
   },
 
   saveButtonText: {

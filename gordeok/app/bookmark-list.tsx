@@ -136,7 +136,6 @@ export default function BookmarkListScreen() {
         >
           {isLoading ? (
             <View style={styles.emptyBox}>
-              <ActivityIndicator size="small" color={COLORS.yellow} />
               <Text style={styles.emptyTitle}>북마크를 불러오는 중이에요</Text>
             </View>
           ) : bookmarks.length > 0 ? (
@@ -184,11 +183,6 @@ export default function BookmarkListScreen() {
             ))
           ) : (
             <View style={styles.emptyBox}>
-              <Ionicons
-                name="bookmark-outline"
-                size={38}
-                color={COLORS.gray400}
-              />
               <Text style={styles.emptyTitle}>저장한 북마크가 없어요</Text>
               {!!errorMessage && (
                 <Text style={styles.errorText}>{errorMessage}</Text>
@@ -346,8 +340,8 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 16,
     fontWeight: "900",
-    color: COLORS.gray500,
-    marginTop: 14,
+    color: COLORS.black,
+    marginTop: 30,
     marginBottom: 6,
   },
 

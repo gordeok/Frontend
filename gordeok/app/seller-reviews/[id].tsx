@@ -1,6 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -8,6 +10,8 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+import { apiRequest, getStoredUserId } from "../../utils/api";
 
 const COLORS = {
   white: "#FFFFFF",
@@ -18,6 +22,7 @@ const COLORS = {
   line: "#F0F0F0",
   avatarBg: "#F7F5EF",
   avatarBorder: "#E8E4D8",
+  yellow: "#F3C24F",
 };
 
 type SellerReview = {
@@ -28,51 +33,175 @@ type SellerReview = {
   content: string;
 };
 
+type MyReviewApiItem = {
+  reviewId?: number;
+  id?: number;
+  reviewerId?: number;
+  reviewerNickname?: string;
+  writerNickname?: string;
+  nickname?: string;
+  reviewerProfileImage?: string;
+  rating?: number;
+  content?: string;
+  createdAt?: string;
+};
+
+type ProfileApiResponse = {
+  userId: number;
+  nickname: string;
+  profileImage?: string;
+  trustScore?: number;
+  hasScamReport?: boolean;
+  createdAt?: string;
+};
+
+function getPageContent<T>(response: any): T[] {
+  if (Array.isArray(response)) return response;
+  if (Array.isArray(response?.content)) return response.content;
+  if (Array.isArray(response?.data)) return response.data;
+  if (Array.isArray(response?.reviews)) return response.reviews;
+  if (Array.isArray(response?.receivedReviews)) return response.receivedReviews;
+  return [];
+}
+
+function formatDate(value?: string) {
+  if (!value) return "";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value.slice(0, 10).replaceAll("-", ".");
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}.${month}.${day}`;
+}
+
+function normalizeReview(item: MyReviewApiItem): SellerReview {
+  const nickname =
+    item.reviewerNickname ||
+    item.writerNickname ||
+    item.nickname ||
+    "구매자";
+
+  return {
+    id: Number(item.reviewId ?? item.id),
+    initial: nickname.slice(0, 1),
+    nickname,
+    date: formatDate(item.createdAt),
+    content: item.content || "",
+  };
+}
+
 export default function SellerReviewsScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id } = useLocalSearchParams<{ id?: string }>();
 
-  const sellerName = "범규와이프";
+  const sellerId = String(id ?? "");
 
-  const reviews: SellerReview[] = [
-    {
-      id: 1,
-      initial: "껌",
-      nickname: "껌규",
-      date: "2025.04.11",
-      content: "포카 상태 너무 좋아요 굿굿 감사합니다",
-    },
-    {
-      id: 2,
-      initial: "쮜",
-      nickname: "쮜바로우많이투개더",
-      date: "2025.03.24",
-      content: "믿고 분철 탑니다~ 항상 빠른 응답 감사해요",
-    },
-    {
-      id: 3,
-      initial: "수",
-      nickname: "수빈이라고 나 수빈",
-      date: "2025.03.12",
-      content: "다음에도 또 분철 타겠습니다 열어주세요~",
-    },
-    {
-      id: 4,
-      initial: "텬",
-      nickname: "텬프",
-      date: "2025.02.28",
-      content: "포장 꼼꼼하고 설명도 친절했어요!",
-    },
-  ];
+  const [sellerName, setSellerName] = useState("판매자");
+  const [reviews, setReviews] = useState<SellerReview[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    const loadReviews = async () => {
+      try {
+        setIsLoading(true);
+        setErrorMessage("");
+
+        const myUserId = await getStoredUserId();
+        const routeSellerId = sellerId || String(myUserId ?? "");
+
+        if (!routeSellerId) {
+          setReviews([]);
+          setErrorMessage("판매자 정보를 찾을 수 없습니다.");
+          return;
+        }
+
+        const isMyPage = String(myUserId) === String(routeSellerId);
+
+        if (isMyPage && myUserId) {
+          const [profileRes, reviewsRes] = await Promise.all([
+            apiRequest<ProfileApiResponse>("/api/users/me", {
+              method: "GET",
+              query: { userId: myUserId },
+            }),
+            apiRequest<any>("/api/users/me/reviews", {
+              method: "GET",
+              query: {
+                userId: myUserId,
+                page: 0,
+                size: 50,
+              },
+            }),
+          ]);
+
+          setSellerName(profileRes?.nickname || "판매자");
+
+          const reviewList = getPageContent<MyReviewApiItem>(reviewsRes)
+            .map(normalizeReview)
+            .filter((review) => Number.isFinite(review.id));
+
+          setReviews(reviewList);
+          return;
+        }
+
+        const [profileRes, reviewsRes] = await Promise.all([
+          apiRequest<ProfileApiResponse>(
+            `/api/users/${routeSellerId}/profile`,
+            {
+              method: "GET",
+            }
+          ),
+          apiRequest<any>(`/api/users/${routeSellerId}/reviews`, {
+            method: "GET",
+            query: {
+              page: 0,
+              size: 50,
+            },
+          }),
+        ]);
+
+        setSellerName(profileRes?.nickname || "판매자");
+
+        const reviewList = getPageContent<MyReviewApiItem>(reviewsRes)
+          .map(normalizeReview)
+          .filter((review) => Number.isFinite(review.id));
+
+        console.log("받은 후기 API 응답:", reviewsRes);
+        console.log("받은 후기 개수:", reviewList.length);
+
+        setReviews(reviewList);
+      } catch (error: any) {
+        setReviews([]);
+        setErrorMessage(error?.message || "받은 후기를 불러오지 못했습니다.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadReviews();
+  }, [sellerId]);
+
+  const sortedReviews = useMemo(() => {
+    return [...reviews].sort((a, b) => {
+      const aTime = a.date ? new Date(a.date.replaceAll(".", "-")).getTime() : 0;
+      const bTime = b.date ? new Date(b.date.replaceAll(".", "-")).getTime() : 0;
+      return bTime - aTime;
+    });
+  }, [reviews]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.container}>
         <View style={styles.header}>
           <Pressable
-            style={({ pressed, hovered }) => [
+            style={({ pressed }) => [
               styles.headerIcon,
-              (pressed || hovered) && styles.headerIconHover,
+              pressed && styles.headerIconHover,
             ]}
             onPress={() => router.back()}
           >
@@ -84,45 +213,67 @@ export default function SellerReviewsScreen() {
           <View style={styles.headerIcon} />
         </View>
 
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
-        >
-          <Text style={styles.pageDescription}>
-            {sellerName}님의 받은 후기입니다.
-          </Text>
+        {isLoading ? (
+          <View style={styles.centerState}>
+            <ActivityIndicator size="small" color={COLORS.yellow} />
+            <Text style={styles.centerText}>받은 후기를 불러오는 중이에요</Text>
+          </View>
+        ) : errorMessage ? (
+          <View style={styles.centerState}>
+            <Text style={styles.errorText}>{errorMessage}</Text>
+          </View>
+        ) : (
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
+          >
+            <Text style={styles.pageDescription}>
+              {sellerName}님의 받은 후기입니다.
+            </Text>
 
-          {reviews.map((review) => (
-            <Pressable
-              key={review.id}
-              style={({ pressed, hovered }) => [
-                styles.reviewCard,
-                (pressed || hovered) && styles.reviewCardHover,
-              ]}
-              onPress={() => {
-                console.log("상대방 후기 선택", review.id, id);
-              }}
-            >
-              <View style={styles.reviewProfile}>
-                <Text style={styles.reviewInitial}>{review.initial}</Text>
-              </View>
+            {sortedReviews.length > 0 ? (
+              sortedReviews.map((review) => (
+                <Pressable
+                  key={review.id}
+                  style={({ pressed }) => [
+                    styles.reviewCard,
+                    pressed && styles.reviewCardHover,
+                  ]}
+                  onPress={() => {
+                    console.log("받은 후기 선택", review.id, sellerId);
+                  }}
+                >
+                  <View style={styles.reviewProfile}>
+                    <Text style={styles.reviewInitial}>{review.initial}</Text>
+                  </View>
 
-              <View style={styles.reviewInfo}>
-                <View style={styles.reviewTop}>
-                  <Text numberOfLines={1} style={styles.reviewName}>
-                    {review.nickname}
-                  </Text>
+                  <View style={styles.reviewInfo}>
+                    <View style={styles.reviewTop}>
+                      <Text numberOfLines={1} style={styles.reviewName}>
+                        {review.nickname}
+                      </Text>
 
-                  <Text style={styles.reviewDate}>{review.date}</Text>
-                </View>
+                      <Text style={styles.reviewDate}>
+                        {review.date || "작성일 없음"}
+                      </Text>
+                    </View>
 
-                <Text numberOfLines={2} style={styles.reviewText}>
-                  {review.content}
+                    <Text numberOfLines={3} style={styles.reviewText}>
+                      {review.content || "후기 내용이 없습니다."}
+                    </Text>
+                  </View>
+                </Pressable>
+              ))
+            ) : (
+              <View style={styles.emptyBox}>
+                <Text style={styles.emptyTitle}>받은 후기가 없어요</Text>
+                <Text style={styles.emptyText}>
+                  아직 등록된 거래 후기가 없습니다.
                 </Text>
               </View>
-            </Pressable>
-          ))}
-        </ScrollView>
+            )}
+          </ScrollView>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -179,8 +330,29 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
 
+  centerState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+
+  centerText: {
+    marginTop: 10,
+    fontSize: 13,
+    fontWeight: "700",
+    color: COLORS.gray500,
+  },
+
+  errorText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: COLORS.gray500,
+    textAlign: "center",
+  },
+
   reviewCard: {
-    minHeight: 88,
+    minHeight: 86,
     backgroundColor: COLORS.white,
     borderRadius: 18,
     paddingHorizontal: 14,
@@ -198,19 +370,19 @@ const styles = StyleSheet.create({
   },
 
   reviewProfile: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: COLORS.avatarBg,
     borderWidth: 1,
     borderColor: COLORS.avatarBorder,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 13,
+    marginRight: 11,
   },
 
   reviewInitial: {
-    fontSize: 15,
+    fontSize: 11,
     fontWeight: "900",
     color: COLORS.gray900,
   },
@@ -223,15 +395,14 @@ const styles = StyleSheet.create({
   reviewTop: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 7,
   },
 
   reviewName: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "900",
     color: COLORS.black,
-    marginRight: 10,
+    marginRight: 8,
   },
 
   reviewDate: {
@@ -241,9 +412,28 @@ const styles = StyleSheet.create({
   },
 
   reviewText: {
+    marginTop: 6,
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "500",
     color: COLORS.gray700,
     lineHeight: 18,
+  },
+
+  emptyBox: {
+    marginTop: 90,
+    alignItems: "center",
+  },
+
+  emptyTitle: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: COLORS.gray900,
+    marginBottom: 7,
+  },
+
+  emptyText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: COLORS.gray500,
   },
 });

@@ -181,8 +181,6 @@ export default function PurchaseListScreen() {
         >
           {isLoading ? (
             <View style={styles.emptyBox}>
-              <ActivityIndicator size="small" color={COLORS.yellow} />
-              <Text style={styles.emptyTitle}>구매 목록을 불러오는 중이에요</Text>
             </View>
           ) : currentList.length > 0 ? (
             currentList.map((item) => {
@@ -254,14 +252,8 @@ export default function PurchaseListScreen() {
             })
           ) : (
             <View style={styles.emptyBox}>
-              <Ionicons
-                name="receipt-outline"
-                size={34}
-                color={COLORS.gray400}
-              />
               <Text style={styles.emptyTitle}>구매 내역이 없어요</Text>
               <Text style={styles.emptyText}>
-                {errorMessage || "참여한 분철이 생기면 여기에 표시돼요."}
               </Text>
             </View>
           )}
@@ -483,7 +475,7 @@ const styles = StyleSheet.create({
   emptyBox: {
     alignItems: "center",
     justifyContent: "center",
-    paddingTop: 100,
+    paddingTop: 200,
   },
 
   emptyTitle: {

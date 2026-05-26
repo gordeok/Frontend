@@ -14,7 +14,8 @@ export type MemberItem = {
     albumName: string;
     title: string;
     description: string;
-    imageUrl: string | null;
+    imageUrl: string;
+    imageUrls?: string[];
     components: string[];
     shippingFeeType: string;
     status: string;

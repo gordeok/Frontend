@@ -1,4 +1,4 @@
-import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -16,11 +16,13 @@ import {
 } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getChatRooms, leaveChatRoom } from "../../services/chat";
+
+import { leaveChatRoom } from "../../services/chat";
+import { apiRequest, getStoredUserId } from "../../utils/api";
 import type { ChatRoomApiItem } from "../../types/chat";
 
 type ChatTab = "divide" | "note";
-type UserRole = "seller" | "buyer";
+type UserRole = "seller" | "buyer" | "member";
 
 type DivideRoom = {
   id: number;
@@ -52,6 +54,10 @@ type NoteRoom = {
   lastMessage: string;
   time: string;
   unreadCount: number;
+
+  postId?: string;
+  postsId?: string;
+  communityId?: string;
 };
 
 const COLORS = {
@@ -67,10 +73,10 @@ const COLORS = {
 
 const SCREEN_PADDING = 22;
 const LEAVE_WIDTH = 88;
-const CHAT_ROOMS_STORAGE_KEYS = ["localChatRooms", "GO_REUDEOK_CHAT_ROOMS"];
-const REMOVED_CHAT_ROOMS_KEY = "GO_REUDEOK_REMOVED_CHAT_ROOMS";
 
-function formatChatTime(value?: string) {
+const CHAT_ROOMS_STORAGE_KEYS = ["localChatRooms", "GO_REUDEOK_CHAT_ROOMS"];
+
+function formatChatTime(value?: string | null) {
   if (!value) return "";
 
   const date = new Date(value);
@@ -110,18 +116,13 @@ function getRawRoomRole(room: any) {
 
 function isDivideRoom(room: any) {
   const type = getRawRoomType(room);
-  const role = getRawRoomRole(room);
 
-  if (type === "GROUP" || type === "DIVIDE") return true;
-  if (type === "DIRECT" || type === "NOTE") return false;
-
-  // 백엔드 응답에서 type이 빠지거나 소문자로 오더라도,
-  // SELLER / BUYER 역할이 있으면 분철 채팅방으로 처리
-  return role === "SELLER" || role === "BUYER";
+  return type === "GROUP" || type === "DIVIDE";
 }
 
 function isNoteRoom(room: any) {
   const type = getRawRoomType(room);
+
   return type === "DIRECT" || type === "NOTE";
 }
 
@@ -145,6 +146,112 @@ function getRoomStatus(room: any): DivideRoom["status"] {
   }
 
   return "progress";
+}
+
+function convertCategoryLabel(category?: string | null) {
+  const raw = String(category ?? "").trim();
+
+  switch (raw) {
+    case "PHOTO_EXCHANGE":
+    case "포카교환":
+      return "포카교환";
+    case "OFFLINE_COMPANION":
+    case "오프동행":
+      return "오프동행";
+    case "QUESTION":
+    case "질문게시판":
+      return "질문게시판";
+    case "FREE":
+    case "자유게시판":
+      return "자유게시판";
+    default:
+      return raw || "커뮤니티";
+  }
+}
+
+function getFirstText(...values: any[]) {
+  for (const value of values) {
+    if (typeof value !== "string" && typeof value !== "number") continue;
+
+    const text = String(value).trim();
+
+    if (!text) continue;
+    if (text === "쪽지") continue;
+    if (text === "DIRECT") continue;
+    if (text === "NOTE") continue;
+
+    return text;
+  }
+
+  return "";
+}
+
+function getServerGroupTitle(room: any) {
+  return getFirstText(
+    room.title,
+    room.postTitle,
+    room.dividePostTitle,
+    room.post?.title,
+    room.roomName
+  );
+}
+
+function getNoteTitle(room: any) {
+  return getFirstText(
+    room.communityPostTitle,
+    room.communityPost?.title,
+    room.communityTitle,
+    room.postTitle,
+    room.post?.title,
+    room.linkedPostTitle,
+    room.boardTitle,
+    room.subject,
+    room.roomName,
+    room.title
+  );
+}
+
+function getNoteCategory(room: any) {
+  return convertCategoryLabel(
+    room.communityPostCategory ||
+      room.communityPost?.category ||
+      room.category ||
+      room.boardName ||
+      room.boardCategory ||
+      room.communityCategory ||
+      room.post?.category
+  );
+}
+
+function getNoteOpponentName(room: any) {
+  return getFirstText(
+    room.opponentName,
+    room.opponentNickname,
+    room.otherUserNickname,
+    room.receiverName,
+    room.sellerName,
+    room.sellerNickname,
+    room.buyerName,
+    room.buyerNickname,
+    room.writerName,
+    room.writerNickname,
+    room.authorNickname,
+    room.communityPost?.authorNickname,
+    room.post?.authorNickname
+  );
+}
+
+function getNotePostId(room: any) {
+  return getFirstText(
+    room.postId,
+    room.postsId,
+    room.communityId,
+    room.communityPostId,
+    room.communityPost?.postId,
+    room.communityPost?.id,
+    room.post?.postId,
+    room.post?.id
+  );
 }
 
 function extractChatRooms(response: unknown): ChatRoomApiItem[] {
@@ -184,7 +291,9 @@ async function loadSavedChatRooms() {
 
     allRooms.forEach((room) => {
       const id = String(room?.chatRoomId ?? room?.id ?? room?.roomId ?? "");
+
       if (!id) return;
+
       uniqueMap.set(id, {
         ...uniqueMap.get(id),
         ...room,
@@ -195,30 +304,6 @@ async function loadSavedChatRooms() {
   } catch (error) {
     console.log("로컬 채팅방 목록 불러오기 실패:", error);
     return [];
-  }
-}
-
-async function loadRemovedChatRoomIds() {
-  try {
-    const saved = await AsyncStorage.getItem(REMOVED_CHAT_ROOMS_KEY);
-    const parsed = saved ? JSON.parse(saved) : [];
-
-    return Array.isArray(parsed) ? parsed.map(String) : [];
-  } catch (error) {
-    console.log("제거된 채팅방 목록 불러오기 실패:", error);
-    return [];
-  }
-}
-
-async function saveRemovedChatRoomId(chatRoomId: string | number) {
-  try {
-    const targetId = String(chatRoomId);
-    const previous = await loadRemovedChatRoomIds();
-    const next = Array.from(new Set([...previous, targetId]));
-
-    await AsyncStorage.setItem(REMOVED_CHAT_ROOMS_KEY, JSON.stringify(next));
-  } catch (error) {
-    console.log("제거된 채팅방 저장 실패:", error);
   }
 }
 
@@ -245,115 +330,226 @@ async function removeLocalChatRoom(chatRoomId: string | number) {
   }
 }
 
-function mergeRawChatRooms(localRooms: any[], serverRooms: any[]) {
-  const merged = new Map<string, any>();
+function findLocalRoomById(localRooms: any[], serverRoom: any) {
+  const serverId = String(
+    serverRoom?.chatRoomId ?? serverRoom?.id ?? serverRoom?.roomId ?? ""
+  );
 
-  localRooms.forEach((room) => {
-    const id = String(room?.chatRoomId ?? room?.id ?? room?.roomId ?? "");
-    if (id) merged.set(id, room);
-  });
+  if (!serverId) return null;
 
-  serverRooms.forEach((serverRoom) => {
-    const id = String(
-      serverRoom?.chatRoomId ?? serverRoom?.id ?? serverRoom?.roomId ?? ""
-    );
+  return (
+    localRooms.find((room) => {
+      const localId = String(room?.chatRoomId ?? room?.id ?? room?.roomId ?? "");
+      return localId === serverId;
+    }) ?? null
+  );
+}
 
-    if (!id) return;
+function mergeServerRoomsWithLocalMetadata(serverRooms: any[], localRooms: any[]) {
+  return serverRooms
+    .map((serverRoom) => {
+      const localRoom = findLocalRoomById(localRooms, serverRoom);
 
-    const localRoom = merged.get(id);
+      if (!localRoom) return serverRoom;
 
-    if (!localRoom) {
-      merged.set(id, serverRoom);
-      return;
-    }
+      const type = getRawRoomType(serverRoom);
 
-    merged.set(id, {
-      ...serverRoom,
+      if (type === "GROUP" || type === "DIVIDE") {
+        return {
+          ...localRoom,
+          ...serverRoom,
 
-      postTitle:
-        localRoom.postTitle ||
-        localRoom.post?.title ||
-        localRoom.dividePostTitle ||
-        localRoom.roomName ||
-        localRoom.title ||
-        serverRoom.postTitle ||
-        serverRoom.post?.title ||
-        serverRoom.dividePostTitle,
+          chatRoomId:
+            serverRoom.chatRoomId ??
+            serverRoom.id ??
+            serverRoom.roomId ??
+            localRoom.chatRoomId ??
+            localRoom.id,
 
-      roomName:
-        localRoom.roomName ||
-        localRoom.postTitle ||
-        localRoom.post?.title ||
-        localRoom.dividePostTitle ||
-        localRoom.title ||
-        serverRoom.roomName,
+          id:
+            serverRoom.chatRoomId ??
+            serverRoom.id ??
+            serverRoom.roomId ??
+            localRoom.chatRoomId ??
+            localRoom.id,
 
-      title:
-        localRoom.postTitle ||
-        localRoom.post?.title ||
-        localRoom.dividePostTitle ||
-        localRoom.roomName ||
-        localRoom.title ||
-        serverRoom.postTitle ||
-        serverRoom.post?.title ||
-        serverRoom.dividePostTitle ||
-        serverRoom.roomName ||
-        serverRoom.title,
+          type: serverRoom.type || serverRoom.chatRoomType || "GROUP",
+          myRole: serverRoom.myRole || serverRoom.role || localRoom.myRole,
 
-      sellerName:
-        serverRoom.sellerName ||
-        localRoom.sellerName ||
-        localRoom.organizer,
+          title:
+            getServerGroupTitle(serverRoom) ||
+            getServerGroupTitle(localRoom) ||
+            "분철 채팅방",
 
-      buyerName:
-        serverRoom.buyerName ||
-        localRoom.buyerName ||
-        localRoom.buyerNickname,
+          sellerName:
+            serverRoom.sellerName ||
+            serverRoom.sellerNickname ||
+            localRoom.sellerName ||
+            localRoom.sellerNickname ||
+            localRoom.organizer,
 
-      selectedMember:
-        serverRoom.selectedMember ||
-        serverRoom.memberName ||
-        localRoom.selectedMember ||
-        localRoom.memberName,
+          lastMessage: serverRoom.lastMessage ?? localRoom.lastMessage ?? "",
+          lastMessageTime:
+            serverRoom.lastMessageTime ??
+            serverRoom.lastMessageAt ??
+            localRoom.lastMessageTime ??
+            localRoom.lastMessageAt ??
+            null,
 
-      selectedPrice:
-        serverRoom.selectedPrice ||
-        localRoom.selectedPrice,
+          unreadCount: serverRoom.unreadCount ?? 0,
+          status: serverRoom.status ?? localRoom.status,
+          currentMembers:
+            serverRoom.currentMembers ?? localRoom.currentMembers,
+          maxMembers: serverRoom.maxMembers ?? localRoom.maxMembers,
 
-      receiverName:
-        serverRoom.receiverName ||
-        serverRoom.realName ||
-        localRoom.receiverName ||
-        localRoom.realName,
+          buyerName:
+            serverRoom.buyerName ||
+            serverRoom.buyerNickname ||
+            localRoom.buyerName ||
+            localRoom.buyerNickname ||
+            "",
 
-      phoneNumber:
-        serverRoom.phoneNumber ||
-        localRoom.phoneNumber,
+          selectedMember:
+            serverRoom.selectedMember ||
+            serverRoom.memberName ||
+            localRoom.selectedMember ||
+            localRoom.memberName ||
+            "",
 
-      storeName:
-        serverRoom.storeName ||
-        serverRoom.convenienceStore ||
-        localRoom.storeName ||
-        localRoom.convenienceStore,
+          selectedPrice:
+            serverRoom.selectedPrice || localRoom.selectedPrice || "",
 
-      requestText:
-        serverRoom.requestText ||
-        serverRoom.requestMessage ||
-        localRoom.requestText ||
-        localRoom.requestMessage,
+          receiverName:
+            serverRoom.receiverName ||
+            serverRoom.realName ||
+            localRoom.receiverName ||
+            localRoom.realName ||
+            "",
+
+          phoneNumber: serverRoom.phoneNumber || localRoom.phoneNumber || "",
+
+          storeName:
+            serverRoom.storeName ||
+            serverRoom.convenienceStore ||
+            localRoom.storeName ||
+            localRoom.convenienceStore ||
+            "",
+
+          requestText:
+            serverRoom.requestText ||
+            serverRoom.requestMessage ||
+            localRoom.requestText ||
+            localRoom.requestMessage ||
+            "",
+        };
+      }
+
+      const localNoteTitle = getNoteTitle(localRoom);
+      const serverNoteTitle = getNoteTitle(serverRoom);
+      const localCategory = getNoteCategory(localRoom);
+      const serverCategory = getNoteCategory(serverRoom);
+      const localPostId = getNotePostId(localRoom);
+      const serverPostId = getNotePostId(serverRoom);
+      const localOpponent = getNoteOpponentName(localRoom);
+      const serverOpponent = getNoteOpponentName(serverRoom);
+
+      const finalNoteTitle = localNoteTitle || serverNoteTitle || "커뮤니티 글";
+      const finalCategory = localCategory || serverCategory || "커뮤니티";
+      const finalPostId = localPostId || serverPostId;
+      const finalOpponent = serverOpponent || localOpponent || "상대방";
+
+      return {
+        ...localRoom,
+        ...serverRoom,
+
+        chatRoomId:
+          serverRoom.chatRoomId ??
+          serverRoom.id ??
+          serverRoom.roomId ??
+          localRoom.chatRoomId ??
+          localRoom.id,
+
+        id:
+          serverRoom.chatRoomId ??
+          serverRoom.id ??
+          serverRoom.roomId ??
+          localRoom.chatRoomId ??
+          localRoom.id,
+
+        type: serverRoom.type || serverRoom.chatRoomType || "DIRECT",
+        myRole: serverRoom.myRole || serverRoom.role || localRoom.myRole,
+
+        title: finalNoteTitle,
+        communityPostTitle: finalNoteTitle,
+        communityTitle: finalNoteTitle,
+        postTitle: finalNoteTitle,
+        roomName: finalNoteTitle,
+
+        communityPostCategory: finalCategory,
+        category: finalCategory,
+        boardName: finalCategory,
+
+        postId: finalPostId,
+        postsId: finalPostId,
+        communityId: finalPostId,
+        communityPostId: finalPostId,
+
+        opponentName: finalOpponent,
+
+        sellerName:
+          serverRoom.sellerName ||
+          serverRoom.sellerNickname ||
+          localRoom.sellerName ||
+          localRoom.sellerNickname,
+
+        lastMessage: serverRoom.lastMessage ?? localRoom.lastMessage ?? "",
+        lastMessageTime:
+          serverRoom.lastMessageTime ??
+          serverRoom.lastMessageAt ??
+          localRoom.lastMessageTime ??
+          localRoom.lastMessageAt ??
+          null,
+
+        unreadCount: serverRoom.unreadCount ?? 0,
+      };
+    })
+    .sort((a, b) => {
+      const aTime = a?.lastMessageTime
+        ? new Date(a.lastMessageTime).getTime()
+        : 0;
+      const bTime = b?.lastMessageTime
+        ? new Date(b.lastMessageTime).getTime()
+        : 0;
+
+      return bTime - aTime;
     });
-  });
+}
 
-  return Array.from(merged.values()).sort((a, b) => {
-    const aTime = new Date(
-      a?.lastMessageTime ?? a?.lastMessageAt ?? 0
-    ).getTime();
-    const bTime = new Date(
-      b?.lastMessageTime ?? b?.lastMessageAt ?? 0
-    ).getTime();
+async function requestChatRoomsByUserId(userId: string | number) {
+  try {
+    const response = await apiRequest<any>("/api/chat-rooms", {
+      method: "GET",
+      query: {
+        userId,
+      },
+    });
 
-    return bTime - aTime;
-  });
+    return extractChatRooms(response);
+  } catch (error) {
+    console.log("/api/chat-rooms 채팅방 목록 조회 실패:", error);
+    return [];
+  }
+}
+
+async function fetchChatRoomsForCurrentUser() {
+  const myUserId = await getStoredUserId();
+
+  if (!myUserId) {
+    console.log("채팅방 목록 조회 실패: 저장된 userId 없음");
+    return [];
+  }
+
+  return requestChatRoomsByUserId(myUserId);
 }
 
 function normalizeChatRooms(response: unknown) {
@@ -365,56 +561,81 @@ function normalizeChatRooms(response: unknown) {
   const divideRooms = rooms
     .filter((room: any) => isDivideRoom(room))
     .map<DivideRoom>((room: any, index) => {
-    const roomStatus = getRoomStatus(room);
-    const role = getRawRoomRole(room);
+      const roomStatus = getRoomStatus(room);
+      const role = getRawRoomRole(room);
 
-    return {
-      id: getChatRoomId(room),
-      title:
-        room.postTitle ||
-        room.post?.title ||
-        room.dividePostTitle ||
-        room.roomName ||
-        room.title ||
-        "분철 채팅방",
-      organizer: room.sellerName || room.organizer || "판매자",
-      memberCount: `${room.currentMembers ?? room.currentMemberCount ?? 1}/${
-        room.maxMembers ?? room.maxMemberCount ?? 2
-      }명`,
-      lastMessage: room.lastMessage || "",
-      time: formatChatTime(room.lastMessageTime ?? room.lastMessageAt),
-      unreadCount: room.unreadCount ?? 0,
-      status: roomStatus,
-      color: roomStatus === "done" ? "gray" : getRoomColor(index),
-      role: role === "SELLER" ? "seller" : "buyer",
-      reviewSubmitted: Boolean(room.reviewSubmitted),
+      let normalizedRole: UserRole = "buyer";
 
-      buyerName: room.buyerName || room.buyerNickname || "",
-      selectedMember: room.selectedMember || room.memberName || "",
-      selectedPrice: room.selectedPrice ? String(room.selectedPrice) : "",
-      receiverName: room.receiverName || room.realName || "",
-      phoneNumber: room.phoneNumber || "",
-      storeName: room.storeName || room.convenienceStore || "",
-      requestText: room.requestText || room.requestMessage || "",
-    };
-  })
+      if (role === "SELLER") normalizedRole = "seller";
+      else if (role === "MEMBER") normalizedRole = "member";
+      else normalizedRole = "buyer";
+
+      return {
+        id: getChatRoomId(room),
+        title: getServerGroupTitle(room) || "분철 채팅방",
+        organizer:
+          room.sellerName ||
+          room.sellerNickname ||
+          room.organizer ||
+          "판매자",
+          memberCount: (() => {
+            const currentMembers = Number(
+              room.currentMembers ?? room.currentMemberCount ?? 1
+            );
+          
+            const recruitMembers = Number(
+              room.maxMembers ?? room.maxMemberCount ?? 0
+            );
+          
+            const displayMaxMembers = recruitMembers > 0 ? recruitMembers + 1 : 1;
+          
+            return `${currentMembers}/${displayMaxMembers}명`;
+          })(),
+        lastMessage: room.lastMessage || "",
+        time: formatChatTime(room.lastMessageTime ?? room.lastMessageAt),
+        unreadCount: room.unreadCount ?? 0,
+        status: roomStatus,
+        color: roomStatus === "done" ? "gray" : getRoomColor(index),
+        role: normalizedRole,
+        reviewSubmitted: Boolean(room.reviewSubmitted),
+
+        buyerName: room.buyerName || room.buyerNickname || "",
+        selectedMember: room.selectedMember || room.memberName || "",
+        selectedPrice: room.selectedPrice ? String(room.selectedPrice) : "",
+        receiverName: room.receiverName || room.realName || "",
+        phoneNumber: room.phoneNumber || "",
+        storeName: room.storeName || room.convenienceStore || "",
+        requestText: room.requestText || room.requestMessage || "",
+      };
+    })
     .sort((a, b) => {
-    if (a.status === "done" && b.status !== "done") return 1;
-    if (a.status !== "done" && b.status === "done") return -1;
-    return 0;
-  });
+      if (a.status === "done" && b.status !== "done") return 1;
+      if (a.status !== "done" && b.status === "done") return -1;
+      return 0;
+    });
 
   const noteRooms = rooms
     .filter((room: any) => isNoteRoom(room))
-    .map<NoteRoom>((room: any) => ({
-      id: getChatRoomId(room),
-      title: room.title || room.roomName || "쪽지",
-      boardName: "쪽지",
-      userName: room.sellerName || room.opponentName || "상대방",
-      lastMessage: room.lastMessage || "",
-      time: formatChatTime(room.lastMessageTime ?? room.lastMessageAt),
-      unreadCount: room.unreadCount ?? 0,
-    }));
+    .map<NoteRoom>((room: any) => {
+      const noteTitle = getNoteTitle(room);
+      const category = getNoteCategory(room);
+      const opponentName = getNoteOpponentName(room);
+      const postId = getNotePostId(room);
+
+      return {
+        id: getChatRoomId(room),
+        title: noteTitle || "커뮤니티 글",
+        boardName: category,
+        userName: opponentName || "상대방",
+        lastMessage: room.lastMessage || "",
+        time: formatChatTime(room.lastMessageTime ?? room.lastMessageAt),
+        unreadCount: room.unreadCount ?? 0,
+
+        postId,
+        postsId: postId,
+        communityId: postId,
+      };
+    });
 
   return { divideRooms, noteRooms };
 }
@@ -441,22 +662,15 @@ export default function ChatsScreen() {
   const reviewSubmittedIdRef = useRef<string | null>(null);
 
   const loadChatRooms = useCallback(async () => {
-    const savedRooms = await loadSavedChatRooms();
-    const removedIds = await loadRemovedChatRoomIds();
-
-    const filterRemovedRooms = (rooms: any[]) =>
-      rooms.filter((room) => {
-        const id = String(room?.chatRoomId ?? room?.id ?? room?.roomId ?? "");
-        return !removedIds.includes(id);
-      });
-
     try {
-      const response = await getChatRooms();
-      console.log("채팅방 목록 API 응답:", response);
+      const serverRooms = await fetchChatRoomsForCurrentUser();
+      const localRooms = await loadSavedChatRooms();
 
-      const serverRooms = filterRemovedRooms(extractChatRooms(response));
-      const localRooms = filterRemovedRooms(savedRooms);
-      const mergedRooms = mergeRawChatRooms(localRooms, serverRooms);
+      const mergedRooms = mergeServerRoomsWithLocalMetadata(
+        serverRooms,
+        localRooms
+      );
+
       const normalized = normalizeChatRooms(mergedRooms);
 
       setDivideRooms(normalized.divideRooms);
@@ -464,10 +678,8 @@ export default function ChatsScreen() {
     } catch (error) {
       console.log("채팅방 목록 조회 실패:", error);
 
-      const normalized = normalizeChatRooms(filterRemovedRooms(savedRooms));
-
-      setDivideRooms(normalized.divideRooms);
-      setNoteRooms(normalized.noteRooms);
+      setDivideRooms([]);
+      setNoteRooms([]);
     }
   }, []);
 
@@ -489,7 +701,6 @@ export default function ChatsScreen() {
 
     const targetId = Number(removedChatRoomId);
 
-    saveRemovedChatRoomId(removedChatRoomId);
     removeLocalChatRoom(removedChatRoomId);
 
     setDivideRooms((prev) => prev.filter((room) => room.id !== targetId));
@@ -566,13 +777,19 @@ export default function ChatsScreen() {
       params: {
         chatRoomId: String(room.id),
         type: "divide",
-        role: room.role === "seller" ? "SELLER" : "BUYER",
+        role:
+          room.role === "seller"
+            ? "SELLER"
+            : room.role === "member"
+            ? "MEMBER"
+            : "BUYER",
 
         title: room.title,
         roomName: room.title,
 
         sellerName: room.organizer,
-        opponentName: room.role === "seller" ? room.buyerName || "" : room.organizer,
+        opponentName:
+          room.role === "seller" ? room.buyerName || "" : room.organizer,
 
         buyerName: room.buyerName || "",
 
@@ -601,10 +818,21 @@ export default function ChatsScreen() {
       params: {
         chatRoomId: String(room.id),
         type: "note",
-        role: "buyer",
+        role: "MEMBER",
         title: room.title,
+        communityTitle: room.title,
+        roomName: room.title,
+        opponentName: room.userName,
+        sellerName: room.userName,
+        boardName: room.boardName,
+        category: room.boardName,
+
+        postId: room.postId || "",
+        postsId: room.postsId || room.postId || "",
+        communityId: room.communityId || room.postId || "",
+        id: room.postId || "",
       },
-    });
+    } as any);
   };
 
   const handleLeaveDivideRoom = (room: DivideRoom) => {
@@ -623,8 +851,8 @@ export default function ChatsScreen() {
           } catch (error) {
             console.log("서버 채팅방 나가기 실패:", error);
           } finally {
-            await saveRemovedChatRoomId(room.id);
             await removeLocalChatRoom(room.id);
+
             setDivideRooms((prev) => prev.filter((item) => item.id !== room.id));
             closeOpenedRow();
           }
@@ -646,15 +874,13 @@ export default function ChatsScreen() {
         onPress: async () => {
           try {
             await leaveChatRoom(room.id);
-            await saveRemovedChatRoomId(room.id);
+          } catch (error) {
+            console.log("서버 쪽지 나가기 실패:", error);
+          } finally {
             await removeLocalChatRoom(room.id);
+
             setNoteRooms((prev) => prev.filter((item) => item.id !== room.id));
             closeOpenedRow();
-          } catch (error) {
-            Alert.alert(
-              "오류",
-              "쪽지 나가기에 실패했어요. 다시 시도해주세요."
-            );
           }
         },
       },
@@ -671,13 +897,15 @@ export default function ChatsScreen() {
 
           <View style={styles.tabContainer}>
             <TabButton
-              title={`분철 ${divideRooms.length}`}
+              title="분철"
+              count={divideRooms.length}
               active={selectedTab === "divide"}
               onPress={() => handleChangeTab("divide")}
             />
 
             <TabButton
-              title={`쪽지 ${noteRooms.length}`}
+              title="쪽지"
+              count={noteRooms.length}
               active={selectedTab === "note"}
               onPress={() => handleChangeTab("note")}
             />
@@ -771,7 +999,7 @@ export default function ChatsScreen() {
                     </SwipeableRow>
                   );
                 }}
-                ListEmptyComponent={<EmptyState text="받은 쪽지가 없어요." />}
+                ListEmptyComponent={<EmptyState text="주고받은 쪽지가 없어요." />}
                 contentContainerStyle={[
                   styles.listContent,
                   noteRooms.length === 0 && styles.emptyListContent,
@@ -794,10 +1022,12 @@ export default function ChatsScreen() {
 
 function TabButton({
   title,
+  count,
   active,
   onPress,
 }: {
   title: string;
+  count: number;
   active: boolean;
   onPress: () => void;
 }) {
@@ -807,9 +1037,16 @@ function TabButton({
       activeOpacity={0.8}
       onPress={onPress}
     >
-      <Text style={active ? styles.activeTabText : styles.tabText}>
-        {title}
-      </Text>
+      <View style={styles.tabLabelRow}>
+        <Text style={active ? styles.activeTabText : styles.tabText}>
+          {title}
+        </Text>
+
+        <Text style={active ? styles.activeTabCount : styles.tabCount}>
+          {count}
+        </Text>
+      </View>
+
       {active && <View style={styles.activeLine} />}
     </TouchableOpacity>
   );
@@ -910,11 +1147,11 @@ function DivideRoomItem({
             style={[styles.lastMessage, isDone && styles.doneText]}
             numberOfLines={1}
           >
-            {room.lastMessage}
+            {room.lastMessage || "아직 메시지가 없어요."}
           </Text>
 
           {isDone && (
-              <View style={styles.doneBadge}>
+            <View style={styles.doneBadge}>
               <Text style={styles.doneBadgeText}>완료</Text>
             </View>
           )}
@@ -951,9 +1188,8 @@ function NoteRoomItem({
 
         <View style={styles.noteBottomRow}>
           <Text style={styles.noteMessage} numberOfLines={1}>
-            {room.lastMessage}
+            {room.lastMessage || "아직 메시지가 없어요."}
           </Text>
-
         </View>
       </View>
     </Pressable>
@@ -1042,12 +1278,28 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     position: "relative",
   },
+  tabLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   tabText: {
     fontSize: 15,
     fontWeight: "700",
     color: COLORS.gray400,
   },
   activeTabText: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: COLORS.black,
+  },
+  tabCount: {
+    marginLeft: 4,
+    fontSize: 15,
+    fontWeight: "700",
+    color: COLORS.gray400,
+  },
+  activeTabCount: {
+    marginLeft: 4,
     fontSize: 15,
     fontWeight: "800",
     color: COLORS.black,
@@ -1264,7 +1516,7 @@ const styles = StyleSheet.create({
     marginTop: 5,
     fontSize: 13,
     fontWeight: "500",
-    color: COLORS.gray500,
+    color: "#9D9D9D",
   },
   noteBottomRow: {
     marginTop: 5,
@@ -1275,18 +1527,20 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     fontWeight: "500",
-    color: COLORS.gray700,
+    color: "#777777",
     marginRight: 10,
   },
   emptyState: {
     flex: 1,
+    minHeight: 280,
     justifyContent: "center",
     alignItems: "center",
-    paddingBottom: 80,
+    paddingHorizontal: 24,
   },
   emptyText: {
     fontSize: 14,
     fontWeight: "600",
     color: COLORS.gray400,
+    textAlign: "center",
   },
 });

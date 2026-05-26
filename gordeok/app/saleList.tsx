@@ -10,7 +10,9 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
 import { getMySales, MySale } from "../services/user";
+import { apiRequest } from "../utils/api";
 
 const COLORS = {
   white: "#FFFFFF",
@@ -30,33 +32,197 @@ const COLORS = {
 
 type SaleStatus = "모집중" | "배송중" | "거래완료";
 
+type MemberItem = {
+  id?: number;
+  memberName?: string;
+  name?: string;
+  price?: number;
+  status?: string;
+};
+
+type PostListItem = {
+  id: number;
+  postId?: number;
+  userId?: number;
+  title?: string;
+  idolName?: string;
+  albumName?: string;
+  status?: string;
+  participantCount?: number;
+  currentMembers?: number;
+  currentMemberCount?: number;
+  maxMembers?: number;
+  maxMemberCount?: number;
+  memberItems?: MemberItem[];
+};
+
 type SaleItem = {
   id: number;
   title: string;
   subText: string;
   status: SaleStatus;
+  idolName?: string;
+  participantCount?: number;
+  maxMemberCount?: number;
 };
 
-function formatDate(value?: string) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value.slice(0, 10).replaceAll("-", ".");
-  return date.toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" }).replace(/\. /g, ".").replace(/\.$/, "");
+function getPageContent<T>(response: any): T[] {
+  if (Array.isArray(response)) return response;
+  if (Array.isArray(response?.content)) return response.content;
+  if (Array.isArray(response?.data)) return response.data;
+  if (Array.isArray(response?.items)) return response.items;
+  return [];
 }
 
-function mapSale(item: MySale): SaleItem {
-  const isDone = item.postStatus === "COMPLETED" || item.postStatus === "CLOSED" || item.postStatus === "거래완료";
+function formatDate(value?: string) {
+  if (!value) return "작성일 없음";
 
-  return {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value.slice(0, 10).replaceAll("-", ".");
+  }
+
+  return date
+    .toLocaleDateString("ko-KR", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+    .replace(/\. /g, ".")
+    .replace(/\.$/, "");
+}
+
+function normalizeStatus(status?: string) {
+  const raw = String(status ?? "")
+    .trim()
+    .replace(/\s/g, "")
+    .toUpperCase();
+
+  if (
+    raw === "COMPLETED" ||
+    raw === "CLOSED" ||
+    raw === "DONE" ||
+    raw === "COMPLETE" ||
+    raw === "거래완료" ||
+    raw === "모집완료"
+  ) {
+    return "COMPLETED";
+  }
+
+  return "OPEN";
+}
+
+function getPostId(post: PostListItem) {
+  return Number(post.postId ?? post.id);
+}
+
+function makePostMap(posts: PostListItem[]) {
+  const map = new Map<number, PostListItem>();
+
+  posts.forEach((post) => {
+    const postId = getPostId(post);
+
+    if (Number.isFinite(postId)) {
+      map.set(postId, post);
+    }
+  });
+
+  return map;
+}
+
+function getCleanText(value?: string | number | null) {
+  return String(value ?? "").trim();
+}
+
+function getRealIdolName(post?: PostListItem) {
+  const idolName = getCleanText(post?.idolName);
+
+  if (idolName) return idolName;
+
+  const albumName = getCleanText(post?.albumName);
+
+  if (albumName) return albumName;
+
+  return "아이돌명 없음";
+}
+
+function getRecruitCount(post?: PostListItem) {
+  const maxMembers = Number(post?.maxMembers ?? post?.maxMemberCount ?? 0);
+  const memberItemCount = Array.isArray(post?.memberItems)
+    ? post.memberItems.length
+    : 0;
+
+  if (Number.isFinite(maxMembers) && maxMembers > 0) {
+    return maxMembers;
+  }
+
+  if (memberItemCount > 0) {
+    return memberItemCount;
+  }
+
+  return 0;
+}
+
+function formatProgressSubText(item: {
+  idolName?: string;
+  participantCount?: number;
+  maxMemberCount?: number;
+}) {
+  const idolName = getCleanText(item.idolName) || "아이돌명 없음";
+
+  const participantCount = Number(item.participantCount ?? 0);
+  const recruitCount = Number(item.maxMemberCount ?? 0);
+
+  const currentCount =
+    Number.isFinite(participantCount) && participantCount >= 0
+      ? participantCount + 1
+      : 1;
+
+  const maxCount =
+    Number.isFinite(recruitCount) && recruitCount > 0
+      ? recruitCount + 1
+      : currentCount;
+
+  return `${idolName} · ${currentCount}/${maxCount}명`;
+}
+
+function formatDoneSubText(item: { idolName?: string }, createdAt?: string) {
+  const idolName = getCleanText(item.idolName) || "아이돌명 없음";
+  return `${idolName} · ${formatDate(createdAt)}`;
+}
+
+function mapSale(item: MySale, postMap: Map<number, PostListItem>): SaleItem {
+  const postId = Number(item.postId);
+  const matchedPost = postMap.get(postId);
+
+  const isDone = normalizeStatus(item.postStatus) === "COMPLETED";
+
+  const idolName = getRealIdolName(matchedPost);
+  const participantCount = Number(item.participantCount ?? 0);
+  const maxMemberCount = getRecruitCount(matchedPost);
+
+  const baseItem = {
     id: item.postId,
     title: item.postTitle,
-    subText: isDone ? formatDate(item.createdAt) : `참여자 ${item.participantCount ?? 0}명`,
     status: isDone ? "거래완료" : "모집중",
+    idolName,
+    participantCount,
+    maxMemberCount,
+  } satisfies Omit<SaleItem, "subText">;
+
+  return {
+    ...baseItem,
+    subText: isDone
+      ? formatDoneSubText(baseItem, item.createdAt)
+      : formatProgressSubText(baseItem),
   };
 }
 
 export default function SaleListScreen() {
-  const [selectedTab, setSelectedTab] = useState<"progress" | "done">("progress");
+  const [selectedTab, setSelectedTab] = useState<"progress" | "done">(
+    "progress"
+  );
   const [progressList, setProgressList] = useState<SaleItem[]>([]);
   const [doneList, setDoneList] = useState<SaleItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -68,13 +234,24 @@ export default function SaleListScreen() {
         setIsLoading(true);
         setErrorMessage("");
 
-        const [openData, completedData] = await Promise.all([
+        const [openData, completedData, postsResponse] = await Promise.all([
           getMySales("OPEN"),
           getMySales("COMPLETED"),
+          apiRequest<any>("/api/posts", {
+            method: "GET",
+            query: {
+              page: 0,
+              size: 100,
+              sort: "latest",
+            },
+          }),
         ]);
 
-        setProgressList(openData.map(mapSale));
-        setDoneList(completedData.map(mapSale));
+        const posts = getPageContent<PostListItem>(postsResponse);
+        const postMap = makePostMap(posts);
+
+        setProgressList(openData.map((item) => mapSale(item, postMap)));
+        setDoneList(completedData.map((item) => mapSale(item, postMap)));
       } catch (error: any) {
         console.log("판매 목록 조회 실패:", error);
         setProgressList([]);
@@ -173,12 +350,13 @@ export default function SaleListScreen() {
           contentContainerStyle={styles.listContent}
         >
           {isLoading ? (
-            <View style={{ alignItems: "center", paddingTop: 100 }}>
+            <View style={styles.loadingBox}>
               <ActivityIndicator size="small" color={COLORS.yellow} />
             </View>
           ) : currentList.length > 0 ? (
             currentList.map((item) => {
               const statusStyle = getStatusStyle(item.status);
+              const isProgressTab = selectedTab === "progress";
 
               return (
                 <Pressable
@@ -195,7 +373,12 @@ export default function SaleListScreen() {
                     } as any)
                   }
                 >
-                  <View style={styles.cardTop}>
+                  <View
+                    style={[
+                      styles.cardTop,
+                      isProgressTab && styles.progressCardTop,
+                    ]}
+                  >
                     <View style={styles.imageBox}>
                       <Ionicons
                         name="albums-outline"
@@ -204,16 +387,35 @@ export default function SaleListScreen() {
                       />
                     </View>
 
-                    <View style={styles.itemInfo}>
-                      <Text style={styles.itemTitle}>{item.title}</Text>
-                      <Text style={styles.itemSubText}>{item.subText}</Text>
-                    </View>
+                    <View
+                      style={[
+                        styles.itemInfo,
+                        isProgressTab && styles.progressItemInfo,
+                      ]}
+                    >
+                      {isProgressTab ? (
+                        <>
+                          <View style={styles.progressTitleRow}>
+                            <Text style={styles.progressItemTitle}>
+                              {item.title}
+                            </Text>
 
-                    {selectedTab === "progress" && (
-                      <View style={statusStyle.box}>
-                        <Text style={statusStyle.text}>{item.status}</Text>
-                      </View>
-                    )}
+                            <View style={statusStyle.box}>
+                              <Text style={statusStyle.text}>
+                                {item.status}
+                              </Text>
+                            </View>
+                          </View>
+
+                          <Text style={styles.itemSubText}>{item.subText}</Text>
+                        </>
+                      ) : (
+                        <>
+                          <Text style={styles.itemTitle}>{item.title}</Text>
+                          <Text style={styles.itemSubText}>{item.subText}</Text>
+                        </>
+                      )}
+                    </View>
                   </View>
 
                   {selectedTab === "done" && (
@@ -222,10 +424,6 @@ export default function SaleListScreen() {
                         styles.reviewButton,
                         (pressed || hovered) && styles.reviewButtonHover,
                       ]}
-                      onPress={(event) => {
-                        event.stopPropagation();
-                        router.push("/receivedReviews" as any);
-                      }}
                     >
                       <Text style={styles.reviewButtonText}>받은 후기 보기</Text>
                     </Pressable>
@@ -234,8 +432,8 @@ export default function SaleListScreen() {
               );
             })
           ) : (
-            <View style={{ alignItems: "center", paddingTop: 100 }}>
-              <Text style={{ fontSize: 13, fontWeight: "700", color: COLORS.gray500 }}>
+            <View style={styles.emptyBox}>
+              <Text style={styles.emptyText}>
                 {errorMessage || "판매 내역이 없어요"}
               </Text>
             </View>
@@ -245,7 +443,6 @@ export default function SaleListScreen() {
     </SafeAreaView>
   );
 }
-
 
 const styles = StyleSheet.create({
   safeArea: {
@@ -326,6 +523,22 @@ const styles = StyleSheet.create({
     paddingBottom: 36,
   },
 
+  loadingBox: {
+    alignItems: "center",
+    paddingTop: 100,
+  },
+
+  emptyBox: {
+    alignItems: "center",
+    paddingTop: 100,
+  },
+
+  emptyText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: COLORS.gray500,
+  },
+
   listCard: {
     backgroundColor: COLORS.white,
     borderRadius: 18,
@@ -350,6 +563,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
+  progressCardTop: {
+    minHeight: 50,
+    alignItems: "center",
+  },
+
   imageBox: {
     width: 50,
     height: 50,
@@ -365,12 +583,34 @@ const styles = StyleSheet.create({
     paddingRight: 10,
   },
 
+  progressItemInfo: {
+    justifyContent: "center",
+    paddingRight: 0,
+    minWidth: 0,
+  },
+
   itemTitle: {
     fontSize: 15,
     fontWeight: "900",
     color: COLORS.gray900,
     lineHeight: 21,
     marginBottom: 4,
+  },
+
+  progressTitleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    marginBottom: 4,
+  },
+
+  progressItemTitle: {
+    flex: 1,
+    flexShrink: 1,
+    fontSize: 15,
+    fontWeight: "900",
+    color: COLORS.gray900,
+    lineHeight: 21,
   },
 
   itemSubText: {
@@ -403,10 +643,12 @@ const styles = StyleSheet.create({
   },
 
   progressStatusBadge: {
+    flexShrink: 0,
     backgroundColor: COLORS.lightGreen,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 13,
+    marginTop: 0,
   },
 
   progressStatusText: {
@@ -416,6 +658,7 @@ const styles = StyleSheet.create({
   },
 
   deliveryStatusBadge: {
+    flexShrink: 0,
     backgroundColor: COLORS.lightBlue,
     paddingHorizontal: 10,
     paddingVertical: 6,

@@ -1,8 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as ImagePicker from "expo-image-picker";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import {
   Alert,
+  Image,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -16,7 +19,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { createReport } from "../../services/report";
+const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://172.20.99.65:8080";
 
 const COLORS = {
   white: "#FFFFFF",
@@ -33,10 +37,114 @@ const COLORS = {
 };
 
 const SCREEN_PADDING = 22;
+
+function getImageMimeType(uri: string) {
+  const lowerUri = uri.toLowerCase();
+
+  if (lowerUri.endsWith(".png")) return "image/png";
+  if (lowerUri.endsWith(".webp")) return "image/webp";
+  if (lowerUri.endsWith(".heic")) return "image/heic";
+  if (lowerUri.endsWith(".heif")) return "image/heif";
+
+  return "image/jpeg";
+}
+
+function getImageFileName(uri: string, index: number) {
+  const fileName = uri.split("/").pop();
+
+  if (fileName && fileName.includes(".")) {
+    return fileName;
+  }
+
+  return `report-image-${index + 1}.jpg`;
+}
+
+async function getStoredUserId() {
+  const savedUserId =
+    (await AsyncStorage.getItem("userId")) ??
+    (await AsyncStorage.getItem("USER_ID")) ??
+    (await AsyncStorage.getItem("storedUserId")) ??
+    (await AsyncStorage.getItem("goReudeokUserId")) ??
+    "";
+
+  return Number(savedUserId);
+}
+
+async function submitReport(params: {
+  reporterId: number;
+  targetUserId: number;
+  reason: string;
+  content: string;
+  imageUris: string[];
+  postId?: number;
+}) {
+  const formData = new FormData();
+
+  const reportData: {
+    targetUserId: number;
+    postId?: number;
+    reason: string;
+    content: string;
+  } = {
+    targetUserId: params.targetUserId,
+    reason: params.reason,
+    content: params.content,
+  };
+
+  if (params.postId && !Number.isNaN(params.postId)) {
+    reportData.postId = params.postId;
+  }
+
+  formData.append("data", {
+    string: JSON.stringify(reportData),
+    type: "application/json",
+    name: "data.json",
+  } as any);
+
+  params.imageUris.forEach((uri, index) => {
+    formData.append("images", {
+      uri,
+      name: getImageFileName(uri, index),
+      type: getImageMimeType(uri),
+    } as any);
+  });
+
+  console.log("신고 FormData data:", reportData);
+  console.log("신고 이미지 개수:", params.imageUris.length);
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/reports?reporterId=${params.reporterId}`,
+    {
+      method: "POST",
+      body: formData,
+    }
+  );
+
+  const responseText = await response.text();
+
+  console.log("신고 응답 status:", response.status);
+  console.log("신고 응답 text:", responseText);
+
+  let data: any = null;
+
+  try {
+    data = responseText ? JSON.parse(responseText) : null;
+  } catch {
+    data = null;
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.message ?? responseText ?? "신고 접수에 실패했어요.");
+  }
+
+  return data;
+}
+
 export default function SellerReportScreen() {
-  const { sellerId, sellerName } = useLocalSearchParams<{
+  const { sellerId, sellerName, postId } = useLocalSearchParams<{
     sellerId?: string;
     sellerName?: string;
+    postId?: string;
   }>();
 
   const reportSellerId = String(sellerId ?? "");
@@ -44,27 +152,49 @@ export default function SellerReportScreen() {
 
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [photoCount, setPhotoCount] = useState(0);
+  const [imageUris, setImageUris] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const canSubmit = title.trim().length > 0 && content.trim().length > 0;
+  const canSubmit =
+    title.trim().length > 0 &&
+    content.trim().length > 0 &&
+    !isSubmitting;
 
   const handleCancel = () => {
     Keyboard.dismiss();
     router.back();
   };
 
-  const handleAddPhoto = () => {
-    if (photoCount >= 5) {
+  const handleAddPhoto = async () => {
+    if (imageUris.length >= 5) {
       Alert.alert("알림", "사진은 최대 5장까지 추가할 수 있어요.");
       return;
     }
 
-    setPhotoCount((prev) => prev + 1);
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permission.granted) {
+      Alert.alert("알림", "사진 접근 권한이 필요해요.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+      quality: 0.8,
+      allowsMultipleSelection: true,
+      selectionLimit: 5 - imageUris.length,
+    });
+
+    if (result.canceled) return;
+
+    const pickedUris = result.assets.map((asset) => asset.uri);
+
+    setImageUris((prev) => [...prev, ...pickedUris].slice(0, 5));
   };
 
-  const handleRemovePhoto = () => {
-    setPhotoCount((prev) => Math.max(prev - 1, 0));
+  const handleRemovePhoto = (index: number) => {
+    setImageUris((prev) => prev.filter((_, photoIndex) => photoIndex !== index));
   };
 
   const handleSubmit = async () => {
@@ -86,17 +216,35 @@ export default function SellerReportScreen() {
     try {
       setIsSubmitting(true);
 
+      const reporterId = await getStoredUserId();
       const targetUserId = Number(reportSellerId);
+      const relatedPostId = postId ? Number(postId) : undefined;
+
+      if (!reporterId || Number.isNaN(reporterId)) {
+        Alert.alert("오류", "로그인 정보를 찾을 수 없어요. 다시 로그인해주세요.");
+        return;
+      }
 
       if (!targetUserId || Number.isNaN(targetUserId)) {
         Alert.alert("오류", "신고 대상 정보를 찾을 수 없어요.");
         return;
       }
 
-      const result = await createReport({
+      console.log("신고 요청 reporterId:", reporterId);
+      console.log("신고 요청 targetUserId:", targetUserId);
+      console.log("신고 요청 postId:", relatedPostId);
+      console.log("신고 첨부 이미지:", imageUris);
+
+      const result = await submitReport({
+        reporterId,
         targetUserId,
+        postId:
+          relatedPostId && !Number.isNaN(relatedPostId)
+            ? relatedPostId
+            : undefined,
         reason: trimmedTitle,
         content: trimmedContent,
+        imageUris,
       });
 
       Alert.alert(
@@ -110,7 +258,14 @@ export default function SellerReportScreen() {
         ]
       );
     } catch (error) {
-      Alert.alert("오류", "신고 접수 중 문제가 발생했어요.");
+      console.log("신고 접수 오류:", error);
+
+      Alert.alert(
+        "오류",
+        error instanceof Error
+          ? error.message
+          : "신고 접수 중 문제가 발생했어요."
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -137,18 +292,18 @@ export default function SellerReportScreen() {
             activeOpacity={0.75}
             style={[
               styles.submitButton,
-              (!canSubmit || isSubmitting) && styles.submitButtonDisabled,
+              !canSubmit && styles.submitButtonDisabled,
             ]}
             onPress={handleSubmit}
-            disabled={!canSubmit || isSubmitting}
+            disabled={!canSubmit}
           >
             <Text
               style={[
                 styles.submitText,
-                (!canSubmit || isSubmitting) && styles.submitTextDisabled,
+                !canSubmit && styles.submitTextDisabled,
               ]}
             >
-              신고
+              {isSubmitting ? "접수중" : "신고"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -217,7 +372,7 @@ export default function SellerReportScreen() {
                 </Text>
               </View>
 
-              <Text style={styles.photoCount}>{photoCount} / 5</Text>
+              <Text style={styles.photoCount}>{imageUris.length} / 5</Text>
             </View>
 
             <ScrollView
@@ -235,18 +390,18 @@ export default function SellerReportScreen() {
                 <Ionicons name="add" size={25} color={COLORS.gray500} />
               </Pressable>
 
-              {Array.from({ length: photoCount }).map((_, index) => (
-                <Pressable
-                  key={index}
-                  style={styles.photoPreviewBox}
-                  onPress={handleRemovePhoto}
-                >
-                  <Ionicons name="image-outline" size={25} color={COLORS.red} />
+              {imageUris.map((uri, index) => (
+                <View key={`${uri}-${index}`} style={styles.photoPreviewBox}>
+                  <Image source={{ uri }} style={styles.photoPreviewImage} />
 
-                  <View style={styles.removePhotoButton}>
+                  <Pressable
+                    style={styles.removePhotoButton}
+                    onPress={() => handleRemovePhoto(index)}
+                    hitSlop={8}
+                  >
                     <Ionicons name="close" size={12} color={COLORS.white} />
-                  </View>
-                </Pressable>
+                  </Pressable>
+                </View>
               ))}
             </ScrollView>
           </View>
@@ -493,9 +648,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFF6F6",
     borderWidth: 1,
     borderColor: "#FFD8D8",
-    justifyContent: "center",
-    alignItems: "center",
+    overflow: "hidden",
     position: "relative",
+  },
+
+  photoPreviewImage: {
+    width: "100%",
+    height: "100%",
   },
 
   removePhotoButton: {
@@ -505,7 +664,7 @@ const styles = StyleSheet.create({
     width: 19,
     height: 19,
     borderRadius: 10,
-    backgroundColor: "rgba(0,0,0,0.42)",
+    backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "center",
     alignItems: "center",
   },

@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -14,14 +14,14 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { getSellerProfile } from "../../services/seller";
-import type { SellerProfileResponse } from "../../types/seller";
+import { apiRequest, getStoredUserId } from "../../utils/api";
 
 const YELLOW = "#F3C24F";
 
 type SaleItem = {
   id: number;
   title: string;
+  isPlaceholder?: boolean;
 };
 
 type ReviewItem = {
@@ -30,6 +30,7 @@ type ReviewItem = {
   nickname: string;
   date: string;
   content: string;
+  rating?: number;
 };
 
 type SellerProfile = {
@@ -40,15 +41,94 @@ type SellerProfile = {
   followingCount: number;
   trustScore: number;
   hasFraudReport: boolean;
+  receivedReviewCount: number;
   sales: SaleItem[];
   reviews: ReviewItem[];
 };
+
+type MyReviewApiItem = {
+  reviewId?: number;
+  id?: number;
+  reviewerId?: number;
+  writerId?: number;
+  reviewerNickname?: string;
+  writerNickname?: string;
+  nickname?: string;
+  reviewerProfileImage?: string;
+  rating?: number;
+  content?: string;
+  createdAt?: string;
+};
+
+type ProfileApiResponse = {
+  userId: number;
+  email?: string;
+  nickname: string;
+  profileImage?: string;
+  trustScore?: number;
+  hasScamReport?: boolean;
+  createdAt?: string;
+  receivedReviewCount?: number;
+  reviewCount?: number;
+  reviewsCount?: number;
+  receivedReviews?: MyReviewApiItem[];
+  reviews?: MyReviewApiItem[];
+};
+
+type MySaleApiItem = {
+  postId: number;
+  postTitle: string;
+  thumbnailUrl?: string;
+  postStatus?: string;
+  participantCount?: number;
+  createdAt?: string;
+};
+
+type PostListItem = {
+  id?: number;
+  postId?: number;
+  userId?: number;
+  sellerId?: number;
+  authorId?: number;
+  nickname?: string;
+  sellerNickname?: string;
+  authorNickname?: string;
+  title: string;
+  status?: string;
+  createdAt?: string;
+};
+
+const EMPTY_SALE_SLOTS: SaleItem[] = [
+  { id: -1, title: "", isPlaceholder: true },
+  { id: -2, title: "", isPlaceholder: true },
+  { id: -3, title: "", isPlaceholder: true },
+  { id: -4, title: "", isPlaceholder: true },
+];
+
+function getPageContent<T>(response: any): T[] {
+  if (Array.isArray(response)) return response;
+  if (Array.isArray(response?.content)) return response.content;
+  if (Array.isArray(response?.data)) return response.data;
+  return [];
+}
+
+function getReviewContent(response: any): MyReviewApiItem[] {
+  const pageContent = getPageContent<MyReviewApiItem>(response);
+
+  if (pageContent.length > 0) return pageContent;
+  if (Array.isArray(response?.receivedReviews)) return response.receivedReviews;
+  if (Array.isArray(response?.reviews)) return response.reviews;
+
+  return [];
+}
 
 function formatDate(value?: string) {
   if (!value) return "-";
 
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value.slice(0, 10).replaceAll("-", ".");
+  if (Number.isNaN(date.getTime())) {
+    return value.slice(0, 10).replaceAll("-", ".");
+  }
 
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -57,8 +137,48 @@ function formatDate(value?: string) {
   return `${year}.${month}.${day}`;
 }
 
-function normalizeSellerProfile(
-  data: SellerProfileResponse,
+function getProfileReviewCount(data: any) {
+  const count =
+    Number(
+      data?.receivedReviewCount ??
+        data?.reviewCount ??
+        data?.reviewsCount ??
+        data?.receivedReviews?.length ??
+        data?.reviews?.length ??
+        0
+    ) || 0;
+
+  return count;
+}
+
+function normalizeReview(item: MyReviewApiItem): ReviewItem {
+  const nickname =
+    item.reviewerNickname || item.writerNickname || item.nickname || "구매자";
+
+  return {
+    id: Number(item.reviewId ?? item.id),
+    initial: nickname.slice(0, 1),
+    nickname,
+    date: formatDate(item.createdAt),
+    content: item.content || "",
+    rating: item.rating,
+  };
+}
+
+function getProfileReviews(data: any): ReviewItem[] {
+  const reviewList = Array.isArray(data?.receivedReviews)
+    ? data.receivedReviews
+    : Array.isArray(data?.reviews)
+      ? data.reviews
+      : [];
+
+  return reviewList.map(normalizeReview).filter((review: ReviewItem) => {
+    return Number.isFinite(review.id);
+  });
+}
+
+function normalizeProfile(
+  data: ProfileApiResponse,
   fallbackId: string
 ): SellerProfile {
   return {
@@ -69,8 +189,23 @@ function normalizeSellerProfile(
     followingCount: 0,
     trustScore: data.trustScore ?? 0,
     hasFraudReport: Boolean(data.hasScamReport),
+    receivedReviewCount: getProfileReviewCount(data),
     sales: [],
     reviews: [],
+  };
+}
+
+function normalizeMySale(item: MySaleApiItem): SaleItem {
+  return {
+    id: Number(item.postId),
+    title: item.postTitle || "제목 없음",
+  };
+}
+
+function normalizePostSale(item: PostListItem): SaleItem {
+  return {
+    id: Number(item.postId ?? item.id),
+    title: item.title || "제목 없음",
   };
 }
 
@@ -78,28 +213,204 @@ export default function SellerProfileScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id?: string }>();
 
-  const sellerId = String(id ?? "");
-
   const [scoreModalVisible, setScoreModalVisible] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [sellerProfile, setSellerProfile] = useState<SellerProfile | null>(null);
+  const [isMyProfile, setIsMyProfile] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
     const loadSellerProfile = async () => {
-      if (!sellerId) {
-        setErrorMessage("판매자 정보를 찾을 수 없습니다.");
-        setIsLoading(false);
-        return;
-      }
-
       try {
         setIsLoading(true);
         setErrorMessage("");
 
-        const data = await getSellerProfile(sellerId);
-        setSellerProfile(normalizeSellerProfile(data, sellerId));
+        const myUserId = await getStoredUserId();
+        const routeSellerId = id ? String(id) : String(myUserId ?? "");
+
+        if (!routeSellerId) {
+          setSellerProfile(null);
+          setErrorMessage("판매자 정보를 찾을 수 없습니다.");
+          return;
+        }
+
+        const isMine = String(myUserId) === String(routeSellerId);
+        setIsMyProfile(isMine);
+
+        if (isMine && myUserId) {
+          const [profileRes, openSalesRes, completedSalesRes, reviewsRes] =
+            await Promise.all([
+              apiRequest<ProfileApiResponse>("/api/users/me", {
+                method: "GET",
+                query: { userId: myUserId },
+              }),
+              apiRequest<any>("/api/users/me/sales", {
+                method: "GET",
+                query: {
+                  userId: myUserId,
+                  status: "OPEN",
+                  page: 0,
+                  size: 20,
+                },
+              }),
+              apiRequest<any>("/api/users/me/sales", {
+                method: "GET",
+                query: {
+                  userId: myUserId,
+                  status: "COMPLETED",
+                  page: 0,
+                  size: 20,
+                },
+              }),
+              apiRequest<any>("/api/users/me/reviews", {
+                method: "GET",
+                query: {
+                  userId: myUserId,
+                  page: 0,
+                  size: 20,
+                },
+              }),
+            ]);
+
+          console.log("내 프로필 API 원본 응답:", profileRes);
+          console.log("현재 로그인 유저 ID:", myUserId);
+          console.log("프로필 대상 유저 ID:", routeSellerId);
+
+          const openSales = getPageContent<MySaleApiItem>(openSalesRes);
+          const completedSales = getPageContent<MySaleApiItem>(completedSalesRes);
+          const reviews = getReviewContent(reviewsRes);
+
+          const mergedSales = [...openSales, ...completedSales]
+            .map(normalizeMySale)
+            .filter((item, index, array) => {
+              return array.findIndex((target) => target.id === item.id) === index;
+            });
+
+          const normalizedReviews = reviews.map(normalizeReview);
+
+          setSellerProfile({
+            ...normalizeProfile(profileRes, routeSellerId),
+            receivedReviewCount: normalizedReviews.length,
+            sales: mergedSales,
+            reviews: normalizedReviews,
+          });
+
+          return;
+        }
+
+        const [profileRes, postsRes] = await Promise.all([
+          apiRequest<ProfileApiResponse>(`/api/users/${routeSellerId}/profile`, {
+            method: "GET",
+          }),
+          apiRequest<any>("/api/posts", {
+            method: "GET",
+            query: {
+              page: 0,
+              size: 100,
+              sort: "latest",
+            },
+          }),
+        ]);
+
+        console.log("판매자 프로필 API 원본 응답:", profileRes);
+        console.log("후기 필드 확인:", {
+          receivedReviewCount: profileRes?.receivedReviewCount,
+          reviewCount: profileRes?.reviewCount,
+          reviewsCount: profileRes?.reviewsCount,
+          receivedReviews: profileRes?.receivedReviews,
+          reviews: profileRes?.reviews,
+        });
+        console.log("현재 로그인 유저 ID:", myUserId);
+        console.log("프로필 대상 유저 ID:", routeSellerId);
+
+        const normalizedProfile = normalizeProfile(profileRes, routeSellerId);
+        const sellerNickname = normalizedProfile.nickname;
+
+        const posts = getPageContent<PostListItem>(postsRes);
+        const profileUserId = String(profileRes?.userId ?? "");
+
+        const sellerPostItems = posts.filter((post) => {
+          const postUserId = String(post.userId ?? "");
+          const postSellerId = String(post.sellerId ?? "");
+          const postAuthorId = String(post.authorId ?? "");
+          const postNickname = String(
+            post.nickname ?? post.sellerNickname ?? post.authorNickname ?? ""
+          ).trim();
+
+          const isSameRouteId =
+            postUserId === routeSellerId ||
+            postSellerId === routeSellerId ||
+            postAuthorId === routeSellerId;
+
+          const isSameProfileUserId =
+            profileUserId.length > 0 &&
+            (postUserId === profileUserId ||
+              postSellerId === profileUserId ||
+              postAuthorId === profileUserId);
+
+          const isSameNickname =
+            sellerNickname.length > 0 && postNickname === sellerNickname;
+
+          return isSameRouteId || isSameProfileUserId || isSameNickname;
+        });
+
+        const sellerPosts = sellerPostItems.map(normalizePostSale);
+
+        let receivedReviews: ReviewItem[] = getProfileReviews(profileRes);
+
+        try {
+          const reviewsRes = await apiRequest<any>(
+            `/api/users/${routeSellerId}/reviews`,
+            {
+              method: "GET",
+            }
+          );
+
+          const reviewMap = new Map<number, ReviewItem>();
+
+          receivedReviews.forEach((review) => {
+            if (Number.isFinite(review.id)) {
+              reviewMap.set(review.id, review);
+            }
+          });
+
+          getReviewContent(reviewsRes).forEach((review) => {
+            const normalized = normalizeReview(review);
+
+            if (!Number.isFinite(normalized.id)) return;
+
+            reviewMap.set(normalized.id, normalized);
+          });
+
+          receivedReviews = Array.from(reviewMap.values()).sort((a, b) => {
+            const aTime = new Date(a.date.replaceAll(".", "-")).getTime();
+            const bTime = new Date(b.date.replaceAll(".", "-")).getTime();
+
+            if (Number.isNaN(aTime) || Number.isNaN(bTime)) return 0;
+            return bTime - aTime;
+          });
+        } catch (error) {
+          console.log("받은 후기 목록 조회 실패:", error);
+        }
+
+        const receivedReviewCount = Math.max(
+          getProfileReviewCount(profileRes),
+          receivedReviews.length
+        );
+
+        console.log("상대방 프로필 ID:", routeSellerId);
+        console.log("상대방 프로필 userId:", profileRes?.userId);
+        console.log("상대방 닉네임:", sellerNickname);
+        console.log("상대방 판매글 개수:", sellerPostItems.length);
+        console.log("상대방 받은 후기 개수:", receivedReviewCount);
+
+        setSellerProfile({
+          ...normalizedProfile,
+          receivedReviewCount,
+          sales: sellerPosts,
+          reviews: receivedReviews,
+        });
       } catch (error: any) {
         setSellerProfile(null);
         setErrorMessage(error?.message || "판매자 정보를 불러오지 못했습니다.");
@@ -109,7 +420,7 @@ export default function SellerProfileScreen() {
     };
 
     loadSellerProfile();
-  }, [sellerId]);
+  }, [id]);
 
   const closeMenu = () => {
     if (menuVisible) setMenuVisible(false);
@@ -130,6 +441,22 @@ export default function SellerProfileScreen() {
   };
 
   const trustScore = Math.max(0, Math.min(sellerProfile?.trustScore ?? 0, 100));
+
+  const visibleSales = useMemo(() => {
+    if (!sellerProfile?.sales || sellerProfile.sales.length === 0) {
+      return EMPTY_SALE_SLOTS;
+    }
+
+    return sellerProfile.sales.slice(0, 8);
+  }, [sellerProfile?.sales]);
+
+  const visibleReviews = useMemo(() => {
+    if (!sellerProfile?.reviews || sellerProfile.reviews.length === 0) {
+      return [];
+    }
+
+    return sellerProfile.reviews.slice(0, 3);
+  }, [sellerProfile?.reviews]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
@@ -162,7 +489,10 @@ export default function SellerProfileScreen() {
         ) : (
           <ScrollView
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.scrollContent}
+            contentContainerStyle={[
+              styles.scrollContent,
+              sellerProfile.hasFraudReport && styles.scrollContentWithWarning,
+            ]}
             onScrollBeginDrag={closeMenu}
           >
             {sellerProfile.hasFraudReport && (
@@ -174,13 +504,19 @@ export default function SellerProfileScreen() {
             )}
 
             <View style={styles.profileCard}>
-              <TouchableOpacity
-                style={styles.moreButton}
-                activeOpacity={0.65}
-                onPress={() => setMenuVisible(true)}
-              >
-                <Ionicons name="ellipsis-horizontal" size={17} color="#555555" />
-              </TouchableOpacity>
+              {!isMyProfile && (
+                <TouchableOpacity
+                  style={styles.moreButton}
+                  activeOpacity={0.65}
+                  onPress={() => setMenuVisible(true)}
+                >
+                  <Ionicons
+                    name="ellipsis-horizontal"
+                    size={17}
+                    color="#555555"
+                  />
+                </TouchableOpacity>
+              )}
 
               <View style={styles.profileTop}>
                 <View style={styles.profileCircle}>
@@ -241,7 +577,7 @@ export default function SellerProfileScreen() {
                 }
               >
                 <Text style={styles.sectionTitle}>판매 목록</Text>
-                <Ionicons name="chevron-forward" size={18} color="#B5B5B5" />
+                <Ionicons name="chevron-forward" size={17} color="#B6B6B6" />
               </TouchableOpacity>
 
               <ScrollView
@@ -249,16 +585,28 @@ export default function SellerProfileScreen() {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.saleList}
               >
-                {sellerProfile.sales.map((item) => (
+                {visibleSales.map((item) => (
                   <TouchableOpacity
                     key={item.id}
-                    activeOpacity={0.75}
+                    activeOpacity={item.isPlaceholder ? 1 : 0.75}
                     style={styles.saleItem}
+                    disabled={item.isPlaceholder}
+                    onPress={() => {
+                      if (item.isPlaceholder) return;
+
+                      router.push({
+                        pathname: "/divide-detail",
+                        params: { postId: String(item.id) },
+                      } as any);
+                    }}
                   >
                     <View style={styles.saleThumb} />
-                    <Text numberOfLines={1} style={styles.saleTitle}>
-                      {item.title}
-                    </Text>
+
+                    {!item.isPlaceholder && (
+                      <Text numberOfLines={1} style={styles.saleTitle}>
+                        {item.title}
+                      </Text>
+                    )}
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -275,19 +623,31 @@ export default function SellerProfileScreen() {
                   } as any)
                 }
               >
-                <Text style={styles.sectionTitle}>받은 후기</Text>
-                <Ionicons name="chevron-forward" size={18} color="#B5B5B5" />
+                <Text style={styles.sectionTitle}>
+                  받은 후기 {sellerProfile.receivedReviewCount}
+                </Text>
+                <Ionicons name="chevron-forward" size={17} color="#B6B6B6" />
               </TouchableOpacity>
 
-              <View style={styles.reviewList}>
-                {sellerProfile.reviews.map((review, index) => (
-                  <ReviewRow
-                    key={review.id}
-                    review={review}
-                    isLast={index === sellerProfile.reviews.length - 1}
-                  />
-                ))}
-              </View>
+              {visibleReviews.length > 0 ? (
+                <View style={styles.reviewList}>
+                  {visibleReviews.map((review, index) => (
+                    <ReviewRow
+                      key={review.id}
+                      review={review}
+                      isLast={index === visibleReviews.length - 1}
+                    />
+                  ))}
+                </View>
+              ) : (
+                <View style={styles.emptyReviewBox}>
+                  <Text style={styles.emptyReviewText}>
+                    {sellerProfile.receivedReviewCount > 0
+                      ? "후기 개수는 확인됐지만 목록 데이터가 아직 없어요"
+                      : "아직 받은 후기가 없어요"}
+                  </Text>
+                </View>
+              )}
             </View>
           </ScrollView>
         )}
@@ -392,6 +752,7 @@ function ReviewRow({ review, isLast }: { review: ReviewItem; isLast: boolean }) 
           <Text numberOfLines={1} style={styles.reviewName}>
             {review.nickname}
           </Text>
+
           <Text style={styles.reviewDate}>{review.date}</Text>
         </View>
 
@@ -413,8 +774,16 @@ function CriteriaItem({ title }: { title: string }) {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "#FFFFFF" },
-  container: { flex: 1, backgroundColor: "#FFFFFF" },
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+  },
+
+  container: {
+    flex: 1,
+    backgroundColor: "#F7F7F7",
+  },
+
   header: {
     height: 58,
     paddingHorizontal: 20,
@@ -423,6 +792,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
+
   headerIcon: {
     width: 32,
     height: 32,
@@ -430,43 +800,71 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "flex-start",
   },
-  headerTitle: { fontSize: 18, fontWeight: "900", color: "#111111" },
-  scrollContent: { paddingHorizontal: 22, paddingTop: 6, paddingBottom: 34 },
+
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: "#111111",
+  },
+
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 34,
+  },
+
+  scrollContentWithWarning: {
+    paddingTop: 0,
+  },
+
   centerState: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 24,
   },
+
   centerText: {
     marginTop: 10,
     fontSize: 13,
     fontWeight: "700",
     color: "#777777",
   },
+
   errorText: {
     fontSize: 14,
     fontWeight: "800",
     color: "#999999",
     textAlign: "center",
   },
+
   warningBanner: {
     backgroundColor: "#F6DADA",
     paddingVertical: 15,
     paddingHorizontal: 20,
-    marginHorizontal: -22,
+    marginHorizontal: -20,
     marginBottom: 18,
   },
-  warningText: { color: "#C7352B", fontSize: 15, fontWeight: "900" },
+
+  warningText: {
+    color: "#C7352B",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+
   profileCard: {
     position: "relative",
     backgroundColor: "#FFFFFF",
     borderRadius: 18,
     padding: 20,
-    borderWidth: 1,
-    borderColor: "#F0F0F0",
+    shadowColor: "#000000",
+    shadowOpacity: 0.045,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 2,
     zIndex: 20,
   },
+
   moreButton: {
     position: "absolute",
     top: 18,
@@ -477,7 +875,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     zIndex: 30,
   },
-  menuOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.01)" },
+
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.01)",
+  },
+
   moreMenu: {
     position: "absolute",
     top: 200,
@@ -495,15 +898,31 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#F0F0F0",
   },
+
   moreMenuItem: {
     minHeight: 42,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  moreMenuText: { fontSize: 13, fontWeight: "700", color: "#555555" },
-  moreMenuDivider: { height: 1, backgroundColor: "#EFEFEF" },
-  profileTop: { flexDirection: "row", alignItems: "center", paddingRight: 48 },
+
+  moreMenuText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#555555",
+  },
+
+  moreMenuDivider: {
+    height: 1,
+    backgroundColor: "#EFEFEF",
+  },
+
+  profileTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingRight: 48,
+  },
+
   profileCircle: {
     width: 62,
     height: 62,
@@ -513,32 +932,70 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 16,
   },
-  profileInitial: { fontSize: 24, fontWeight: "900", color: "#4B5563" },
-  profileInfo: { flex: 1 },
+
+  profileInitial: {
+    fontSize: 24,
+    fontWeight: "900",
+    color: "#4B5563",
+  },
+
+  profileInfo: {
+    flex: 1,
+  },
+
   nickname: {
     fontSize: 19,
     fontWeight: "800",
     color: "#111111",
     marginBottom: 6,
   },
-  subText: { fontSize: 13, fontWeight: "500", color: "#9D9D9D", lineHeight: 19 },
-  trustArea: { marginTop: 22, paddingTop: 4 },
+
+  subText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#9D9D9D",
+    lineHeight: 19,
+  },
+
+  trustArea: {
+    marginTop: 22,
+    paddingTop: 4,
+  },
+
   trustTopRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  trustTitleRow: { flexDirection: "row", alignItems: "center" },
-  trustInfoIcon: { marginLeft: 5 },
-  trustLabel: { fontSize: 15, fontWeight: "800", color: "#333333" },
-  trustScoreRow: { flexDirection: "row", alignItems: "flex-end" },
+
+  trustTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  trustInfoIcon: {
+    marginLeft: 5,
+  },
+
+  trustLabel: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#333333",
+  },
+
+  trustScoreRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+  },
+
   trustScore: {
     fontSize: 19,
     fontWeight: "800",
-    color: "black",
+    color: "#111111",
     letterSpacing: -0.5,
     marginTop: 2,
   },
+
   trustPoint: {
     fontSize: 12,
     fontWeight: "700",
@@ -546,6 +1003,7 @@ const styles = StyleSheet.create({
     marginLeft: 3,
     marginBottom: 3,
   },
+
   progressBg: {
     height: 5,
     backgroundColor: "#EFEFEF",
@@ -553,70 +1011,152 @@ const styles = StyleSheet.create({
     marginTop: 10,
     overflow: "hidden",
   },
-  progressFill: { height: "100%", backgroundColor: YELLOW, borderRadius: 99 },
+
+  progressFill: {
+    height: "100%",
+    backgroundColor: YELLOW,
+    borderRadius: 99,
+  },
+
   sectionCard: {
     marginTop: 20,
     backgroundColor: "#FFFFFF",
-    borderRadius: 18,
-    paddingHorizontal: 16,
-    paddingTop: 15,
-    paddingBottom: 16,
-    borderWidth: 1,
-    borderColor: "#F0F0F0",
-    zIndex: 1,
+    borderRadius: 20,
+    paddingTop: 18,
+    paddingBottom: 20,
+    paddingHorizontal: 22,
+    shadowColor: "#000000",
+    shadowOpacity: 0.045,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 2,
+    overflow: "hidden",
   },
+
   sectionHeader: {
-    minHeight: 30,
+    minHeight: 28,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  sectionTitle: { fontSize: 16, fontWeight: "800", color: "#111111" },
-  saleList: { paddingTop: 15, gap: 12 },
-  saleItem: { width: 86 },
-  saleThumb: { width: 86, height: 72, borderRadius: 14, backgroundColor: "#FFF1CC" },
+
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#111111",
+    letterSpacing: -0.2,
+  },
+
+  saleList: {
+    paddingTop: 18,
+    paddingRight: 10,
+    gap: 13,
+  },
+
+  saleItem: {
+    width: 82,
+    alignItems: "center",
+  },
+
+  saleThumb: {
+    width: 82,
+    height: 72,
+    borderRadius: 12,
+    backgroundColor: "#FFF0CC",
+  },
+
   saleTitle: {
-    marginTop: 8,
+    width: 86,
+    marginTop: 9,
     fontSize: 12,
     color: "#222222",
-    fontWeight: "700",
+    fontWeight: "800",
     textAlign: "center",
+    letterSpacing: -0.3,
   },
-  reviewList: { marginTop: 10 },
+
+  reviewList: {
+    marginTop: 9,
+  },
+
   reviewItem: {
     flexDirection: "row",
-    paddingVertical: 13,
+    paddingTop: 16,
+    paddingBottom: 17,
     borderBottomWidth: 1,
-    borderBottomColor: "#EFEFEF",
+    borderBottomColor: "#EFE7DB",
   },
-  reviewItemLast: { borderBottomWidth: 0, paddingBottom: 2 },
+
+  reviewItemLast: {
+    borderBottomWidth: 0,
+    paddingBottom: 4,
+  },
+
   reviewProfile: {
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: "#F7F5EF",
+    backgroundColor: "#F4F0E8",
     borderWidth: 1,
-    borderColor: "#E8E4D8",
+    borderColor: "#E6DFD3",
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 11,
+    marginRight: 12,
+    marginTop: 1,
   },
-  reviewInitial: { fontSize: 12, fontWeight: "900", color: "#333333" },
-  reviewContent: { flex: 1 },
+
+  reviewInitial: {
+    fontSize: 11,
+    fontWeight: "900",
+    color: "#333333",
+  },
+
+  reviewContent: {
+    flex: 1,
+  },
+
   reviewTop: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
+
   reviewName: {
-    fontSize: 14,
-    fontWeight: "800",
+    fontSize: 13.5,
+    fontWeight: "900",
     color: "#222222",
     flex: 1,
     marginRight: 8,
+    letterSpacing: -0.2,
   },
-  reviewDate: { fontSize: 11, color: "#999999", fontWeight: "600" },
-  reviewText: { marginTop: 7, fontSize: 13, color: "#555555", lineHeight: 18, fontWeight: "600" },
+
+  reviewDate: {
+    fontSize: 11,
+    color: "#9A9A9A",
+    fontWeight: "600",
+  },
+
+  reviewText: {
+    marginTop: 8,
+    fontSize: 13,
+    color: "#333333",
+    lineHeight: 19,
+    fontWeight: "500",
+    letterSpacing: -0.2,
+  },
+
+  emptyReviewBox: {
+    paddingTop: 34,
+    paddingBottom: 20,
+    alignItems: "center",
+  },
+
+  emptyReviewText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#B0B0B0",
+  },
+
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.28)",
@@ -624,6 +1164,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 28,
   },
+
   modalContainer: {
     width: "100%",
     backgroundColor: "#FFFFFF",
@@ -632,6 +1173,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingBottom: 22,
   },
+
   closeButton: {
     position: "absolute",
     top: 18,
@@ -644,6 +1186,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     zIndex: 10,
   },
+
   modalIcon: {
     alignSelf: "center",
     width: 62,
@@ -654,7 +1197,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 16,
   },
-  modalTitle: { fontSize: 21, fontWeight: "900", color: "#111111", textAlign: "center" },
+
+  modalTitle: {
+    fontSize: 21,
+    fontWeight: "900",
+    color: "#111111",
+    textAlign: "center",
+  },
+
   modalDescription: {
     fontSize: 14,
     fontWeight: "500",
@@ -663,11 +1213,41 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginTop: 10,
   },
-  criteriaBox: { backgroundColor: "#FAFAFA", borderRadius: 16, padding: 18, marginTop: 22 },
-  criteriaTitle: { fontSize: 16, fontWeight: "800", color: "#111111", marginBottom: 14 },
-  criteriaItem: { flexDirection: "row", alignItems: "center", minHeight: 28 },
-  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: YELLOW, marginRight: 10 },
-  criteriaText: { fontSize: 14, fontWeight: "600", color: "#555555" },
+
+  criteriaBox: {
+    backgroundColor: "#FAFAFA",
+    borderRadius: 16,
+    padding: 18,
+    marginTop: 22,
+  },
+
+  criteriaTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#111111",
+    marginBottom: 14,
+  },
+
+  criteriaItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    minHeight: 28,
+  },
+
+  dot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: YELLOW,
+    marginRight: 10,
+  },
+
+  criteriaText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#555555",
+  },
+
   confirmButton: {
     height: 54,
     backgroundColor: YELLOW,
@@ -676,5 +1256,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 22,
   },
-  confirmButtonText: { fontSize: 16, fontWeight: "900", color: "#111111" },
+
+  confirmButtonText: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#111111",
+  },
 });

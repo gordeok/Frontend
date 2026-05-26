@@ -18,7 +18,7 @@ export default function LoginScreen() {
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
-      Alert.alert("입력 확인", "이메일과 비밀번호를 모두 입력해주세요.");
+      Alert.alert("입력 확인", "아이디와 비밀번호를 모두 입력해주세요.");
       return;
     }
 
@@ -58,7 +58,7 @@ export default function LoginScreen() {
 
       <View style={styles.form}>
         <AppInput
-          placeholder="이메일"
+          placeholder="아이디"
           value={email}
           onChangeText={setEmail}
           autoCapitalize="none"

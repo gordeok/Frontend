@@ -2,7 +2,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,7 +9,14 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { getMyCommunityPosts, MyCommunityPost } from "../services/user";
+import {
+  getMyCommunityCommentPosts,
+  getMyCommunityPosts,
+  getMyProfile,
+  MyCommunityCommentPost,
+  MyCommunityPost,
+} from "../services/user";
+import { getStoredUserId } from "../utils/api";
 
 const COLORS = {
   white: "#FFFFFF",
@@ -21,14 +27,32 @@ const COLORS = {
   gray400: "#B0B0B0",
   gray100: "#F6F6F6",
   yellow: "#F7C94B",
-  lightYellow: "#FFF4CC",
-  green: "#31C48D",
-  lightGreen: "#DDF8E8",
-  blue: "#4C8DFF",
-  lightBlue: "#E8F1FF",
-  purple: "#8A5CD6",
-  lightPurple: "#F1E6FF",
   line: "#F2EDE6",
+};
+
+const CATEGORY_BADGE_COLORS: Record<
+  string,
+  {
+    backgroundColor: string;
+    textColor: string;
+  }
+> = {
+  포카교환: {
+    backgroundColor: "#FFF5D6",
+    textColor: "#B58900",
+  },
+  질문게시판: {
+    backgroundColor: "#F1E8FF",
+    textColor: "#7A4FD8",
+  },
+  오프동행: {
+    backgroundColor: "#E7F6EA",
+    textColor: "#3A8B4C",
+  },
+  자유게시판: {
+    backgroundColor: "#FFEAF3",
+    textColor: "#D64F8B",
+  },
 };
 
 type CommunityItem = {
@@ -40,6 +64,35 @@ type CommunityItem = {
   content: string;
   time: string;
 };
+
+function convertCategoryLabel(category?: string | null) {
+  switch (category) {
+    case "PHOTO_EXCHANGE":
+      return "포카교환";
+    case "OFFLINE_COMPANION":
+      return "오프동행";
+    case "QUESTION":
+      return "질문게시판";
+    case "FREE":
+      return "자유게시판";
+    case "포카교환":
+    case "오프동행":
+    case "질문게시판":
+    case "자유게시판":
+      return category;
+    default:
+      return "자유게시판";
+  }
+}
+
+function getCategoryStyle(category: string) {
+  return (
+    CATEGORY_BADGE_COLORS[category] ?? {
+      backgroundColor: "#F2F2F2",
+      textColor: "#666666",
+    }
+  );
+}
 
 function formatTime(createdAt?: string) {
   if (!createdAt) return "";
@@ -56,41 +109,47 @@ function formatTime(createdAt?: string) {
   return `${Math.floor(diff / 1440)}일 전`;
 }
 
-function getCategoryStyle(category: string) {
-  if (category === "포카교환") {
-    return { categoryColor: COLORS.lightYellow, textColor: "#B89416" };
-  }
-
-  if (category === "오프동행") {
-    return { categoryColor: COLORS.lightBlue, textColor: COLORS.blue };
-  }
-
-  if (category === "질문게시판") {
-    return { categoryColor: COLORS.lightPurple, textColor: COLORS.purple };
-  }
-
-  return { categoryColor: COLORS.lightGreen, textColor: COLORS.green };
-}
-
 function mapCommunityPost(post: MyCommunityPost): CommunityItem {
-  const categoryStyle = getCategoryStyle(post.category);
+  const categoryLabel = convertCategoryLabel(post.category);
+  const categoryStyle = getCategoryStyle(categoryLabel);
 
   return {
     id: post.postId,
-    category: post.category,
+    category: categoryLabel,
     title: post.title,
     content: post.preview,
     time: formatTime(post.createdAt),
-    ...categoryStyle,
+    categoryColor: categoryStyle.backgroundColor,
+    textColor: categoryStyle.textColor,
+  };
+}
+
+function mapCommunityCommentPost(post: MyCommunityCommentPost): CommunityItem {
+  const categoryLabel = convertCategoryLabel(post.category);
+  const categoryStyle = getCategoryStyle(categoryLabel);
+
+  return {
+    id: post.postId,
+    category: categoryLabel,
+    title: post.title,
+    content:
+      post.commentContent ||
+      post.preview ||
+      post.contentPreview ||
+      "댓글을 작성한 게시글입니다.",
+    time: formatTime(post.createdAt),
+    categoryColor: categoryStyle.backgroundColor,
+    textColor: categoryStyle.textColor,
   };
 }
 
 export default function MyCommunityPostsScreen() {
   const [selectedTab, setSelectedTab] = useState<"posts" | "comments">("posts");
   const [myPosts, setMyPosts] = useState<CommunityItem[]>([]);
-  const [myComments] = useState<CommunityItem[]>([]);
+  const [myComments, setMyComments] = useState<CommunityItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [userLabel, setUserLabel] = useState("사용자");
 
   useEffect(() => {
     const loadPosts = async () => {
@@ -98,11 +157,27 @@ export default function MyCommunityPostsScreen() {
         setIsLoading(true);
         setErrorMessage("");
 
-        const data = await getMyCommunityPosts();
-        setMyPosts(data.map(mapCommunityPost));
+        try {
+          const profile = await getMyProfile();
+          setUserLabel(profile.nickname || "사용자");
+        } catch {
+          setUserLabel("사용자");
+        }
+
+        const postsData = await getMyCommunityPosts();
+        setMyPosts(postsData.map(mapCommunityPost));
+
+        try {
+          const commentsData = await getMyCommunityCommentPosts();
+          setMyComments(commentsData.map(mapCommunityCommentPost));
+        } catch (commentError) {
+          console.log("댓글 쓴 글 조회 실패:", commentError);
+          setMyComments([]);
+        }
       } catch (error: any) {
         console.log("내 커뮤니티 글 조회 실패:", error);
         setMyPosts([]);
+        setMyComments([]);
         setErrorMessage(error?.message || "커뮤니티 글을 불러오지 못했습니다.");
       } finally {
         setIsLoading(false);
@@ -113,7 +188,8 @@ export default function MyCommunityPostsScreen() {
   }, []);
 
   const currentList = selectedTab === "posts" ? myPosts : myComments;
-
+  const profileText = userLabel.trim()?.[0] || "사";
+  
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.container}>
@@ -176,32 +252,28 @@ export default function MyCommunityPostsScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
         >
-          {isLoading ? (
-            <View style={{ alignItems: "center", paddingTop: 100 }}>
-              <ActivityIndicator size="small" color={COLORS.yellow} />
-            </View>
-          ) : currentList.length > 0 ? (
-            currentList.map((item) => (
+          {isLoading ? null : currentList.length > 0 ? (
+            currentList.map((item, index) => (
               <Pressable
-                key={item.id}
+                key={`${selectedTab}-${item.id}-${index}`}
                 style={({ pressed, hovered }) => [
                   styles.postCard,
                   (pressed || hovered) && styles.postCardHover,
                 ]}
                 onPress={() =>
                   router.push({
-                    pathname: "/community/[postId]",
-                    params: { postId: String(item.id) },
+                    pathname: "/community/[postsId]",
+                    params: { postsId: String(item.id) },
                   } as any)
                 }
               >
                 <View style={styles.profileRow}>
                   <View style={styles.profileCircle}>
-                    <Text style={styles.profileText}>범</Text>
+                    <Text style={styles.profileText}>{profileText}</Text>
                   </View>
 
                   <View style={styles.profileInfo}>
-                    <Text style={styles.name}>범규와이프</Text>
+                    <Text style={styles.name}>{userLabel}</Text>
                     <Text style={styles.time}>{item.time}</Text>
                   </View>
 
@@ -211,7 +283,9 @@ export default function MyCommunityPostsScreen() {
                       { backgroundColor: item.categoryColor },
                     ]}
                   >
-                    <Text style={[styles.categoryText, { color: item.textColor }]}>
+                    <Text
+                      style={[styles.categoryText, { color: item.textColor }]}
+                    >
                       {item.category}
                     </Text>
                   </View>
@@ -226,9 +300,12 @@ export default function MyCommunityPostsScreen() {
               </Pressable>
             ))
           ) : (
-            <View style={{ alignItems: "center", paddingTop: 100 }}>
-              <Text style={{ fontSize: 13, fontWeight: "700", color: COLORS.gray500 }}>
-                {errorMessage || (selectedTab === "posts" ? "작성한 글이 없어요" : "댓글 쓴 글 API가 아직 없어요")}
+            <View style={styles.emptyBox}>
+              <Text style={styles.emptyText}>
+                {errorMessage ||
+                  (selectedTab === "posts"
+                    ? "작성한 글이 없어요"
+                    : "작성한 댓글이 없어요")}
               </Text>
             </View>
           )}
@@ -237,7 +314,6 @@ export default function MyCommunityPostsScreen() {
     </SafeAreaView>
   );
 }
-
 
 const styles = StyleSheet.create({
   safeArea: {
@@ -311,11 +387,23 @@ const styles = StyleSheet.create({
 
   activeTabText: {
     color: COLORS.white,
-    fontWeight: "900",
   },
 
   listContent: {
     paddingBottom: 36,
+  },
+
+  emptyBox: {
+    alignItems: "center",
+    paddingTop: 100,
+  },
+
+  emptyText: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: COLORS.black,
+    marginTop: 140,
+    marginBottom: 6,
   },
 
   postCard: {
@@ -341,7 +429,7 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: COLORS.lightYellow,
+    backgroundColor: "#FFF4CC",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 10,

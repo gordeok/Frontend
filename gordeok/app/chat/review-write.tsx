@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import {
@@ -12,7 +13,8 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { createReview } from "../../services/review";
+
+import { apiRequest, getStoredUserId } from "../../utils/api";
 
 const COLORS = {
   white: "#FFFFFF",
@@ -29,54 +31,130 @@ const COLORS = {
 const MAX_LENGTH = 1000;
 
 export default function ReviewWriteScreen() {
-  const { chatRoomId, role, title, status, targetUserId } = useLocalSearchParams<{
+  const {
+    chatRoomId,
+    role,
+    title,
+    status,
+    targetUserId,
+    reviewerId,
+    sellerName,
+  } = useLocalSearchParams<{
     chatRoomId?: string;
     role?: string;
     title?: string;
     status?: string;
     targetUserId?: string;
+    reviewerId?: string;
+    sellerName?: string;
   }>();
 
   const [content, setContent] = useState("");
   const [isFocused, setIsFocused] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const roomTitle =
     typeof title === "string" && title.length > 0 ? title : "거래 채팅방";
 
-  const isValid = content.trim().length > 0;
+  const sellerLabel =
+    typeof sellerName === "string" && sellerName.length > 0
+      ? sellerName
+      : "판매자";
+
+  const isValid = content.trim().length > 0 && !isSubmitting;
+
+  const goBackToChatAsSubmitted = async (finalChatRoomId: number) => {
+    await AsyncStorage.setItem(`REVIEW_SUBMITTED_${finalChatRoomId}`, "true");
+    await AsyncStorage.setItem(`TRADE_STATUS_${finalChatRoomId}`, "거래 완료");
+
+    router.replace({
+      pathname: "/chat/[chatRoomId]",
+      params: {
+        chatRoomId: String(finalChatRoomId),
+        role: typeof role === "string" ? role : "buyer",
+        title: roomTitle,
+        status: "거래 완료",
+        reviewSubmitted: "true",
+        reviewSubmittedChatRoomId: String(finalChatRoomId),
+      },
+    } as any);
+  };
 
   const handleSubmit = async () => {
     if (!isValid) return;
 
-    try {
-      await createReview({
-        targetUserId: Number(targetUserId ?? 1),
-        chatRoomId: Number(chatRoomId ?? 1),
-        rating: 5,
-        content: content.trim(),
-      });
-    } catch (error) {
-      Alert.alert("등록 실패", "거래 후기 등록에 실패했어요. 다시 시도해주세요.");
+    const trimmedContent = content.trim();
+    const storedUserId = await getStoredUserId();
+
+    const finalReviewerId = Number(reviewerId || storedUserId);
+    const finalTargetUserId = Number(targetUserId);
+    const finalChatRoomId = Number(chatRoomId);
+
+    if (!finalReviewerId || Number.isNaN(finalReviewerId)) {
+      Alert.alert("오류", "작성자 정보를 찾지 못했어요.");
       return;
     }
 
-    Alert.alert("등록 완료", "거래 후기가 등록되었습니다.", [
-      {
-        text: "확인",
-        onPress: () => {
-          router.replace({
-            pathname: "/chat/[chatRoomId]",
-            params: {
-              chatRoomId: typeof chatRoomId === "string" ? chatRoomId : "1",
-              role: typeof role === "string" ? role : "buyer",
-              title: roomTitle,
-              status: typeof status === "string" ? status : "거래 완료",
-              reviewSubmitted: "true",
-            },
-          });
+    if (!finalTargetUserId || Number.isNaN(finalTargetUserId)) {
+      Alert.alert(
+        "오류",
+        "후기 대상 판매자 정보를 찾지 못했어요. 채팅방에서 다시 들어와주세요.",
+      );
+      return;
+    }
+
+    if (!finalChatRoomId || Number.isNaN(finalChatRoomId)) {
+      Alert.alert("오류", "채팅방 정보를 찾지 못했어요.");
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+
+      await apiRequest("/api/reviews", {
+        method: "POST",
+        body: {
+          reviewerId: finalReviewerId,
+          targetUserId: finalTargetUserId,
+          chatRoomId: finalChatRoomId,
+          rating: 5,
+          content: trimmedContent,
+        } as any,
+      });
+
+      Alert.alert("등록 완료", "거래 후기가 등록되었습니다.", [
+        {
+          text: "확인",
+          onPress: () => {
+            goBackToChatAsSubmitted(finalChatRoomId);
+          },
         },
-      },
-    ]);
+      ]);
+    } catch (error: any) {
+      const message = String(error?.message ?? "");
+
+      if (
+        message.includes("409") ||
+        message.includes("중복") ||
+        message.includes("이미")
+      ) {
+        Alert.alert("알림", "이미 후기를 작성한 거래예요.", [
+          {
+            text: "확인",
+            onPress: () => {
+              goBackToChatAsSubmitted(finalChatRoomId);
+            },
+          },
+        ]);
+
+        return;
+      }
+
+      console.log("후기 등록 실패:", error);
+      Alert.alert("등록 실패", "거래 후기 등록에 실패했어요. 다시 시도해주세요.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -105,7 +183,9 @@ export default function ReviewWriteScreen() {
             disabled={!isValid}
             onPress={handleSubmit}
           >
-            <Text style={styles.submitButtonText}>등록</Text>
+            <Text style={styles.submitButtonText}>
+              {isSubmitting ? "등록중" : "등록"}
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -115,6 +195,10 @@ export default function ReviewWriteScreen() {
             <Text style={styles.tradeTitle} numberOfLines={1}>
               {roomTitle}
             </Text>
+
+            <Text style={styles.sellerText} numberOfLines={1}>
+              후기 대상 · {sellerLabel}
+            </Text>
           </View>
 
           <Text style={styles.label}>후기 내용</Text>
@@ -123,15 +207,14 @@ export default function ReviewWriteScreen() {
             <TextInput
               style={styles.textArea}
               value={content}
+              editable={!isSubmitting}
               onChangeText={(value) => {
                 if (value.length <= MAX_LENGTH) {
                   setContent(value);
                 }
               }}
               placeholder={
-                isFocused
-                  ? ""
-                  : "상대방에게 남길 후기를 작성해주세요."
+                isFocused ? "" : "상대방에게 남길 후기를 작성해주세요."
               }
               placeholderTextColor={COLORS.gray400}
               multiline
@@ -183,7 +266,7 @@ const styles = StyleSheet.create({
     color: COLORS.black,
   },
   submitButton: {
-    width: 54,
+    width: 58,
     height: 34,
     borderRadius: 17,
     backgroundColor: COLORS.yellow,
@@ -220,6 +303,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "900",
     color: COLORS.black,
+  },
+  sellerText: {
+    marginTop: 6,
+    fontSize: 12,
+    fontWeight: "600",
+    color: COLORS.gray500,
   },
   label: {
     fontSize: 13,

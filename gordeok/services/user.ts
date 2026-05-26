@@ -47,6 +47,16 @@ export type MyCommunityPost = {
   createdAt: string;
 };
 
+export type MyCommunityCommentPost = {
+  postId: number;
+  category: string;
+  title: string;
+  preview?: string;
+  contentPreview?: string;
+  commentContent?: string;
+  createdAt: string;
+};
+
 export type MyReview = {
   reviewId: number;
   reviewerId: number;
@@ -123,6 +133,17 @@ export async function getMyCommunityPosts(page = 0, size = 20) {
   });
 
   return unwrapPage<MyCommunityPost>(data);
+}
+
+export async function getMyCommunityCommentPosts(page = 0, size = 20) {
+  const userId = await getStoredUserId();
+
+  const data = await apiRequest<any>("/api/users/me/community-comments", {
+    method: "GET",
+    query: { userId, page, size },
+  });
+
+  return unwrapPage<MyCommunityCommentPost>(data);
 }
 
 export async function getMyReviews(page = 0, size = 20) {

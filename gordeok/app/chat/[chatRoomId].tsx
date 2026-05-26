@@ -1,8 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
+import { Client } from "@stomp/stompjs";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
+  Image,
   Keyboard,
   LayoutAnimation,
   NativeScrollEvent,
@@ -21,8 +24,13 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 
-import { getChatMessages, getTrackingInfo } from "../../services/chat";
+import SockJS from "sockjs-client";
+import * as ImagePicker from "expo-image-picker";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+import { getChatMessages } from "../../services/chat";
 import { getMyProfile } from "../../services/user";
+import { getStoredUserId } from "../../utils/api";
 import type { ChatMessageApiItem } from "../../types/chat";
 
 if (
@@ -49,6 +57,18 @@ const COLORS = {
 const DEFAULT_PANEL_HEIGHT = 300;
 const INPUT_BAR_HEIGHT = 55;
 
+const TRADE_COMPLETE_TEXT = "거래가 완료되었습니다.";
+const TRADE_CANCEL_TEXT = "거래가 취소되었습니다.";
+
+const TRADE_STATUS_STORAGE_KEY = "GO_REUDEOK_CHAT_TRADE_STATUS";
+const REVIEW_SUBMITTED_STORAGE_KEY = "GO_REUDEOK_CHAT_REVIEW_SUBMITTED";
+
+const API_BASE_URL = (
+  process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://172.20.99.65:8080"
+).replace(/\/$/, "");
+
+const WS_URL = `${API_BASE_URL}/ws`;
+
 type TradeStatus =
   | "모집 중"
   | "모집 완료"
@@ -56,7 +76,15 @@ type TradeStatus =
   | "거래 완료"
   | "거래 취소";
 
-type MessageType = "system" | "me" | "other" | "image" | "trade";
+type MessageType =
+  | "system"
+  | "me"
+  | "other"
+  | "image"
+  | "otherImage"
+  | "trade"
+  | "fraudWarning"
+  | "fraudDanger";
 
 type Message = {
   id: string;
@@ -67,7 +95,71 @@ type Message = {
   initial?: string;
   color?: string;
   initialColor?: string;
+  imageUrl?: string;
 };
+
+type ChatRoomMenuInfo = {
+  title?: string;
+  postId?: string | number;
+  postsId?: string | number;
+  id?: string | number;
+  communityId?: string | number;
+  communityPostId?: string | number;
+  post?: {
+    postId?: string | number;
+    postsId?: string | number;
+    id?: string | number;
+    communityId?: string | number;
+  };
+  participants?: {
+    userId?: number | string;
+    nickname?: string;
+    memberName?: string;
+    role?: string;
+  }[];
+};
+
+function getFirstText(...values: Array<string | undefined>) {
+  return values.map((value) => (value ?? "").trim()).find(Boolean) ?? "";
+}
+
+function getFirstValueText(...values: any[]) {
+  return values
+    .map((value) =>
+      value === null || value === undefined ? "" : String(value).trim()
+    )
+    .find(Boolean) ?? "";
+}
+
+async function getChatRoomMenuInfo(
+  chatRoomId: string,
+  userId: string,
+): Promise<ChatRoomMenuInfo | null> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/chat-rooms/${chatRoomId}/menu?userId=${userId}`,
+    {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    },
+  );
+
+  const text = await response.text();
+  let data: ChatRoomMenuInfo | null = null;
+
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = null;
+  }
+
+  if (!response.ok) {
+    throw new Error((data as any)?.message || "채팅방 정보를 불러오지 못했습니다.");
+  }
+
+  return data;
+}
 
 function getParamString(value?: string | string[]) {
   if (Array.isArray(value)) return value[0] ?? "";
@@ -102,6 +194,61 @@ function normalizeTradeStatus(value?: string | string[]): TradeStatus {
   return "모집 중";
 }
 
+async function readJsonMap(key: string) {
+  try {
+    const saved = await AsyncStorage.getItem(key);
+    const parsed = saved ? JSON.parse(saved) : {};
+
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch (error) {
+    console.log(`${key} 불러오기 실패:`, error);
+    return {};
+  }
+}
+
+async function getStoredTradeStatus(chatRoomId: string): Promise<TradeStatus | null> {
+  const map = await readJsonMap(TRADE_STATUS_STORAGE_KEY);
+  const savedStatus = map[String(chatRoomId)];
+
+  if (
+    savedStatus === "모집 완료" ||
+    savedStatus === "배송 중" ||
+    savedStatus === "거래 완료" ||
+    savedStatus === "거래 취소"
+  ) {
+    return savedStatus;
+  }
+
+  return null;
+}
+
+async function saveStoredTradeStatus(chatRoomId: string, status: TradeStatus) {
+  try {
+    const map = await readJsonMap(TRADE_STATUS_STORAGE_KEY);
+    map[String(chatRoomId)] = status;
+    await AsyncStorage.setItem(TRADE_STATUS_STORAGE_KEY, JSON.stringify(map));
+  } catch (error) {
+    console.log("거래 상태 저장 실패:", error);
+  }
+}
+
+async function getStoredReviewSubmitted(chatRoomId: string) {
+  const map = await readJsonMap(REVIEW_SUBMITTED_STORAGE_KEY);
+  return map[String(chatRoomId)] === true;
+}
+
+async function saveStoredReviewSubmitted(chatRoomId: string) {
+  try {
+    const map = await readJsonMap(REVIEW_SUBMITTED_STORAGE_KEY);
+    map[String(chatRoomId)] = true;
+    await AsyncStorage.setItem(REVIEW_SUBMITTED_STORAGE_KEY, JSON.stringify(map));
+  } catch (error) {
+    console.log("후기 작성 여부 저장 실패:", error);
+  }
+}
+
 function formatMessageTime(value?: string) {
   if (!value) return "";
 
@@ -114,18 +261,112 @@ function formatMessageTime(value?: string) {
   });
 }
 
+function isFraudApiMessage(message: any) {
+  return (
+    message?.messageType === "FRAUD_WARNING" ||
+    message?.messageType === "FRAUD_DANGER"
+  );
+}
+
+function isTrackingApiMessage(message: any) {
+  const messageType = String(message?.messageType ?? "").toUpperCase();
+  const content = String(message?.content ?? "");
+
+  return (
+    messageType === "TRACKING_SHARED" ||
+    messageType === "TRACKING_SHARE" ||
+    messageType === "DELIVERY_TRACKING" ||
+    messageType === "TRACKING_NUMBER" ||
+    (messageType !== "TEXT" && content.includes("운송장"))
+  );
+}
+
+function getFraudReasonText(value?: string) {
+  const reason = (value ?? "").trim();
+
+  if (!reason) return "거래 안전 확인이 필요한 문구예요.";
+
+  if (reason.includes("빈 메시지")) {
+    return "비정상적인 메시지 패턴이 감지됐어요.";
+  }
+
+  if (reason.includes("규칙 기반") || reason.includes("필터")) {
+    return "거래 안전 확인이 필요한 표현이 감지됐어요.";
+  }
+
+  return reason;
+}
+
+function toAbsoluteImageUrl(value?: string) {
+  if (!value) return "";
+  if (value.startsWith("http://") || value.startsWith("https://")) return value;
+  if (value.startsWith("/")) return `${API_BASE_URL}${value}`;
+  return `${API_BASE_URL}/${value}`;
+}
+
+function getImageName(uri: string) {
+  const rawName = uri.split("/").pop() || `chat-image-${Date.now()}.jpg`;
+  return rawName.includes(".") ? rawName : `${rawName}.jpg`;
+}
+
+function getImageMimeType(uri: string) {
+  const lower = uri.toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".heic")) return "image/heic";
+  return "image/jpeg";
+}
+
+async function uploadImageToServer(uri: string) {
+  const formData = new FormData();
+
+  formData.append("image", {
+    uri,
+    name: getImageName(uri),
+    type: getImageMimeType(uri),
+  } as any);
+
+  const response = await fetch(`${API_BASE_URL}/api/posts/upload-image`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+    },
+    body: formData,
+  });
+
+  const text = await response.text();
+  let data: any = null;
+
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = null;
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.message || "이미지 업로드에 실패했습니다.");
+  }
+
+  const imageUrl = data?.imageUrl;
+  if (!imageUrl) {
+    throw new Error("업로드된 이미지 URL을 받지 못했습니다.");
+  }
+
+  return toAbsoluteImageUrl(imageUrl);
+}
+
 function ensureStatusMessage(messages: Message[], status: TradeStatus) {
   const text =
     status === "거래 완료"
-      ? "거래가 완료되었습니다."
+      ? TRADE_COMPLETE_TEXT
       : status === "거래 취소"
-      ? "거래가 취소되었습니다."
-      : "";
+        ? TRADE_CANCEL_TEXT
+        : "";
 
   if (!text) return messages;
 
   const alreadyExists = messages.some(
-    (message) => message.type === "trade" && message.text === text
+    (message) => message.type === "trade" && message.text === text,
   );
 
   if (alreadyExists) return messages;
@@ -140,45 +381,57 @@ function ensureStatusMessage(messages: Message[], status: TradeStatus) {
   ];
 }
 
-function normalizeChatMessages(apiMessages: ChatMessageApiItem[]): Message[] {
-  return apiMessages.map((message: any) => {
-    const messageType = message.messageType;
+function normalizeChatMessage(
+  message: ChatMessageApiItem | any,
+  myUserId?: string | number | null,
+): Message | null {
+  const messageType = message.messageType;
 
-    if (
-      messageType === "TRANSACTION_COMPLETE" ||
-      messageType === "TRACKING_SHARED"
-    ) {
-      return {
-        id: String(message.messageId ?? `trade-${Date.now()}`),
-        type: "trade",
-        text: message.content ?? "",
-        time: formatMessageTime(message.createdAt),
-      };
-    }
+  if (isTrackingApiMessage(message)) {
+    return null;
+  }
 
-    if (messageType === "FRAUD_WARNING" || messageType === "FRAUD_DANGER") {
-      return {
-        id: String(message.messageId ?? `system-${Date.now()}`),
-        type: "system",
-        text:
-          message.reason ||
-          message.content ||
-          "사기 의심 알림이 도착했어요.",
-      };
-    }
+  if (messageType === "TRANSACTION_COMPLETE") {
+    return {
+      id: String(message.messageId ?? `trade-${Date.now()}`),
+      type: "trade",
+      text: message.content || TRADE_COMPLETE_TEXT,
+      time: formatMessageTime(message.createdAt),
+    };
+  }
 
-    if (message.senderId === null || message.senderNickname === "SYSTEM") {
-      return {
-        id: String(message.messageId ?? `system-${Date.now()}`),
-        type: "system",
-        text: message.content ?? "",
-      };
-    }
+  if (messageType === "FRAUD_WARNING" || messageType === "FRAUD_DANGER") {
+    return {
+      id: String(
+        message.messageId ??
+          `fraud-${messageType}-${Date.now()}-${Math.random()}`,
+      ),
+      type: messageType === "FRAUD_DANGER" ? "fraudDanger" : "fraudWarning",
+      text: getFraudReasonText(message.reason || message.content),
+      time: formatMessageTime(message.createdAt),
+    };
+  }
 
-    if (messageType === "IMAGE") {
+  if (message.senderId === null || message.senderNickname === "SYSTEM") {
+    return {
+      id: String(message.messageId ?? `system-${Date.now()}`),
+      type: "system",
+      text: message.content ?? "",
+    };
+  }
+
+  if (messageType === "IMAGE") {
+    const isMine =
+      myUserId != null && String(message.senderId) === String(myUserId);
+    const imageUrl = toAbsoluteImageUrl(
+      message.content ?? message.imageUrl ?? "",
+    );
+
+    if (isMine) {
       return {
         id: String(message.messageId ?? `image-${Date.now()}`),
         type: "image",
+        imageUrl,
         time: formatMessageTime(message.createdAt),
       };
     }
@@ -186,16 +439,51 @@ function normalizeChatMessages(apiMessages: ChatMessageApiItem[]): Message[] {
     const nickname = message.senderNickname || "상대방";
 
     return {
-      id: String(message.messageId ?? `message-${Date.now()}`),
-      type: "other",
+      id: String(message.messageId ?? `image-${Date.now()}`),
+      type: "otherImage",
       nickname,
       initial: nickname.slice(0, 1),
       color: COLORS.yellowLight,
       initialColor: COLORS.gray700,
+      imageUrl,
+      time: formatMessageTime(message.createdAt),
+    };
+  }
+
+  const isMine =
+    myUserId != null && String(message.senderId) === String(myUserId);
+
+  if (isMine) {
+    return {
+      id: String(message.messageId ?? `message-${Date.now()}`),
+      type: "me",
       text: message.content ?? "",
       time: formatMessageTime(message.createdAt),
     };
-  });
+  }
+
+  const nickname = message.senderNickname || "상대방";
+
+  return {
+    id: String(message.messageId ?? `message-${Date.now()}`),
+    type: "other",
+    nickname,
+    initial: nickname.slice(0, 1),
+    color: COLORS.yellowLight,
+    initialColor: COLORS.gray700,
+    text: message.content ?? "",
+    time: formatMessageTime(message.createdAt),
+  };
+}
+
+function normalizeChatMessages(
+  apiMessages: ChatMessageApiItem[],
+  myUserId?: string | number | null,
+): Message[] {
+  return apiMessages
+    .filter((message) => !isFraudApiMessage(message))
+    .map((message) => normalizeChatMessage(message, myUserId))
+    .filter((message): message is Message => message !== null);
 }
 
 export default function ChatRoomDetailScreen() {
@@ -205,9 +493,14 @@ export default function ChatRoomDetailScreen() {
     chatRoomId,
     role,
     title,
+    postTitle,
+    communityTitle,
+    roomName,
     sellerName,
     buyerName,
     opponentName,
+    writerName,
+    writerId,
     selectedMember,
     receiverName,
     phoneNumber,
@@ -218,13 +511,24 @@ export default function ChatRoomDetailScreen() {
     tradeEvent,
     status,
     reviewSubmitted,
+    postId,
+    postsId,
+    id,
+    communityId,
+    sellerUserId: routeSellerUserId,
+    targetUserId,
   } = useLocalSearchParams<{
     chatRoomId: string;
     role?: string;
     title?: string;
+    postTitle?: string;
+    communityTitle?: string;
+    roomName?: string;
     sellerName?: string;
     buyerName?: string;
     opponentName?: string;
+    writerName?: string;
+    writerId?: string;
     selectedMember?: string;
     receiverName?: string;
     phoneNumber?: string;
@@ -235,16 +539,38 @@ export default function ChatRoomDetailScreen() {
     tradeEvent?: string;
     status?: string;
     reviewSubmitted?: string;
+    postId?: string;
+    postsId?: string;
+    id?: string;
+    communityId?: string;
+    sellerUserId?: string;
+    targetUserId?: string;
   }>();
 
   const normalizedRole = getParamString(role).trim().toLowerCase();
-
-  const isNote = type === "note";
-  const isSeller = !isNote && normalizedRole === "seller";
-  const isBuyer = !isNote && !isSeller;
-  const currentRole = isSeller ? "seller" : "buyer";
+  const normalizedType = getParamString(type).trim().toLowerCase();
 
   const [myNickname, setMyNickname] = useState("");
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [menuTitle, setMenuTitle] = useState("");
+  const [menuOpponentName, setMenuOpponentName] = useState("");
+  const [menuCommunityPostId, setMenuCommunityPostId] = useState("");
+  const [menuMyRole, setMenuMyRole] = useState("");
+  const [sellerUserId, setSellerUserId] = useState(() =>
+    getFirstValueText(targetUserId, routeSellerUserId),
+  );
+  const [isChatConnected, setIsChatConnected] = useState(false);
+
+  const effectiveRole = normalizedRole || menuMyRole;
+
+  const isNote =
+    normalizedType === "note" ||
+    normalizedType === "direct" ||
+    normalizedType === "community" ||
+    (!normalizedType && !effectiveRole);
+  const isSeller = !isNote && effectiveRole === "seller";
+  const isBuyer = !isNote && !isSeller;
+  const currentRole = isSeller ? "seller" : "buyer";
 
   useEffect(() => {
     const loadMyProfile = async () => {
@@ -256,32 +582,137 @@ export default function ChatRoomDetailScreen() {
       }
     };
 
+    const loadMyUserId = async () => {
+      try {
+        const storedUserId = await getStoredUserId();
+        setMyUserId(storedUserId ? String(storedUserId) : null);
+      } catch (error) {
+        console.log("내 userId 조회 실패:", error);
+      }
+    };
+
     loadMyProfile();
+    loadMyUserId();
   }, []);
 
+  useEffect(() => {
+    if (!chatRoomId || !myUserId) return;
+
+    const loadChatRoomMenu = async () => {
+      try {
+        const menu = await getChatRoomMenuInfo(String(chatRoomId), String(myUserId));
+
+        const nextTitle = getFirstText(
+          menu?.title,
+          (menu as any)?.postTitle,
+          (menu as any)?.communityTitle,
+          (menu as any)?.roomName,
+          (menu as any)?.chatRoomTitle,
+        );
+
+        const nextOpponentName = getFirstText(
+          menu?.participants?.[0]?.nickname,
+          (menu as any)?.opponentNickname,
+          (menu as any)?.opponentName,
+          (menu as any)?.sellerNickname,
+          (menu as any)?.buyerNickname,
+        );
+
+        const nextCommunityPostId = getFirstValueText(
+          menu?.postId,
+          menu?.postsId,
+          menu?.communityPostId,
+          menu?.communityId,
+          menu?.post?.postId,
+          menu?.post?.postsId,
+          menu?.post?.id,
+          menu?.post?.communityId,
+        );
+
+        const nextMyRole = getFirstText(
+          (menu as any)?.myRole,
+          (menu as any)?.role,
+        ).toLowerCase();
+
+        const sellerParticipant = menu?.participants?.find(
+          (participant) =>
+            String(participant.role ?? "").trim().toLowerCase() === "seller",
+        );
+
+        const nextSellerUserId = getFirstValueText(
+          sellerParticipant?.userId,
+          (menu as any)?.sellerUserId,
+          (menu as any)?.sellerId,
+          (menu as any)?.seller?.sellerId,
+          (menu as any)?.seller?.userId,
+        );
+
+        if (nextTitle) setMenuTitle(nextTitle);
+        if (nextOpponentName) setMenuOpponentName(nextOpponentName);
+        if (nextCommunityPostId) setMenuCommunityPostId(nextCommunityPostId);
+        if (nextMyRole === "seller" || nextMyRole === "buyer") {
+          setMenuMyRole(nextMyRole);
+        }
+
+        if (nextMyRole === "seller") {
+          setSellerUserId(String(myUserId));
+        } else if (nextSellerUserId) {
+          setSellerUserId(nextSellerUserId);
+        }
+      } catch (error) {
+        console.log("채팅방 메뉴 정보 조회 실패:", error);
+      }
+    };
+
+    loadChatRoomMenu();
+  }, [chatRoomId, myUserId]);
+
+  const routeTitle = getFirstText(
+    getParamString(communityTitle),
+    getParamString(postTitle),
+    getParamString(roomName),
+    getParamString(title),
+  );
+
   const roomTitle =
-    getParamString(title).trim().length > 0
-      ? getParamString(title).trim()
-      : isNote
-      ? "쪽지"
-      : "분철 채팅방";
+    routeTitle || menuTitle || (isNote ? "쪽지" : "분철 채팅방");
+
+  const currentCommunityPostId = getFirstValueText(
+    postId,
+    postsId,
+    communityId,
+    id,
+    menuCommunityPostId,
+  );
+
+  const routeOpponentName = getFirstText(
+    cleanParamName(opponentName),
+    cleanParamName(writerName),
+    cleanParamName(writerId),
+    cleanParamName(sellerName),
+    cleanParamName(buyerName),
+  );
 
   const sellerDisplayName =
     cleanParamName(sellerName) ||
-    (isBuyer ? cleanParamName(opponentName) : "") ||
-    "판매자";
+    (isBuyer ? routeOpponentName : "") ||
+    menuOpponentName ||
+    "상대방";
 
   const rawBuyerName =
     cleanParamName(buyerName) ||
     (isBuyer ? cleanParamName(myNickname) : "") ||
-    (isSeller ? cleanParamName(opponentName) : "");
+    (isSeller ? routeOpponentName : "") ||
+    menuOpponentName;
 
   const buyerDisplayName =
     rawBuyerName && rawBuyerName !== sellerDisplayName ? rawBuyerName : "";
 
-  const opponentDisplayName = isBuyer
-    ? sellerDisplayName
-    : buyerDisplayName || "구매자";
+  const opponentDisplayName =
+    menuOpponentName ||
+    routeOpponentName ||
+    (isBuyer ? sellerDisplayName : buyerDisplayName) ||
+    "상대방";
 
   const selectedMemberName = getParamString(selectedMember);
   const receiver = getParamString(receiverName);
@@ -293,6 +724,7 @@ export default function ChatRoomDetailScreen() {
   const inputRef = useRef<TextInput | null>(null);
   const startDragY = useRef(0);
   const appliedTradeEvent = useRef<string | null>(null);
+  const stompClientRef = useRef<Client | null>(null);
 
   const lastKeyboardHeight = useRef(DEFAULT_PANEL_HEIGHT);
   const openedPlusFromKeyboard = useRef(false);
@@ -303,24 +735,38 @@ export default function ChatRoomDetailScreen() {
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [isPlusOpen, setIsPlusOpen] = useState(false);
   const [isReturningKeyboard, setIsReturningKeyboard] = useState(false);
+  const [isSendingImage, setIsSendingImage] = useState(false);
+  const [storedTradeStatus, setStoredTradeStatusState] =
+    useState<TradeStatus | null>(null);
+  const [isReviewSubmittedState, setIsReviewSubmittedState] = useState(
+    reviewSubmitted === "true",
+  );
 
-  const currentStatus: TradeStatus = normalizeTradeStatus(status);
+  const routeStatus: TradeStatus = normalizeTradeStatus(status);
+  const currentStatus: TradeStatus = storedTradeStatus ?? routeStatus;
+  const hasCompletedTradeMessage = messages.some(
+    (message) => message.type === "trade" && message.text === TRADE_COMPLETE_TEXT,
+  );
 
-  const isCompleted = currentStatus === "거래 완료";
-  const isReviewSubmitted = reviewSubmitted === "true";
+  const effectiveTradeStatus: TradeStatus =
+    currentStatus !== "거래 취소" && hasCompletedTradeMessage
+      ? "거래 완료"
+      : currentStatus;
+  const isCompleted = effectiveTradeStatus === "거래 완료";
+  const isReviewSubmitted = reviewSubmitted === "true" || isReviewSubmittedState;
 
   const keyboardSpace = Math.max(keyboardHeight - insets.bottom, 0);
 
   const plusPanelHeight = Math.max(
     lastKeyboardHeight.current - insets.bottom,
-    DEFAULT_PANEL_HEIGHT
+    DEFAULT_PANEL_HEIGHT,
   );
 
   const bottomSpace = isKeyboardVisible
     ? keyboardSpace
     : isPlusOpen || isReturningKeyboard
-    ? plusPanelHeight
-    : 0;
+      ? plusPanelHeight
+      : 0;
 
   const scrollExtraSpace = isKeyboardVisible || isPlusOpen ? bottomSpace : 0;
 
@@ -348,18 +794,60 @@ export default function ChatRoomDetailScreen() {
   };
 
   useEffect(() => {
+    if (!chatRoomId || isNote) return;
+
+    const loadStoredTradeState = async () => {
+      const savedStatus = await getStoredTradeStatus(String(chatRoomId));
+      const savedReviewSubmitted = await getStoredReviewSubmitted(String(chatRoomId));
+
+      if (savedStatus) {
+        setStoredTradeStatusState(savedStatus);
+      }
+
+      if (savedReviewSubmitted) {
+        setIsReviewSubmittedState(true);
+      }
+    };
+
+    loadStoredTradeState();
+  }, [chatRoomId, isNote]);
+
+  useEffect(() => {
+    if (!chatRoomId) return;
+    if (reviewSubmitted !== "true") return;
+
+    setIsReviewSubmittedState(true);
+    saveStoredReviewSubmitted(String(chatRoomId));
+  }, [chatRoomId, reviewSubmitted]);
+
+  useEffect(() => {
+    if (!chatRoomId || !myUserId) return;
+
     const loadMessages = async () => {
       try {
         const response = await getChatMessages(chatRoomId);
-        const normalized = normalizeChatMessages(response);
+        const normalized = normalizeChatMessages(response, myUserId);
+        const hasServerCompleteMessage = normalized.some(
+          (message) =>
+            message.type === "trade" && message.text === TRADE_COMPLETE_TEXT,
+        );
+
+        if (hasServerCompleteMessage) {
+          setStoredTradeStatusState("거래 완료");
+          saveStoredTradeStatus(String(chatRoomId), "거래 완료");
+        }
 
         if (normalized.length > 0) {
-          setMessages(normalized);
+          setMessages(
+            hasServerCompleteMessage
+              ? normalized
+              : storedTradeStatus === "거래 완료"
+                ? ensureStatusMessage(normalized, "거래 완료")
+                : normalized,
+          );
         } else {
-          const startText = isBuyer
-            ? `${sellerDisplayName} 님과의 채팅방이 시작되었어요`
-            : buyerDisplayName
-            ? `${buyerDisplayName} 님과의 채팅방이 시작되었어요`
+          const startText = opponentDisplayName
+            ? `${opponentDisplayName} 님과의 채팅방이 시작되었어요`
             : "채팅방이 시작되었어요";
 
           setMessages([
@@ -376,8 +864,8 @@ export default function ChatRoomDetailScreen() {
         const startText = isBuyer
           ? `${sellerDisplayName} 님과의 채팅방이 시작되었어요`
           : buyerDisplayName
-          ? `${buyerDisplayName} 님과의 채팅방이 시작되었어요`
-          : "채팅방이 시작되었어요";
+            ? `${buyerDisplayName} 님과의 채팅방이 시작되었어요`
+            : "채팅방이 시작되었어요";
 
         setMessages([
           {
@@ -393,7 +881,76 @@ export default function ChatRoomDetailScreen() {
     };
 
     loadMessages();
-  }, [chatRoomId, sellerDisplayName, buyerDisplayName, isBuyer]);
+  }, [chatRoomId, opponentDisplayName, myUserId, storedTradeStatus]);
+
+  useEffect(() => {
+    if (!chatRoomId || !myUserId) return;
+
+    const client = new Client({
+      webSocketFactory: () => new SockJS(WS_URL) as any,
+      reconnectDelay: 3000,
+      heartbeatIncoming: 0,
+      heartbeatOutgoing: 0,
+
+      onConnect: () => {
+        setIsChatConnected(true);
+        console.log("채팅 연결됨:", WS_URL);
+
+        client.subscribe(`/sub/chat/rooms/${chatRoomId}`, (frame) => {
+          try {
+            const apiMessage = JSON.parse(frame.body);
+
+            const normalized = normalizeChatMessage(apiMessage, myUserId);
+
+            if (!normalized) return;
+
+            setMessages((prev) => {
+              const alreadyExists = prev.some(
+                (message) => message.id === normalized.id,
+              );
+
+              if (alreadyExists) return prev;
+
+              return [...prev, normalized];
+            });
+
+            scrollToBottom(80);
+          } catch (error) {
+            console.log("채팅 수신 파싱 오류:", error);
+          }
+        });
+      },
+
+      onDisconnect: () => {
+        setIsChatConnected(false);
+        console.log("채팅 연결 해제");
+      },
+
+      onStompError: (frame) => {
+        setIsChatConnected(false);
+        console.log("STOMP 오류:", frame.headers?.message, frame.body);
+      },
+
+      onWebSocketError: (error) => {
+        setIsChatConnected(false);
+        console.log("WebSocket 오류:", error);
+      },
+
+      onWebSocketClose: (event) => {
+        setIsChatConnected(false);
+        console.log("채팅 소켓 닫힘:", event.code, event.reason);
+      },
+    });
+
+    stompClientRef.current = client;
+    client.activate();
+
+    return () => {
+      setIsChatConnected(false);
+      stompClientRef.current = null;
+      client.deactivate();
+    };
+  }, [chatRoomId, myUserId]);
 
   useEffect(() => {
     const showEvent =
@@ -448,27 +1005,29 @@ export default function ChatRoomDetailScreen() {
       tradeEvent === "completed"
         ? "거래 완료"
         : tradeEvent === "canceled"
-        ? "거래 취소"
-        : null;
+          ? "거래 취소"
+          : null;
 
     if (!nextStatus) return;
 
+    setStoredTradeStatusState(nextStatus);
+    saveStoredTradeStatus(String(chatRoomId), nextStatus);
     setMessages((prev: Message[]) => ensureStatusMessage(prev, nextStatus));
     scrollToBottom(100);
   }, [tradeEvent, isNote]);
 
   useEffect(() => {
     if (isNote) return;
-    if (currentStatus !== "거래 완료") return;
+    if (effectiveTradeStatus !== "거래 완료") return;
 
-    setMessages((prev: Message[]) =>
-      ensureStatusMessage(prev, "거래 완료")
-    );
+    setStoredTradeStatusState("거래 완료");
+    saveStoredTradeStatus(String(chatRoomId), "거래 완료");
+    setMessages((prev: Message[]) => ensureStatusMessage(prev, "거래 완료"));
     scrollToBottom(100);
-  }, [currentStatus, isNote]);
+  }, [chatRoomId, effectiveTradeStatus, isNote]);
 
   const handleBack = () => {
-    if (!isNote && currentStatus === "거래 완료") {
+    if (!isNote && isCompleted) {
       router.replace({
         pathname: "/(tabs)/chats",
         params: {
@@ -490,7 +1049,7 @@ export default function ChatRoomDetailScreen() {
         type: isNote ? "note" : "divide",
         role: currentRole,
         title: roomTitle,
-        status: currentStatus,
+        status: effectiveTradeStatus,
         reviewSubmitted: isReviewSubmitted ? "true" : "false",
 
         opponentName: isSeller ? buyerDisplayName : sellerDisplayName,
@@ -504,6 +1063,10 @@ export default function ChatRoomDetailScreen() {
         phoneNumber: phone,
         storeName: store,
         requestMessage: request,
+        postId: currentCommunityPostId,
+        postsId: currentCommunityPostId,
+        id: currentCommunityPostId,
+        communityId: currentCommunityPostId,
       },
     } as any);
   };
@@ -573,23 +1136,92 @@ export default function ChatRoomDetailScreen() {
   };
 
   const handleSend = () => {
-    if (!inputText.trim()) return;
+    const content = inputText.trim();
+    if (!content) return;
 
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      type: "me",
-      text: inputText.trim(),
-      time: "지금",
-    };
+    if (!myUserId) {
+      Alert.alert("전송 실패", "로그인 정보가 없습니다. 다시 로그인해주세요.");
+      return;
+    }
 
-    setMessages((prev) => [...prev, newMessage]);
-    setInputText("");
-    scrollToBottom(90);
+    if (!stompClientRef.current || !stompClientRef.current.connected) {
+      Alert.alert("전송 실패", "채팅 서버에 연결되지 않았습니다.");
+      return;
+    }
+
+    try {
+      stompClientRef.current.publish({
+        destination: "/pub/chat/message",
+        body: JSON.stringify({
+          chatRoomId: Number(chatRoomId),
+          senderId: Number(myUserId),
+          content,
+          messageType: "TEXT",
+        }),
+      });
+
+      setInputText("");
+      scrollToBottom(90);
+    } catch (error) {
+      console.log("메시지 전송 실패:", error);
+      Alert.alert("전송 실패", "메시지를 보내지 못했습니다.");
+    }
   };
 
-  const handleImagePress = () => {
-    Alert.alert("사진 / 동영상", "프론트 시연용 버튼입니다.");
+  const handleImagePress = async () => {
     closePlusMenu();
+
+    if (!myUserId) {
+      Alert.alert("전송 실패", "로그인 정보가 없습니다. 다시 로그인해주세요.");
+      return;
+    }
+
+    if (!stompClientRef.current || !stompClientRef.current.connected) {
+      Alert.alert("전송 실패", "채팅 서버에 연결되지 않았습니다.");
+      return;
+    }
+
+    try {
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!permission.granted) {
+        Alert.alert(
+          "권한 필요",
+          "사진을 보내려면 앨범 접근 권한이 필요합니다.",
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 0.85,
+      });
+
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+
+      setIsSendingImage(true);
+
+      const imageUrl = await uploadImageToServer(result.assets[0].uri);
+
+      stompClientRef.current.publish({
+        destination: "/pub/chat/message",
+        body: JSON.stringify({
+          chatRoomId: Number(chatRoomId),
+          senderId: Number(myUserId),
+          content: imageUrl,
+          messageType: "IMAGE",
+        }),
+      });
+
+      scrollToBottom(100);
+    } catch (error: any) {
+      console.log("이미지 전송 실패:", error);
+      Alert.alert("전송 실패", error?.message || "사진을 보내지 못했습니다.");
+    } finally {
+      setIsSendingImage(false);
+    }
   };
 
   const handleTrackingPress = () => {
@@ -606,14 +1238,14 @@ export default function ChatRoomDetailScreen() {
 
   const handleDeliveryStatusPress = () => {
     closePlusMenu();
-  
+
     router.push({
       pathname: "/chat/tracking-status",
       params: {
         chatRoomId,
         role: "buyer",
         title: roomTitle,
-        status: currentStatus,
+        status: effectiveTradeStatus,
         sellerName: sellerDisplayName,
         buyerName: buyerDisplayName,
         selectedMember: selectedMemberName,
@@ -623,13 +1255,32 @@ export default function ChatRoomDetailScreen() {
   };
 
   const handleReviewPress = () => {
+    if (isReviewSubmitted) return;
+
+    if (!myUserId) {
+      Alert.alert("오류", "로그인 정보를 찾지 못했어요.");
+      return;
+    }
+
+    if (!sellerUserId) {
+      Alert.alert(
+        "오류",
+        "후기 대상 판매자 정보를 찾지 못했어요. 채팅방을 다시 열어주세요.",
+      );
+      return;
+    }
+
     router.push({
       pathname: "/chat/review-write",
       params: {
         chatRoomId,
         role: currentRole,
         title: roomTitle,
-        status: currentStatus,
+        status: "거래 완료",
+        reviewerId: String(myUserId),
+        targetUserId: String(sellerUserId),
+        sellerName: sellerDisplayName || "판매자",
+        reviewSubmitted: isReviewSubmitted ? "true" : "false",
       },
     } as any);
   };
@@ -639,7 +1290,7 @@ export default function ChatRoomDetailScreen() {
   };
 
   const handleScrollBeginDrag = (
-    event: NativeSyntheticEvent<NativeScrollEvent>
+    event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
     startDragY.current = event.nativeEvent.contentOffset.y;
 
@@ -649,7 +1300,7 @@ export default function ChatRoomDetailScreen() {
   };
 
   const handleScrollEndDrag = (
-    event: NativeSyntheticEvent<NativeScrollEvent>
+    event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
     const endY = event.nativeEvent.contentOffset.y;
 
@@ -705,6 +1356,19 @@ export default function ChatRoomDetailScreen() {
             </View>
 
             {messages.map((message) => {
+              if (
+                message.type === "fraudWarning" ||
+                message.type === "fraudDanger"
+              ) {
+                return (
+                  <FraudMessage
+                    key={message.id}
+                    level={message.type === "fraudDanger" ? "danger" : "warning"}
+                    text={message.text ?? ""}
+                  />
+                );
+              }
+
               if (message.type === "system") {
                 return (
                   <SystemMessage key={message.id} text={message.text ?? ""} />
@@ -719,7 +1383,7 @@ export default function ChatRoomDetailScreen() {
                     showReviewButton={
                       isBuyer &&
                       isCompleted &&
-                      message.text === "거래가 완료되었습니다."
+                      message.text === TRADE_COMPLETE_TEXT
                     }
                     reviewSubmitted={isReviewSubmitted}
                     onReviewPress={handleReviewPress}
@@ -738,7 +1402,27 @@ export default function ChatRoomDetailScreen() {
               }
 
               if (message.type === "image") {
-                return <ImageMessage key={message.id} time={message.time} />;
+                return (
+                  <ImageMessage
+                    key={message.id}
+                    imageUrl={message.imageUrl}
+                    time={message.time}
+                  />
+                );
+              }
+
+              if (message.type === "otherImage") {
+                return (
+                  <OtherImageMessage
+                    key={message.id}
+                    nickname={message.nickname ?? opponentDisplayName}
+                    initial={message.initial ?? opponentDisplayName.slice(0, 1)}
+                    color={message.color ?? COLORS.yellowLight}
+                    initialColor={message.initialColor ?? COLORS.gray700}
+                    imageUrl={message.imageUrl}
+                    time={message.time}
+                  />
+                );
               }
 
               return (
@@ -756,6 +1440,7 @@ export default function ChatRoomDetailScreen() {
           </ScrollView>
         </View>
 
+
         {isPlusOpen && (
           <View style={[styles.bottomPanel, { height: plusPanelHeight }]}>
             <View style={styles.plusMenu}>
@@ -763,20 +1448,28 @@ export default function ChatRoomDetailScreen() {
                 style={styles.plusMenuItem}
                 activeOpacity={0.75}
                 onPress={handleImagePress}
+                disabled={isSendingImage}
               >
                 <View
                   style={[
                     styles.plusMenuIcon,
                     { backgroundColor: "#FFD8CE" },
+                    isSendingImage && styles.plusMenuIconDisabled,
                   ]}
                 >
-                  <Ionicons
-                    name="image-outline"
-                    size={21}
-                    color={COLORS.black}
-                  />
+                  {isSendingImage ? (
+                    <ActivityIndicator size="small" color={COLORS.black} />
+                  ) : (
+                    <Ionicons
+                      name="image-outline"
+                      size={21}
+                      color={COLORS.black}
+                    />
+                  )}
                 </View>
-                <Text style={styles.plusMenuText}>사진 / 동영상</Text>
+                <Text style={styles.plusMenuText}>
+                  {isSendingImage ? "전송 중" : "사진"}
+                </Text>
               </TouchableOpacity>
 
               {!isNote &&
@@ -850,7 +1543,10 @@ export default function ChatRoomDetailScreen() {
             />
 
             <TouchableOpacity
-              style={styles.sendButton}
+              style={[
+                styles.sendButton,
+                !isChatConnected && styles.sendButtonDisabled,
+              ]}
               activeOpacity={0.8}
               onPress={handleSend}
             >
@@ -860,6 +1556,59 @@ export default function ChatRoomDetailScreen() {
         </View>
       </View>
     </SafeAreaView>
+  );
+}
+
+function FraudMessage({
+  level,
+  text,
+}: {
+  level: "warning" | "danger";
+  text: string;
+}) {
+  const isDanger = level === "danger";
+
+  return (
+    <View style={styles.fraudMessageWrap}>
+      <View
+        style={[
+          styles.fraudMessageCard,
+          isDanger ? styles.fraudDangerCard : styles.fraudWarningCard,
+        ]}
+      >
+        <View
+          style={[
+            styles.fraudMessageIconBox,
+            isDanger ? styles.fraudDangerIconBox : styles.fraudWarningIconBox,
+          ]}
+        >
+          <Ionicons
+            name={isDanger ? "warning-outline" : "alert-circle-outline"}
+            size={18}
+            color={isDanger ? "#D92D20" : "#B54708"}
+          />
+        </View>
+
+        <View style={styles.fraudMessageContent}>
+          <Text
+            style={[
+              styles.fraudMessageTitle,
+              isDanger ? styles.fraudDangerTitle : styles.fraudWarningTitle,
+            ]}
+          >
+            {isDanger ? "위험 문구가 감지됐어요" : "주의가 필요한 문구예요"}
+          </Text>
+
+          <Text style={styles.fraudMessageText}>
+            {text || "거래 안전 확인이 필요한 문구예요."}
+          </Text>
+
+          <Text style={styles.fraudMessageGuide}>
+            앱 밖 결제나 선입금 요청은 꼭 한 번 더 확인해 주세요.
+          </Text>
+        </View>
+      </View>
+    </View>
   );
 }
 
@@ -921,15 +1670,67 @@ function MyMessage({ text, time }: { text: string; time?: string }) {
   );
 }
 
-function ImageMessage({ time }: { time?: string }) {
+function ImageMessage({
+  imageUrl,
+  time,
+}: {
+  imageUrl?: string;
+  time?: string;
+}) {
   return (
     <View style={styles.myMessageWrap}>
       <View style={styles.myMessageRow}>
         {time && <Text style={styles.myTime}>{time}</Text>}
         <View style={styles.imageBubble}>
-          <View style={styles.imageCircle}>
-            <View style={styles.imageDot} />
+          {imageUrl ? (
+            <Image source={{ uri: imageUrl }} style={styles.chatImage} />
+          ) : (
+            <View style={styles.imagePlaceholder}>
+              <Ionicons name="image-outline" size={24} color="#B8A34A" />
+            </View>
+          )}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function OtherImageMessage({
+  nickname,
+  initial,
+  color,
+  initialColor,
+  imageUrl,
+  time,
+}: {
+  nickname: string;
+  initial: string;
+  color: string;
+  initialColor: string;
+  imageUrl?: string;
+  time?: string;
+}) {
+  return (
+    <View style={styles.otherMessageWrap}>
+      <View style={[styles.profileCircle, { backgroundColor: color }]}>
+        <Text style={[styles.profileInitial, { color: initialColor }]}>
+          {initial}
+        </Text>
+      </View>
+
+      <View style={styles.otherContent}>
+        <Text style={styles.nickname}>{nickname}</Text>
+        <View style={styles.otherBubbleRow}>
+          <View style={styles.otherImageBubble}>
+            {imageUrl ? (
+              <Image source={{ uri: imageUrl }} style={styles.chatImage} />
+            ) : (
+              <View style={styles.imagePlaceholder}>
+                <Ionicons name="image-outline" size={24} color="#B8A34A" />
+              </View>
+            )}
           </View>
+          {time && <Text style={styles.otherTime}>{time}</Text>}
         </View>
       </View>
     </View>
@@ -1027,6 +1828,78 @@ const styles = StyleSheet.create({
     color: COLORS.gray500,
     fontWeight: "500",
   },
+
+  fraudMessageWrap: {
+    width: "100%",
+    alignItems: "center",
+    marginTop: 8,
+    marginBottom: 2,
+    paddingHorizontal: 14,
+  },
+  fraudMessageCard: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  fraudWarningCard: {
+    backgroundColor: "#FFFAEB",
+    borderColor: "#FEDF89",
+  },
+  fraudDangerCard: {
+    backgroundColor: "#FFF4F3",
+    borderColor: "#FDA29B",
+  },
+  fraudMessageIconBox: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+    marginTop: 1,
+  },
+  fraudWarningIconBox: {
+    backgroundColor: "#FEF0C7",
+  },
+  fraudDangerIconBox: {
+    backgroundColor: "#FEE4E2",
+  },
+  fraudMessageContent: {
+    flex: 1,
+  },
+  fraudMessageTitle: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "900",
+    letterSpacing: -0.3,
+  },
+  fraudWarningTitle: {
+    color: "#B54708",
+  },
+  fraudDangerTitle: {
+    color: "#D92D20",
+  },
+  fraudMessageText: {
+    marginTop: 3,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+    color: COLORS.gray700,
+    letterSpacing: -0.2,
+  },
+  fraudMessageGuide: {
+    marginTop: 3,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "500",
+    color: COLORS.gray700,
+    letterSpacing: -0.2,
+  },
   systemWrap: {
     alignItems: "center",
     marginTop: 6,
@@ -1110,27 +1983,33 @@ const styles = StyleSheet.create({
     marginBottom: 3,
   },
   imageBubble: {
-    width: 120,
-    height: 88,
-    borderRadius: 12,
+    width: 146,
+    height: 112,
+    borderRadius: 14,
     backgroundColor: COLORS.yellowLight,
+    overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
   },
-  imageCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 2,
-    borderColor: "#B8A34A",
+  otherImageBubble: {
+    width: 146,
+    height: 112,
+    borderRadius: 14,
+    backgroundColor: COLORS.gray100,
+    overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
   },
-  imageDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#B8A34A",
+  chatImage: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
+  },
+  imagePlaceholder: {
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
   },
   otherMessageWrap: {
     flexDirection: "row",
@@ -1223,6 +2102,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginLeft: 10,
   },
+  sendButtonDisabled: {
+    opacity: 0.45,
+  },
   bottomPanel: {
     position: "absolute",
     left: 0,
@@ -1253,6 +2135,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 6,
+  },
+  plusMenuIconDisabled: {
+    opacity: 0.55,
   },
   plusMenuText: {
     width: 84,

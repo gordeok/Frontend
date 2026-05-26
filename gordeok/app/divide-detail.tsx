@@ -11,13 +11,10 @@ import {
   Modal,
   Animated,
   PanResponder,
+  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import {
-  useFocusEffect,
-  useLocalSearchParams,
-  useRouter,
-} from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -29,6 +26,9 @@ import {
 import type { PostDetailResponse } from "../types/post";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://172.20.99.65:8080";
 
 const SHEET_HALF_HEIGHT = SCREEN_HEIGHT * 0.52;
 const SHEET_EXPANDED_HEIGHT = SCREEN_HEIGHT * 0.82;
@@ -74,6 +74,8 @@ type DividePost = {
   userName: string;
   title: string;
   albumName: string;
+  imageUrl?: string;
+  imageUrls?: string[];
   time: string;
   date: string;
   status: string;
@@ -139,10 +141,70 @@ function formatShippingFeeType(value?: string | null) {
   return raw;
 }
 
+function normalizeImageUrl(url?: string | null) {
+  if (!url) return "";
+
+  let trimmedUrl = String(url).trim();
+
+  if (!trimmedUrl) return "";
+
+  // 혹시 실수로 http:/172... 처럼 슬래시가 하나 빠진 주소가 들어오면 보정
+  if (trimmedUrl.startsWith("http:/") && !trimmedUrl.startsWith("http://")) {
+    trimmedUrl = trimmedUrl.replace("http:/", "http://");
+  }
+
+  if (trimmedUrl.startsWith("https:/") && !trimmedUrl.startsWith("https://")) {
+    trimmedUrl = trimmedUrl.replace("https:/", "https://");
+  }
+
+  // 백엔드가 localhost로 내려주면 핸드폰에서는 안 열리기 때문에 현재 API_BASE_URL로 교체
+  if (trimmedUrl.startsWith("http://localhost:8080")) {
+    return trimmedUrl.replace("http://localhost:8080", API_BASE_URL);
+  }
+
+  if (trimmedUrl.startsWith("https://localhost:8080")) {
+    return trimmedUrl.replace("https://localhost:8080", API_BASE_URL);
+  }
+
+  if (trimmedUrl.startsWith("http://127.0.0.1:8080")) {
+    return trimmedUrl.replace("http://127.0.0.1:8080", API_BASE_URL);
+  }
+
+  if (trimmedUrl.startsWith("https://127.0.0.1:8080")) {
+    return trimmedUrl.replace("https://127.0.0.1:8080", API_BASE_URL);
+  }
+
+  // /uploads/posts/xxx.jpg 처럼 상대경로만 오면 백엔드 주소를 붙임
+  if (trimmedUrl.startsWith("/uploads")) {
+    return `${API_BASE_URL}${trimmedUrl}`;
+  }
+
+  return trimmedUrl;
+}
+
 function mapApiPostToDetailPost(post: PostDetailResponse): DividePost {
+  const postAny = post as any;
+
+  const normalizedImageUrls = Array.isArray(postAny.imageUrls)
+    ? postAny.imageUrls
+        .map((url: string) => normalizeImageUrl(url))
+        .filter((url: string) => url.length > 0)
+    : [];
+
+  const normalizedImageUrl = normalizeImageUrl(postAny.imageUrl);
+
+  const finalImageUrls = Array.from(
+    new Set([
+      ...normalizedImageUrls,
+      ...(normalizedImageUrl ? [normalizedImageUrl] : []),
+    ]),
+  );
+
   return {
     id: String(post.postId),
     sellerId: String(post.seller?.sellerId ?? "1"),
+    imageUrl: finalImageUrls[0] ?? "",
+    imageUrls: finalImageUrls,
     groupId: post.idolName,
     groupName: post.idolName,
     userName: post.seller?.nickname ?? "판매자",
@@ -175,13 +237,21 @@ function normalizePassedPost(post: DividePost): DividePost {
     scrapCount: post.scrapCount ?? 0,
     viewCount: post.viewCount ?? 0,
     sellerTrustScore: post.sellerTrustScore ?? 0,
+    imageUrl: post.imageUrl ?? "",
+    imageUrls: Array.isArray(post.imageUrls)
+      ? post.imageUrls.filter(
+          (url) => typeof url === "string" && url.length > 0,
+        )
+      : post.imageUrl
+        ? [post.imageUrl]
+        : [],
   };
 }
 
 function isCompletedMember(
   postId: string,
   member: DivideMember,
-  completedMembers: CompletedMemberItem[]
+  completedMembers: CompletedMemberItem[],
 ) {
   return completedMembers.some((item) => {
     const samePost = String(item?.postId) === String(postId);
@@ -205,7 +275,7 @@ function isCompletedMember(
 
 function applyCompletedMembersToPost(
   post: DividePost,
-  completedMembers: CompletedMemberItem[]
+  completedMembers: CompletedMemberItem[],
 ): DividePost {
   const nextMembers = post.members.map((member) => {
     const completed = isCompletedMember(post.id, member, completedMembers);
@@ -235,8 +305,10 @@ export default function DivideDetailScreen() {
   const params = useLocalSearchParams();
 
   const [isMemberSheetOpen, setIsMemberSheetOpen] = useState(false);
+  const [isImageModalOpen, setIsImageModalOpen] = useState(false);
+  const [isPostMenuOpen, setIsPostMenuOpen] = useState(false);
   const [selectedMemberName, setSelectedMemberName] = useState<string | null>(
-    null
+    null,
   );
   const [isSheetExpanded, setIsSheetExpanded] = useState(false);
 
@@ -252,6 +324,7 @@ export default function DivideDetailScreen() {
   const memberParam = typeof params.members === "string" ? params.members : "";
 
   const [apiPost, setApiPost] = useState<DividePost | null>(null);
+  const [localImageUrl, setLocalImageUrl] = useState("");
   const [bookmarked, setBookmarked] = useState(false);
   const [isBookmarkLoading, setIsBookmarkLoading] = useState(false);
   const [completedMembers, setCompletedMembers] = useState<
@@ -284,7 +357,7 @@ export default function DivideDetailScreen() {
       const loadCompletedMembers = async () => {
         try {
           const saved = await AsyncStorage.getItem(
-            COMPLETED_MEMBER_STORAGE_KEY
+            COMPLETED_MEMBER_STORAGE_KEY,
           );
           const parsed = saved ? JSON.parse(saved) : [];
 
@@ -296,7 +369,7 @@ export default function DivideDetailScreen() {
       };
 
       loadCompletedMembers();
-    }, [])
+    }, []),
   );
 
   useEffect(() => {
@@ -321,6 +394,30 @@ export default function DivideDetailScreen() {
     return () => {
       alive = false;
     };
+  }, [postIdParam]);
+
+  useEffect(() => {
+    const loadLocalImageUrl = async () => {
+      const targetPostId = postIdParam || post?.id || "";
+
+      if (!targetPostId) return;
+
+      try {
+        const savedImageUrl = await AsyncStorage.getItem(
+          `POST_IMAGE_URL_${targetPostId}`,
+        );
+
+        console.log("로컬 저장 이미지 URL:", savedImageUrl);
+
+        if (savedImageUrl) {
+          setLocalImageUrl(savedImageUrl);
+        }
+      } catch (error) {
+        console.log("로컬 이미지 URL 불러오기 실패:", error);
+      }
+    };
+
+    loadLocalImageUrl();
   }, [postIdParam]);
 
   const post = useMemo<DividePost | null>(() => {
@@ -361,7 +458,7 @@ export default function DivideDetailScreen() {
     if (!post || !selectedMemberName) return;
 
     const selected = post.members.find(
-      (member) => member.name === selectedMemberName
+      (member) => member.name === selectedMemberName,
     );
 
     if (!selected || selected.state !== "모집중") {
@@ -370,12 +467,30 @@ export default function DivideDetailScreen() {
   }, [post, selectedMemberName]);
 
   const selectedMember = post?.members.find(
-    (member) =>
-      member.name === selectedMemberName && member.state === "모집중"
+    (member) => member.name === selectedMemberName && member.state === "모집중",
   );
 
+  const postImages = useMemo(() => {
+    const images = [
+      ...(Array.isArray(post?.imageUrls) ? post.imageUrls : []),
+      ...(post?.imageUrl ? [post.imageUrl] : []),
+      ...(localImageUrl ? [localImageUrl] : []),
+    ]
+      .map((url) => normalizeImageUrl(url))
+      .filter((url) => typeof url === "string" && url.length > 0);
+
+    const uniqueImages = Array.from(new Set(images));
+
+    console.log("상세 화면 최종 이미지 URL:", uniqueImages);
+
+    return uniqueImages;
+  }, [post?.imageUrl, post?.imageUrls, localImageUrl]);
+
+  const imageCountText =
+    postImages.length > 0 ? `1 / ${postImages.length}` : "0 / 0";
+
   const hasOpenMember = post?.members.some(
-    (member) => member.state === "모집중"
+    (member) => member.state === "모집중",
   );
 
   const isMyPost =
@@ -385,7 +500,7 @@ export default function DivideDetailScreen() {
 
   const sellerTrustScore = Math.max(
     0,
-    Math.min(100, Number(post?.sellerTrustScore ?? 0))
+    Math.min(100, Number(post?.sellerTrustScore ?? 0)),
   );
 
   const isJoinEnabled = !!selectedMember && !isMyPost;
@@ -472,7 +587,7 @@ export default function DivideDetailScreen() {
 
         const limitedHeight = Math.min(
           Math.max(nextHeight, SHEET_HIDDEN_HEIGHT),
-          SHEET_EXPANDED_HEIGHT
+          SHEET_EXPANDED_HEIGHT,
         );
 
         sheetHeight.setValue(limitedHeight);
@@ -507,7 +622,7 @@ export default function DivideDetailScreen() {
           moveSheetTo(SHEET_HALF_HEIGHT);
         }
       },
-    })
+    }),
   ).current;
 
   if (!post) {
@@ -549,7 +664,7 @@ export default function DivideDetailScreen() {
     if (isMyPost || member.state !== "모집중") return;
 
     setSelectedMemberName((prev) =>
-      prev === member.name ? null : member.name
+      prev === member.name ? null : member.name,
     );
   };
 
@@ -574,9 +689,19 @@ export default function DivideDetailScreen() {
     } as any);
   };
 
+  const handleEditPost = () => {
+    setIsPostMenuOpen(false);
+    console.log("글 수정");
+  };
+
+  const handleDeletePost = () => {
+    setIsPostMenuOpen(false);
+    console.log("글 삭제");
+  };
+
   const bookmarkCount = Math.max(
     0,
-    (post.scrapCount ?? 0) + (bookmarked ? 1 : 0)
+    (post.scrapCount ?? 0) + (bookmarked ? 1 : 0),
   );
 
   return (
@@ -587,12 +712,48 @@ export default function DivideDetailScreen() {
           contentContainerStyle={styles.scrollContent}
         >
           <View style={styles.imageBox}>
+            {postImages.length > 0 ? (
+              <Pressable
+                style={styles.postImageButton}
+                onPress={() => setIsImageModalOpen(true)}
+              >
+                <Image
+                  source={{ uri: postImages[0] }}
+                  style={styles.postImage}
+                  resizeMode="cover"
+                  onError={(error) => {
+                    console.log(
+                      "이미지 로드 실패:",
+                      postImages[0],
+                      error.nativeEvent,
+                    );
+                  }}
+                />
+              </Pressable>
+            ) : (
+              <View style={styles.emptyImageBox}>
+                <Ionicons name="image-outline" size={38} color="#B8B1AA" />
+                <Text style={styles.emptyImageText}>등록된 사진이 없어요</Text>
+              </View>
+            )}
+
             <Pressable style={styles.backButton} onPress={() => router.back()}>
               <Ionicons name="chevron-back" size={24} color={COLORS.black} />
             </Pressable>
 
+            <Pressable
+              style={styles.postMenuButton}
+              onPress={() => setIsPostMenuOpen(true)}
+            >
+              <Ionicons
+                name="ellipsis-horizontal"
+                size={23}
+                color={COLORS.black}
+              />
+            </Pressable>
+
             <View style={styles.imageCount}>
-              <Text style={styles.imageCountText}>1 / 2</Text>
+              <Text style={styles.imageCountText}>{imageCountText}</Text>
             </View>
           </View>
 
@@ -673,10 +834,7 @@ export default function DivideDetailScreen() {
                 return (
                   <View
                     key={`${member.name}-${member.memberItemId ?? index}`}
-                    style={[
-                      styles.memberCard,
-                      isDone && styles.memberCardDone,
-                    ]}
+                    style={[styles.memberCard, isDone && styles.memberCardDone]}
                   >
                     <View style={styles.memberInfo}>
                       <Text
@@ -761,11 +919,72 @@ export default function DivideDetailScreen() {
               {isMyPost
                 ? "내가 작성한 글"
                 : hasOpenMember
-                ? "분철 멤버 선택"
-                : "모집완료"}
+                  ? "분철 멤버 선택"
+                  : "모집완료"}
             </Text>
           </Pressable>
         </View>
+
+        <Modal
+          visible={isImageModalOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setIsImageModalOpen(false)}
+        >
+          <View style={styles.fullImageModal}>
+            <Pressable
+              style={styles.fullImageBackground}
+              onPress={() => setIsImageModalOpen(false)}
+            >
+              {postImages.length > 0 && (
+                <Image
+                  source={{ uri: postImages[0] }}
+                  style={styles.fullImage}
+                  resizeMode="contain"
+                />
+              )}
+            </Pressable>
+
+            <Pressable
+              style={styles.fullImageCloseButton}
+              onPress={() => setIsImageModalOpen(false)}
+            >
+              <Ionicons name="close" size={26} color={COLORS.white} />
+            </Pressable>
+          </View>
+        </Modal>
+
+        <Modal
+          visible={isPostMenuOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setIsPostMenuOpen(false)}
+        >
+          <Pressable
+            style={styles.postMenuOverlay}
+            onPress={() => setIsPostMenuOpen(false)}
+          >
+            <Pressable style={styles.postMenuBox} onPress={() => {}}>
+              <Pressable style={styles.postMenuItem} onPress={handleEditPost}>
+                <Ionicons
+                  name="create-outline"
+                  size={18}
+                  color={COLORS.gray700}
+                />
+                <Text style={styles.postMenuText}>글 수정</Text>
+              </Pressable>
+
+              <View style={styles.postMenuDivider} />
+
+              <Pressable style={styles.postMenuItem} onPress={handleDeletePost}>
+                <Ionicons name="trash-outline" size={18} color="#E05A5A" />
+                <Text style={[styles.postMenuText, styles.postMenuDeleteText]}>
+                  글 삭제
+                </Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
 
         <Modal
           visible={isMemberSheetOpen}
@@ -781,7 +1000,9 @@ export default function DivideDetailScreen() {
               />
             </Animated.View>
 
-            <Animated.View style={[styles.memberSheet, { height: sheetHeight }]}>
+            <Animated.View
+              style={[styles.memberSheet, { height: sheetHeight }]}
+            >
               <View
                 style={styles.sheetDragArea}
                 {...sheetPanResponder.panHandlers}
@@ -947,6 +1168,30 @@ const styles = StyleSheet.create({
     position: "relative",
   },
 
+  postImageButton: {
+    width: "100%",
+    height: "100%",
+  },
+
+  postImage: {
+    width: "100%",
+    height: "100%",
+  },
+
+  emptyImageBox: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.beige,
+  },
+
+  emptyImageText: {
+    marginTop: 8,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#9D958C",
+  },
+
   backButton: {
     position: "absolute",
     top: 14,
@@ -954,7 +1199,19 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.gray200,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  postMenuButton: {
+    position: "absolute",
+    top: 14,
+    right: 16,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: COLORS.gray200,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1305,6 +1562,85 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "900",
     color: COLORS.white,
+  },
+
+  fullImageModal: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.96)",
+  },
+
+  fullImageBackground: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  fullImage: {
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT,
+  },
+
+  fullImageCloseButton: {
+    position: "absolute",
+    top: 18,
+    right: 18,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: COLORS.gray400,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 50,
+  },
+
+  postMenuOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.12)",
+    alignItems: "flex-end",
+    paddingTop: 62,
+    paddingRight: 16,
+  },
+
+  postMenuBox: {
+    width: 150,
+    backgroundColor: COLORS.white,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    paddingVertical: 6,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    elevation: 8,
+    overflow: "hidden",
+  },
+
+  postMenuItem: {
+    height: 44,
+    paddingHorizontal: 15,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  postMenuText: {
+    marginLeft: 8,
+    fontSize: 14,
+    fontWeight: "800",
+    color: COLORS.gray700,
+  },
+
+  postMenuDeleteText: {
+    color: "#E05A5A",
+  },
+
+  postMenuDivider: {
+    height: 1,
+    backgroundColor: COLORS.line,
+    marginHorizontal: 12,
   },
 
   modalWrap: {

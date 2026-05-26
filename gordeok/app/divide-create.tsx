@@ -9,14 +9,20 @@ import {
   Platform,
   KeyboardAvoidingView,
   Alert,
+  Image,
 } from "react-native";
+import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useEffect, useMemo, useRef, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createPost } from "../services/post";
 import { getIdolMembers, getIdols } from "../services/idol";
 import { createSellerChatRoom } from "../services/chat";
+
+const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://172.20.99.65:8080";
 
 type AiStatus = "idle" | "analyzing" | "done" | "error";
 type SourceStatus = "none" | "ai" | "edited" | "manual";
@@ -33,13 +39,153 @@ type Group = {
   name: string;
 };
 
+type AiMemberResult = {
+  id: number;
+  idolId?: number;
+  name: string;
+};
+
+type AiAnalyzeApiResponse = {
+  idolName?: string;
+  groupName?: string;
+  group?: string;
+  albumName?: string;
+  productName?: string;
+  product?: string;
+  members?: AiMemberResult[];
+  confident?: boolean;
+  titleSuggestion?: string;
+  groupSuggestion?: Group;
+};
+
 type AiAnalyzeResult = {
   titleSuggestion: string;
   groupSuggestion: Group;
+  albumName: string;
+  members: Member[];
+  confident?: boolean;
 };
 
-async function analyzeDivideImage(): Promise<AiAnalyzeResult> {
-  throw new Error("이미지 파일 선택 기능 연결 후 사용할 수 있습니다.");
+function makeAiTitle(groupName: string, productName: string, fallbackTitle?: string) {
+  const cleanGroupName = groupName.trim();
+  const cleanProductName = productName.trim();
+  const cleanFallbackTitle = String(fallbackTitle ?? "").trim();
+
+  if (cleanGroupName && cleanProductName) {
+    return `${cleanGroupName} - ${cleanProductName} 분철`;
+  }
+
+  if (cleanGroupName) {
+    return `${cleanGroupName} 분철`;
+  }
+
+  if (cleanFallbackTitle) {
+    return cleanFallbackTitle.endsWith("분철")
+      ? cleanFallbackTitle
+      : `${cleanFallbackTitle} 분철`;
+  }
+
+  return "분철";
+}
+
+async function analyzeDivideImage(imageUri: string): Promise<AiAnalyzeResult> {
+  const formData = new FormData();
+
+  formData.append("image", {
+    uri: imageUri,
+    name: "image.jpg",
+    type: "image/jpeg",
+  } as any);
+
+  const response = await fetch(`${API_BASE_URL}/api/posts/analyze-image`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "ngrok-skip-browser-warning": "true",
+    },
+    body: formData,
+  });
+
+  const responseText = await response.text();
+
+  let data: AiAnalyzeApiResponse = {};
+
+  try {
+    data = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    data = {};
+  }
+
+  if (!response.ok) {
+    console.log("AI 이미지 분석 실패 status:", response.status);
+    console.log("AI 이미지 분석 실패 response:", responseText);
+    throw new Error((data as any)?.message || responseText || "AI 이미지 분석 실패");
+  }
+
+  const aiIdolName =
+    data.idolName?.trim() ||
+    data.groupName?.trim() ||
+    data.group?.trim() ||
+    data.groupSuggestion?.name?.trim() ||
+    "";
+
+  const aiAlbumName =
+    data.albumName?.trim() || data.productName?.trim() || data.product?.trim() || "";
+
+  if (!aiIdolName) {
+    throw new Error("AI가 아이돌 그룹명을 인식하지 못했습니다.");
+  }
+
+  const aiMembers = Array.isArray(data.members) ? data.members : [];
+  const aiGroupId =
+    data.groupSuggestion?.id ??
+    aiMembers.find((member) => typeof member.idolId === "number")?.idolId;
+
+  let groupSuggestion: Group | null =
+    typeof aiGroupId === "number"
+      ? {
+          id: aiGroupId,
+          name: aiIdolName,
+        }
+      : null;
+
+  if (!groupSuggestion) {
+    const searchedGroups = await searchGroups(aiIdolName);
+    groupSuggestion =
+      searchedGroups.find((group) => group.name === aiIdolName) ??
+      searchedGroups[0] ??
+      null;
+  }
+
+  if (!groupSuggestion) {
+    throw new Error("AI가 인식한 그룹을 서버 아이돌 목록에서 찾지 못했습니다.");
+  }
+
+  const titleSuggestion = makeAiTitle(
+    aiIdolName,
+    aiAlbumName,
+    data.titleSuggestion
+  );
+
+  const normalizedMembers: Member[] = aiMembers.map((member) => ({
+    id: member.id,
+    name: member.name,
+    initial: member.name.slice(0, 1),
+    price: "",
+  }));
+
+  const members =
+    normalizedMembers.length > 0
+      ? normalizedMembers
+      : await fetchGroupMembers(groupSuggestion.id);
+
+  return {
+    titleSuggestion,
+    groupSuggestion,
+    albumName: aiAlbumName,
+    members,
+    confident: data.confident,
+  };
 }
 
 async function searchGroups(keyword: string): Promise<Group[]> {
@@ -90,6 +236,114 @@ async function fetchGroupMembers(groupId: number): Promise<Member[]> {
   return Array.from(uniqueMap.values());
 }
 
+function getImageMimeType(uri: string) {
+  const lowerUri = uri.toLowerCase();
+
+  if (lowerUri.endsWith(".png")) return "image/png";
+  if (lowerUri.endsWith(".webp")) return "image/webp";
+  if (lowerUri.endsWith(".heic")) return "image/heic";
+
+  return "image/jpeg";
+}
+
+function getImageFileName(uri: string, index: number) {
+  const fileName = uri.split("/").pop();
+
+  if (fileName && fileName.includes(".")) {
+    return fileName;
+  }
+
+  return `post-image-${index + 1}.jpg`;
+}
+
+function normalizeUploadedImageUrl(imageUrl?: string) {
+  let trimmedUrl = String(imageUrl ?? "").trim();
+
+  if (!trimmedUrl) return "";
+
+  const apiOrigin = API_BASE_URL.replace(/\/$/, "");
+
+  if (trimmedUrl.startsWith("http:/") && !trimmedUrl.startsWith("http://")) {
+    trimmedUrl = trimmedUrl.replace("http:/", "http://");
+  }
+
+  if (trimmedUrl.startsWith("https:/") && !trimmedUrl.startsWith("https://")) {
+    trimmedUrl = trimmedUrl.replace("https:/", "https://");
+  }
+
+  if (trimmedUrl.startsWith("/uploads/")) {
+    return `${apiOrigin}${trimmedUrl}`;
+  }
+
+  if (trimmedUrl.startsWith("uploads/")) {
+    return `${apiOrigin}/${trimmedUrl}`;
+  }
+
+  if (/^https?:\/\//i.test(trimmedUrl)) {
+    try {
+      const url = new URL(trimmedUrl);
+      const apiUrl = new URL(apiOrigin);
+
+      if (
+        url.hostname === "localhost" ||
+        url.hostname === "127.0.0.1" ||
+        url.hostname === "0.0.0.0"
+      ) {
+        return `${apiUrl.origin}${url.pathname}${url.search}`;
+      }
+
+      return trimmedUrl;
+    } catch {
+      return trimmedUrl;
+    }
+  }
+
+  return trimmedUrl;
+}
+
+async function uploadPostImage(imageUri: string): Promise<string> {
+  const formData = new FormData();
+
+  formData.append("image", {
+    uri: imageUri,
+    name: getImageFileName(imageUri, 0),
+    type: getImageMimeType(imageUri),
+  } as any);
+
+  const response = await fetch(`${API_BASE_URL}/api/posts/upload-image`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "ngrok-skip-browser-warning": "true",
+    },
+    body: formData,
+  });
+
+  const responseText = await response.text();
+
+  let data: any = null;
+
+  try {
+    data = responseText ? JSON.parse(responseText) : null;
+  } catch {
+    data = null;
+  }
+
+  if (!response.ok) {
+    console.log("이미지 업로드 실패 status:", response.status);
+    console.log("이미지 업로드 실패 response:", responseText);
+    throw new Error(data?.message || responseText || "이미지 업로드 실패");
+  }
+
+  const uploadedImageUrl = normalizeUploadedImageUrl(data?.imageUrl);
+
+  if (!uploadedImageUrl) {
+    throw new Error("업로드된 이미지 URL을 받지 못했습니다.");
+  }
+
+  return uploadedImageUrl;
+}
+
 export default function DivideCreate() {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -105,10 +359,11 @@ export default function DivideCreate() {
       ? params.members
       : "";
 
-  const [photoCount] = useState(0);
+  const [imageUris, setImageUris] = useState<string[]>([]);
 
   const [title, setTitle] = useState("");
   const [groupName, setGroupName] = useState("");
+  const [albumName, setAlbumName] = useState("");
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
 
   const [members, setMembers] = useState<Member[]>([]);
@@ -246,27 +501,80 @@ export default function DivideCreate() {
     }
   };
 
-  const handleRunAiAnalyze = async () => {
+  const handleRunAiAnalyze = async (imageUri?: string) => {
     if (isAnalyzing) return;
+
+    const targetImageUri = imageUri ?? imageUris[0];
+
+    if (!targetImageUri) {
+      Alert.alert("사진을 먼저 추가해주세요.");
+      return;
+    }
 
     try {
       setAiStatus("analyzing");
 
-      const result = await analyzeDivideImage();
+      const result = await analyzeDivideImage(targetImageUri);
 
       setTitle(result.titleSuggestion);
       setTitleSource("ai");
 
-      await applyGroup(result.groupSuggestion, "ai");
+      setSelectedGroupId(result.groupSuggestion.id);
+      setGroupName(result.groupSuggestion.name);
+      setAlbumName(result.albumName);
+      setGroupSource("ai");
+      setIsGroupFocused(false);
+      setGroupSuggestions([]);
+      setMembers(result.members);
+
+      Keyboard.dismiss();
 
       setAiStatus("done");
-    } catch {
+    } catch (error) {
+      console.log("AI 이미지 분석 실패:", error);
       setAiStatus("error");
+      Alert.alert(
+        "AI 분석 실패",
+        "사진 분석에 실패했어요. 사진을 다시 선택하거나 직접 입력해주세요."
+      );
     }
   };
 
-  const handleAddPhoto = () => {
-    return;
+  const handleAddPhoto = async () => {
+    if (imageUris.length >= 5) {
+      Alert.alert("사진은 최대 5장까지 추가할 수 있어요.");
+      return;
+    }
+
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permission.granted) {
+      Alert.alert("사진 접근 권한이 필요해요.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+      quality: 0.8,
+      allowsMultipleSelection: true,
+      selectionLimit: 5 - imageUris.length,
+    });
+
+    if (result.canceled) return;
+
+    const pickedUris = result.assets.map((asset) => asset.uri);
+    const nextImageUris = [...imageUris, ...pickedUris].slice(0, 5);
+
+    setImageUris(nextImageUris);
+
+    if (pickedUris.length > 0) {
+      await handleRunAiAnalyze(pickedUris[0]);
+    }
+  };
+
+  const handleRemovePhoto = (index: number) => {
+    setImageUris((prev) => prev.filter((_, photoIndex) => photoIndex !== index));
   };
 
   const handleTitleFocus = () => {
@@ -294,6 +602,7 @@ export default function DivideCreate() {
 
   const handleGroupChange = (text: string) => {
     setGroupName(text);
+    setAlbumName("");
     setSelectedGroupId(null);
     setGroupSource(groupSource === "ai" ? "edited" : "none");
     setIsGroupFocused(true);
@@ -302,6 +611,7 @@ export default function DivideCreate() {
 
   const handleClearGroup = () => {
     setGroupName("");
+    setAlbumName("");
     setSelectedGroupId(null);
     setGroupSource("none");
     setGroupSuggestions([]);
@@ -349,28 +659,58 @@ export default function DivideCreate() {
     try {
       setIsSubmitting(true);
 
-      const result = await createPost({
+      let uploadedImageUrl = "";
+
+      if (imageUris.length > 0) {
+        uploadedImageUrl = await uploadPostImage(imageUris[0]);
+      }
+
+      console.log("선택한 사진 URI:", imageUris);
+      console.log("업로드된 이미지 URL:", uploadedImageUrl);
+
+      const postRequestBody: any = {
         title: title.trim(),
         description: content.trim(),
-        imageUrl: "",
+
+        imageUrl: uploadedImageUrl,
+        imageUrls: uploadedImageUrl ? [uploadedImageUrl] : [],
+
         idolName: groupName.trim(),
-        albumName: "",
+        albumName: albumName.trim(),
         components,
         shippingFeeType: deliveryMethod,
         memberItems: members.map((member) => ({
           memberName: member.name,
           price: Number(member.price.replace(/,/g, "")),
         })),
-      });
+      };
 
-      const createdPostId =
-        result && "postId" in result ? result.postId : null;
+      console.log("게시글 생성 요청 body:", postRequestBody);
+      console.log("게시글 생성 요청 imageUrl:", postRequestBody.imageUrl);
+      console.log("게시글 생성 요청 imageUrls:", postRequestBody.imageUrls);
+
+      const result = await createPost(postRequestBody);
+
+      const createdPostId = result && "postId" in result ? result.postId : null;
 
       if (!createdPostId) {
         throw new Error("게시글 ID를 받지 못했습니다.");
       }
 
-      await createSellerChatRoom(createdPostId, title.trim());
+      console.log("생성된 게시글 ID:", createdPostId);
+
+      if (uploadedImageUrl) {
+        await AsyncStorage.setItem(
+          `POST_IMAGE_URL_${createdPostId}`,
+          uploadedImageUrl
+        );
+      }
+
+      try {
+        await createSellerChatRoom(createdPostId, title.trim());
+      } catch (chatRoomError) {
+        console.log("판매자 채팅방 생성 실패, 게시글 등록은 완료됨:", chatRoomError);
+      }
 
       router.replace({
         pathname: "/(tabs)/home",
@@ -379,11 +719,11 @@ export default function DivideCreate() {
           members: memberParam,
         },
       } as any);
-    } catch (error) {
-      console.log("게시글 등록 또는 판매자 채팅방 생성 실패:", error);
+    } catch (error: any) {
+      console.log("게시글 등록 실패:", error);
       Alert.alert(
         "등록 실패",
-        "게시글 등록 또는 채팅방 생성에 실패했어요. 다시 시도해주세요."
+        error?.message || "게시글 등록에 실패했어요. 다시 시도해주세요."
       );
     } finally {
       setIsSubmitting(false);
@@ -427,14 +767,31 @@ export default function DivideCreate() {
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>사진 추가</Text>
-                <Text style={styles.photoCount}>{photoCount} / 5</Text>
+                <Text style={styles.photoCount}>{imageUris.length} / 5</Text>
               </View>
 
-              <View style={styles.photoRow}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.photoRow}
+              >
                 <Pressable style={styles.photoBox} onPress={handleAddPhoto}>
                   <Ionicons name="add" size={26} color="#A8A29E" />
                 </Pressable>
-              </View>
+
+                {imageUris.map((uri, index) => (
+                  <View key={`${uri}-${index}`} style={styles.previewBox}>
+                    <Image source={{ uri }} style={styles.previewImage} />
+
+                    <Pressable
+                      style={styles.removePhotoButton}
+                      onPress={() => handleRemovePhoto(index)}
+                    >
+                      <Ionicons name="close" size={14} color="#FFFFFF" />
+                    </Pressable>
+                  </View>
+                ))}
+              </ScrollView>
 
               {(isAnalyzing || isAiDone) && (
                 <View style={[styles.aiNotice, isAiDone && styles.aiNoticeDone]}>
@@ -494,7 +851,13 @@ export default function DivideCreate() {
 
                 <Pressable
                   style={styles.smallAssistButton}
-                  onPress={handleRunAiAnalyze}
+                  onPress={() => {
+                    if (imageUris.length > 0) {
+                      handleRunAiAnalyze(imageUris[0]);
+                    } else {
+                      Alert.alert("사진 필요", "AI 인식을 실행할 사진을 먼저 추가해주세요.");
+                    }
+                  }}
                 >
                   <Text style={styles.smallAssistText}>
                     {isAnalyzing ? "인식 중" : "AI"}
@@ -613,14 +976,20 @@ export default function DivideCreate() {
                 </View>
               )}
 
-              {selectedGroupId !== null && !showGroupDropdown && !isGroupLoading && (
-                <View style={styles.groupSelectedBox}>
-                  <Ionicons name="checkmark-circle" size={15} color="#20B979" />
-                  <Text style={styles.groupSelectedText}>
-                    선택한 그룹의 멤버 목록을 불러왔어요.
-                  </Text>
-                </View>
-              )}
+              {selectedGroupId !== null &&
+                !showGroupDropdown &&
+                !isGroupLoading && (
+                  <View style={styles.groupSelectedBox}>
+                    <Ionicons
+                      name="checkmark-circle"
+                      size={15}
+                      color="#20B979"
+                    />
+                    <Text style={styles.groupSelectedText}>
+                      선택한 그룹의 멤버 목록을 불러왔어요.
+                    </Text>
+                  </View>
+                )}
 
               {groupSource === "edited" && (
                 <Text style={styles.fieldHelperText}>
@@ -918,6 +1287,7 @@ const styles = StyleSheet.create({
   photoRow: {
     flexDirection: "row",
     gap: 12,
+    paddingRight: 4,
   },
 
   photoBox: {
@@ -929,6 +1299,32 @@ const styles = StyleSheet.create({
     backgroundColor: "#F7F5F4",
     justifyContent: "center",
     alignItems: "center",
+  },
+
+  previewBox: {
+    width: 82,
+    height: 82,
+    borderRadius: 13,
+    overflow: "hidden",
+    position: "relative",
+    backgroundColor: "#F7F5F4",
+  },
+
+  previewImage: {
+    width: "100%",
+    height: "100%",
+  },
+
+  removePhotoButton: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   aiNotice: {

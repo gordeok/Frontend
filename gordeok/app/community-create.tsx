@@ -1,8 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useState } from "react";
 import {
   Alert,
+  Image,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -19,6 +21,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { createCommunityPost } from "../services/community";
 import type { CommunityCategory } from "../types/community";
 
+const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://172.20.99.65:8080";
+
 const COLORS = {
   white: "#FFFFFF",
   black: "#111111",
@@ -32,6 +37,8 @@ const COLORS = {
 };
 
 const SCREEN_PADDING = 22;
+const MAX_PHOTO_COUNT = 5;
+
 const categories = ["포카교환", "오프동행", "질문게시판", "자유게시판"];
 
 const CATEGORY_BADGE_COLORS: Record<
@@ -83,14 +90,80 @@ function convertCategory(category: string): Exclude<CommunityCategory, "ALL"> {
   }
 }
 
+function getImageMimeType(uri: string) {
+  const lowerUri = uri.toLowerCase();
+
+  if (lowerUri.endsWith(".png")) return "image/png";
+  if (lowerUri.endsWith(".webp")) return "image/webp";
+  if (lowerUri.endsWith(".heic")) return "image/heic";
+  if (lowerUri.endsWith(".heif")) return "image/heif";
+
+  return "image/jpeg";
+}
+
+function getImageFileName(uri: string, index: number) {
+  const fileName = uri.split("/").pop();
+
+  if (fileName && fileName.includes(".")) {
+    return fileName;
+  }
+
+  return `community-image-${index + 1}.jpg`;
+}
+
+async function uploadCommunityImage(imageUri: string, index: number) {
+  const formData = new FormData();
+
+  formData.append("image", {
+    uri: imageUri,
+    name: getImageFileName(imageUri, index),
+    type: getImageMimeType(imageUri),
+  } as any);
+
+  /**
+   * 현재 명세서에는 커뮤니티 전용 이미지 업로드 API가 따로 없어서
+   * 기존 게시글 이미지 선업로드 API를 사용함.
+   * 백엔드에 커뮤니티 전용 업로드 API가 생기면 아래 주소만 바꾸면 됨.
+   */
+  const response = await fetch(`${API_BASE_URL}/api/posts/upload-image`, {
+    method: "POST",
+    body: formData,
+  });
+
+  const responseText = await response.text();
+
+  let data: any = null;
+
+  try {
+    data = responseText ? JSON.parse(responseText) : null;
+  } catch {
+    data = null;
+  }
+
+  if (!response.ok) {
+    console.log("커뮤니티 이미지 업로드 실패 status:", response.status);
+    console.log("커뮤니티 이미지 업로드 실패 text:", responseText);
+
+    throw new Error(data?.message ?? "사진 업로드에 실패했어요.");
+  }
+
+  if (!data?.imageUrl) {
+    throw new Error("업로드된 이미지 주소를 받지 못했어요.");
+  }
+
+  return data.imageUrl as string;
+}
+
 export default function CommunityCreateScreen() {
   const [selectedCategory, setSelectedCategory] = useState("포카교환");
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [photoCount, setPhotoCount] = useState(0);
+  const [imageUris, setImageUris] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const canSubmit = title.trim().length > 0 && content.trim().length > 0;
+  const canSubmit =
+    title.trim().length > 0 && content.trim().length > 0 && !isSubmitting;
+
   const selectedCategoryColor = getCategoryBadgeColor(selectedCategory);
 
   const handleCancel = () => {
@@ -98,17 +171,38 @@ export default function CommunityCreateScreen() {
     router.back();
   };
 
-  const handleAddPhoto = () => {
-    if (photoCount >= 5) {
+  const handleAddPhoto = async () => {
+    if (imageUris.length >= MAX_PHOTO_COUNT) {
       Alert.alert("알림", "사진은 최대 5장까지 추가할 수 있어요.");
       return;
     }
 
-    setPhotoCount((prev) => prev + 1);
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permission.granted) {
+      Alert.alert("알림", "사진 접근 권한이 필요해요.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+      quality: 0.8,
+      allowsMultipleSelection: true,
+      selectionLimit: MAX_PHOTO_COUNT - imageUris.length,
+    });
+
+    if (result.canceled) return;
+
+    const pickedUris = result.assets.map((asset) => asset.uri);
+
+    setImageUris((prev) =>
+      [...prev, ...pickedUris].slice(0, MAX_PHOTO_COUNT)
+    );
   };
 
-  const handleRemovePhoto = () => {
-    setPhotoCount((prev) => Math.max(prev - 1, 0));
+  const handleRemovePhoto = (index: number) => {
+    setImageUris((prev) => prev.filter((_, photoIndex) => photoIndex !== index));
   };
 
   const handleSubmit = async () => {
@@ -130,11 +224,21 @@ export default function CommunityCreateScreen() {
     try {
       setIsSubmitting(true);
 
+      let uploadedImageUrls: string[] = [];
+
+      if (imageUris.length > 0) {
+        uploadedImageUrls = await Promise.all(
+          imageUris.map((uri, index) => uploadCommunityImage(uri, index))
+        );
+      }
+
+      console.log("커뮤니티 업로드 이미지 URL:", uploadedImageUrls);
+
       await createCommunityPost({
         category: convertCategory(selectedCategory),
         title: trimmedTitle,
         content: trimmedContent,
-        imageUrls: [],
+        imageUrls: uploadedImageUrls,
       });
 
       Alert.alert("등록 완료", "게시글이 등록되었습니다.", [
@@ -144,7 +248,14 @@ export default function CommunityCreateScreen() {
         },
       ]);
     } catch (error) {
-      Alert.alert("오류", "게시글 등록 중 문제가 발생했어요.");
+      console.log("커뮤니티 게시글 등록 실패", error);
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : "게시글 등록 중 오류가 발생했습니다.";
+
+      Alert.alert("등록 실패", message);
     } finally {
       setIsSubmitting(false);
     }
@@ -182,7 +293,7 @@ export default function CommunityCreateScreen() {
                 (!canSubmit || isSubmitting) && styles.submitTextDisabled,
               ]}
             >
-              등록
+              {isSubmitting ? "등록중" : "등록"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -288,7 +399,9 @@ export default function CommunityCreateScreen() {
                 <Text style={styles.photoTitle}>사진 추가</Text>
               </View>
 
-              <Text style={styles.photoCount}>{photoCount} / 5</Text>
+              <Text style={styles.photoCount}>
+                {imageUris.length} / {MAX_PHOTO_COUNT}
+              </Text>
             </View>
 
             <ScrollView
@@ -296,24 +409,29 @@ export default function CommunityCreateScreen() {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.photoRow}
             >
-              <Pressable onPress={handleAddPhoto} style={styles.addPhotoBox}>
+              <Pressable
+                onPress={handleAddPhoto}
+                style={({ pressed }) => [
+                  styles.addPhotoBox,
+                  pressed && styles.pressed,
+                ]}
+              >
                 <Ionicons name="add" size={30} color={COLORS.gray500} />
               </Pressable>
 
-              {Array.from({ length: photoCount }).map((_, index) => (
-                <Pressable
-                  key={index}
-                  style={styles.photoPreviewBox}
-                  onPress={handleRemovePhoto}
-                >
-                  <Text style={styles.photoPreviewText}>{index + 1}</Text>
+              {imageUris.map((uri, index) => (
+                <View key={`${uri}-${index}`} style={styles.photoPreviewBox}>
+                  <Image source={{ uri }} style={styles.photoPreviewImage} />
 
-                  <View style={styles.removePhotoButton}>
+                  <Pressable
+                    style={styles.removePhotoButton}
+                    onPress={() => handleRemovePhoto(index)}
+                    hitSlop={8}
+                  >
                     <Ionicons name="close" size={13} color={COLORS.white} />
-                  </View>
-                </Pressable>
+                  </Pressable>
+                </View>
               ))}
-
             </ScrollView>
           </View>
         </ScrollView>
@@ -552,12 +670,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     position: "relative",
+    overflow: "hidden",
   },
 
-  photoPreviewText: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#B58900",
+  photoPreviewImage: {
+    width: "100%",
+    height: "100%",
   },
 
   removePhotoButton: {
@@ -572,4 +690,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
+  pressed: {
+    opacity: 0.75,
+  },
 });

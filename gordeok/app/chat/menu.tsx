@@ -17,12 +17,17 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { completeChatRoom } from "../../services/chat";
+import { getStoredUserId } from "../../utils/api";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const SHEET_HEIGHT = SCREEN_HEIGHT * 0.52;
 
 const LOCAL_CHAT_ROOMS_KEY = "localChatRooms";
 const REMOVED_CHAT_ROOMS_KEY = "GO_REUDEOK_REMOVED_CHAT_ROOMS";
+
+const API_BASE_URL = (
+  process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://172.20.99.65:8080"
+).replace(/\/$/, "");
 
 const COLORS = {
   white: "#FFFFFF",
@@ -58,6 +63,8 @@ type Member = {
   phone?: string;
   store?: string;
   request?: string;
+  userId?: string;
+  role?: string;
 };
 
 type LocalChatRoom = {
@@ -71,6 +78,47 @@ type LocalChatRoom = {
   totalMemberCount?: number;
   completedMemberCount?: number;
   allMembersCompleted?: boolean;
+  postId?: string | number;
+  postsId?: string | number;
+  communityId?: string | number;
+  communityPostId?: string | number;
+  participants?: MenuParticipant[];
+};
+
+type MenuParticipant = {
+  userId?: string | number;
+  nickname?: string;
+  memberName?: string;
+  role?: string;
+};
+
+type ChatRoomMenuInfo = {
+  chatRoomId?: string | number;
+  title?: string;
+  postStatus?: string;
+  status?: string;
+  myRole?: string;
+  postId?: string | number;
+  postsId?: string | number;
+  id?: string | number;
+  communityId?: string | number;
+  communityPostId?: string | number;
+  post?: {
+    postId?: string | number;
+    postsId?: string | number;
+    id?: string | number;
+    communityId?: string | number;
+  };
+  participants?: MenuParticipant[];
+};
+
+type BuyerInfoResponse = {
+  nickname?: string;
+  memberName?: string;
+  realName?: string;
+  phoneNumber?: string;
+  storeName?: string;
+  requestMessage?: string;
 };
 
 export default function ChatMenuScreen() {
@@ -95,6 +143,10 @@ export default function ChatMenuScreen() {
     allMembersCompleted,
     totalMemberCount,
     completedMemberCount,
+    postId,
+    postsId,
+    id,
+    communityId,
   } = useLocalSearchParams<{
     chatRoomId?: string;
     role?: string;
@@ -116,9 +168,17 @@ export default function ChatMenuScreen() {
     allMembersCompleted?: string;
     totalMemberCount?: string;
     completedMemberCount?: string;
+    postId?: string;
+    postsId?: string;
+    id?: string;
+    communityId?: string;
   }>();
 
   const [localRoom, setLocalRoom] = useState<LocalChatRoom | null>(null);
+  const [menuInfo, setMenuInfo] = useState<ChatRoomMenuInfo | null>(null);
+  const [menuParticipants, setMenuParticipants] = useState<MenuParticipant[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string>("");
+  const [isMenuLoaded, setIsMenuLoaded] = useState(false);
 
   useEffect(() => {
     const loadLocalRoom = async () => {
@@ -128,7 +188,11 @@ export default function ChatMenuScreen() {
         const raw = await AsyncStorage.getItem(LOCAL_CHAT_ROOMS_KEY);
         const parsed = raw ? JSON.parse(raw) : [];
         const found = Array.isArray(parsed)
-          ? parsed.find((room) => String(room.id) === String(chatRoomId))
+          ? parsed.find(
+              (room) =>
+                String(room.id ?? room.chatRoomId ?? room.roomId) ===
+                String(chatRoomId)
+            )
           : null;
 
         setLocalRoom(found ?? null);
@@ -141,11 +205,116 @@ export default function ChatMenuScreen() {
     loadLocalRoom();
   }, [chatRoomId]);
 
+  const getFirstValueText = (...values: any[]) =>
+    values
+      .map((value) =>
+        value === null || value === undefined ? "" : String(value).trim()
+      )
+      .find(Boolean) ?? "";
+
+  const fetchChatRoomMenuInfo = async (roomId: string, userId: string) => {
+    const response = await fetch(
+      `${API_BASE_URL}/api/chat-rooms/${roomId}/menu?userId=${userId}`,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          "ngrok-skip-browser-warning": "true",
+        },
+      }
+    );
+
+    const text = await response.text();
+    let data: ChatRoomMenuInfo | null = null;
+
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = null;
+    }
+
+    if (!response.ok) {
+      throw new Error((data as any)?.message || "채팅방 메뉴 정보를 불러오지 못했어요.");
+    }
+
+    return data;
+  };
+
+  const fetchBuyerInfo = async (buyerUserId: string) => {
+    if (!chatRoomId) return null;
+
+    const response = await fetch(
+      `${API_BASE_URL}/api/chat-rooms/${chatRoomId}/participants/${buyerUserId}/info`,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          "ngrok-skip-browser-warning": "true",
+        },
+      }
+    );
+
+    const text = await response.text();
+    let data: BuyerInfoResponse | null = null;
+
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = null;
+    }
+
+    if (!response.ok) {
+      throw new Error((data as any)?.message || "참여자 정보를 불러오지 못했어요.");
+    }
+
+    return data;
+  };
+
+  useEffect(() => {
+    const loadMenuInfo = async () => {
+      try {
+        if (!chatRoomId) return;
+
+        const storedUserId = await getStoredUserId();
+
+        if (!storedUserId) {
+          setIsMenuLoaded(true);
+          return;
+        }
+
+        setCurrentUserId(String(storedUserId));
+
+        const menu = await fetchChatRoomMenuInfo(String(chatRoomId), String(storedUserId));
+        const participants = Array.isArray(menu?.participants)
+          ? menu.participants
+          : [];
+
+        console.log("채팅 메뉴 응답:", menu);
+
+        setMenuInfo(menu);
+        setMenuParticipants(participants);
+      } catch (error) {
+        console.log("채팅 메뉴 조회 실패:", error);
+      } finally {
+        setIsMenuLoaded(true);
+      }
+    };
+
+    loadMenuInfo();
+  }, [chatRoomId]);
+
   const normalizedRole =
     typeof role === "string" ? role.trim().toLowerCase() : "";
 
-  const isNote = type === "note";
-  const isSeller = !isNote && normalizedRole === "seller";
+  const normalizedMenuRole = String(menuInfo?.myRole ?? "")
+    .trim()
+    .toLowerCase();
+
+  const effectiveRole = normalizedMenuRole || normalizedRole;
+
+  const normalizedType = typeof type === "string" ? type.trim().toLowerCase() : "";
+  const isNote = normalizedType === "note" || normalizedType === "direct";
+  const isSeller = !isNote && effectiveRole === "seller";
   const isBuyer = !isNote && !isSeller;
 
   const cleanName = (value?: string) => {
@@ -166,11 +335,33 @@ export default function ChatMenuScreen() {
   const roomTitle =
     typeof title === "string" && title.trim().length > 0
       ? title.trim()
+      : menuInfo?.title && String(menuInfo.title).trim().length > 0
+      ? String(menuInfo.title).trim()
       : localRoom?.title && localRoom.title.trim().length > 0
       ? localRoom.title.trim()
       : isNote
       ? "쪽지"
       : "분철 채팅방";
+
+  const communityPostId = String(
+    postId ??
+      postsId ??
+      communityId ??
+      id ??
+      menuInfo?.postId ??
+      menuInfo?.postsId ??
+      menuInfo?.communityPostId ??
+      menuInfo?.communityId ??
+      menuInfo?.post?.postId ??
+      menuInfo?.post?.postsId ??
+      menuInfo?.post?.id ??
+      menuInfo?.post?.communityId ??
+      localRoom?.postId ??
+      localRoom?.postsId ??
+      localRoom?.communityPostId ??
+      localRoom?.communityId ??
+      ""
+  ).trim();
 
   const sellerDisplayName =
     cleanName(sellerName) ||
@@ -198,7 +389,14 @@ export default function ChatMenuScreen() {
       currentUserName
     : buyerNameCandidatesForSeller[0] ?? "";
 
-  const hasBuyerParticipant = isBuyer || rawBuyerName.length > 0;
+  const hasBuyerParticipant =
+    rawBuyerName.length > 0 ||
+    (typeof selectedMember === "string" && selectedMember.trim().length > 0) ||
+    (typeof receiverName === "string" && receiverName.trim().length > 0) ||
+    (typeof phoneNumber === "string" && phoneNumber.trim().length > 0) ||
+    (typeof storeName === "string" && storeName.trim().length > 0) ||
+    (localRoom?.buyerName && localRoom.buyerName.trim().length > 0) ||
+    (localRoom?.selectedMember && localRoom.selectedMember.trim().length > 0);
 
   const buyerDisplayName = isBuyer
     ? rawBuyerName || "나"
@@ -218,7 +416,8 @@ export default function ChatMenuScreen() {
     completedMemberCount ?? localRoom?.completedMemberCount ?? 0
   );
 
-  const effectivePostStatus = postStatus ?? localRoom?.postStatus ?? localRoom?.status;
+  const effectivePostStatus =
+    menuInfo?.postStatus ?? menuInfo?.status ?? postStatus ?? localRoom?.postStatus ?? localRoom?.status;
 
   const isAllMembersCompleted =
     allMembersCompleted === "true" ||
@@ -250,20 +449,35 @@ export default function ChatMenuScreen() {
 
   const isTradeCompleted = tradeStatus === "거래 완료";
 
+  useEffect(() => {
+    const nextStatus = String(menuInfo?.postStatus ?? menuInfo?.status ?? "");
+
+    if (nextStatus === "모집 완료") {
+      setTradeStatus("모집 완료");
+    } else if (nextStatus === "배송 중") {
+      setTradeStatus("배송 중");
+    } else if (nextStatus === "거래 완료" || nextStatus === "done") {
+      setTradeStatus("거래 완료");
+    } else if (nextStatus === "거래 취소") {
+      setTradeStatus("거래 취소");
+    }
+  }, [menuInfo]);
+
   const sellerMember: Member = {
     id: "seller",
     nickname: sellerDisplayName,
-    member: "개설자",
+    member: isNote ? "" : "개설자",
     initial: sellerDisplayName.slice(0, 1),
     color: "#FFF1B8",
     initialColor: "#D09A00",
     isSeller: true,
+    role: "SELLER",
   };
 
   const buyerMember: Member = {
     id: "buyer",
     nickname: buyerDisplayName,
-    member: buyerMemberName || "선택 멤버",
+    member: isNote ? "" : buyerMemberName || "선택 멤버",
     initial: buyerDisplayName.slice(0, 1),
     color: "#DDF7EB",
     initialColor: "#1E8E61",
@@ -283,17 +497,53 @@ export default function ChatMenuScreen() {
       typeof requestMessage === "string" && requestMessage.trim().length > 0
         ? requestMessage.trim()
         : "없음",
+    role: "BUYER",
   };
 
+  const getParticipantMember = (participant: MenuParticipant, index: number): Member => {
+    const nickname =
+      cleanName(String(participant.nickname ?? "")) ||
+      (String(participant.role ?? "").toUpperCase() === "SELLER" ? "판매자" : "참여자");
+
+    const roleText = String(participant.role ?? "").toUpperCase();
+    const memberName = String(participant.memberName ?? "").trim();
+    const isParticipantSeller = roleText === "SELLER";
+
+    return {
+      id: `participant-${participant.userId ?? index}`,
+      userId:
+        participant.userId === null || participant.userId === undefined
+          ? undefined
+          : String(participant.userId),
+      nickname,
+      member: isNote ? "" : isParticipantSeller ? "개설자" : memberName || "선택 멤버",
+      initial: nickname.slice(0, 1),
+      color: isParticipantSeller ? "#FFF1B8" : "#DDF7EB",
+      initialColor: isParticipantSeller ? "#D09A00" : "#1E8E61",
+      isSeller: isParticipantSeller,
+      role: roleText,
+      receiver:
+        typeof receiverName === "string" && receiverName.trim().length > 0
+          ? receiverName.trim()
+          : "-",
+      phone:
+        typeof phoneNumber === "string" && phoneNumber.trim().length > 0
+          ? phoneNumber.trim()
+          : "-",
+      store:
+        typeof storeName === "string" && storeName.trim().length > 0
+          ? storeName.trim()
+          : "-",
+      request:
+        typeof requestMessage === "string" && requestMessage.trim().length > 0
+          ? requestMessage.trim()
+          : "없음",
+    };
+  };
+
+  const apiMembers = menuParticipants.map(getParticipantMember);
+
   const noteMembers: Member[] = [
-    {
-      id: "note-me",
-      nickname: "나",
-      member: "",
-      initial: "나",
-      color: "#FFE0CA",
-      initialColor: "#E0702A",
-    },
     {
       id: "note-other",
       nickname: cleanName(opponentName) || "상대방",
@@ -304,18 +554,59 @@ export default function ChatMenuScreen() {
     },
   ];
 
-  const visibleMembers = isNote
+  const currentUserDisplayName =
+    currentUserName ||
+    (isSeller ? sellerDisplayName : "") ||
+    (isBuyer ? buyerDisplayName : "") ||
+    "나";
+
+  const selfMember: Member = {
+    id: "me",
+    userId: currentUserId || undefined,
+    nickname: currentUserDisplayName,
+    member: isNote ? "" : isSeller ? "개설자" : buyerMemberName || "선택 멤버",
+    initial: currentUserDisplayName.slice(0, 1) || "나",
+    color: "#FFE0CA",
+    initialColor: "#E0702A",
+    isSeller,
+    role: isSeller ? "SELLER" : isBuyer ? "BUYER" : "MEMBER",
+    receiver:
+      !isSeller && typeof receiverName === "string" && receiverName.trim().length > 0
+        ? receiverName.trim()
+        : "-",
+    phone:
+      !isSeller && typeof phoneNumber === "string" && phoneNumber.trim().length > 0
+        ? phoneNumber.trim()
+        : "-",
+    store:
+      !isSeller && typeof storeName === "string" && storeName.trim().length > 0
+        ? storeName.trim()
+        : "-",
+    request:
+      !isSeller && typeof requestMessage === "string" && requestMessage.trim().length > 0
+        ? requestMessage.trim()
+        : "없음",
+  };
+
+  const apiOtherMembers = apiMembers.filter((member) => {
+    if (!currentUserId) return true;
+    if (!member.userId) return true;
+
+    return String(member.userId) !== String(currentUserId);
+  });
+
+  const fallbackOtherMembers = isNote
     ? noteMembers
     : isSeller
     ? hasBuyerParticipant
-      ? [sellerMember, buyerMember]
-      : [sellerMember]
-    : [buyerMember, sellerMember];
+      ? [buyerMember]
+      : []
+    : [sellerMember];
+
+  const visibleMembers = [selfMember, ...(apiOtherMembers.length > 0 ? apiOtherMembers : fallbackOtherMembers)];
 
   const getIsMe = (member: Member) => {
-    if (isNote) return member.id === "note-me";
-    if (isSeller) return member.id === "seller";
-    return member.id === "buyer";
+    return member.id === "me";
   };
 
   const getStatusStyle = (targetStatus: TradeStatus) => {
@@ -348,7 +639,32 @@ export default function ChatMenuScreen() {
     }
   };
 
-  const openBuyerSheet = (member: Member) => {
+  const openBuyerSheet = async (member: Member) => {
+    if (isSeller && member.userId) {
+      try {
+        const info = await fetchBuyerInfo(member.userId);
+
+        if (info) {
+          const nickname = cleanName(info.nickname) || member.nickname;
+
+          setSelectedBuyerInfo({
+            ...member,
+            nickname,
+            member: info.memberName || member.member,
+            initial: nickname.slice(0, 1),
+            receiver: info.realName || member.receiver || "-",
+            phone: info.phoneNumber || member.phone || "-",
+            store: info.storeName || member.store || "-",
+            request: info.requestMessage || member.request || "없음",
+          });
+          setIsSheetVisible(true);
+          return;
+        }
+      } catch (error) {
+        console.log("구매자 정보 조회 실패:", error);
+      }
+    }
+
     setSelectedBuyerInfo(member);
     setIsSheetVisible(true);
   };
@@ -444,6 +760,26 @@ export default function ChatMenuScreen() {
       },
     })
   ).current;
+
+  const handleOpenCommunityPost = () => {
+    if (!communityPostId) {
+      Alert.alert(
+        "커뮤니티 글",
+        "연결된 커뮤니티 게시글 정보를 찾지 못했어요."
+      );
+      return;
+    }
+
+    router.push({
+      pathname: "/community/[postId]",
+      params: {
+        postId: communityPostId,
+        postsId: communityPostId,
+        id: communityPostId,
+        communityId: communityPostId,
+      },
+    } as any);
+  };
 
   const moveToChatWithCompletedStatus = () => {
     const nextStatus: TradeStatus = "거래 완료";
@@ -611,9 +947,13 @@ export default function ChatMenuScreen() {
         showsVerticalScrollIndicator={false}
       >
         {isNote ? (
-          <TouchableOpacity style={styles.notePostCard} activeOpacity={0.8}>
+          <TouchableOpacity
+            style={styles.notePostCard}
+            activeOpacity={0.8}
+            onPress={handleOpenCommunityPost}
+          >
             <View style={styles.notePostTextBox}>
-              <Text style={styles.notePostLabel}>쪽지 글</Text>
+              <Text style={styles.notePostLabel}>커뮤니티 글</Text>
               <Text style={styles.notePostTitle} numberOfLines={2}>
                 {roomTitle}
               </Text>
@@ -689,6 +1029,10 @@ export default function ChatMenuScreen() {
             대화상대{" "}
             <Text style={styles.countText}>{visibleMembers.length}</Text>
           </Text>
+
+          {visibleMembers.length === 0 && (
+            <Text style={styles.emptyMemberText}>아직 참여자가 없어요.</Text>
+          )}
 
           {visibleMembers.map((member, index) => {
             const isMe = getIsMe(member);
@@ -1163,6 +1507,13 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: COLORS.line,
     marginLeft: 79,
+  },
+  emptyMemberText: {
+    paddingVertical: 22,
+    fontSize: 14,
+    fontWeight: "600",
+    color: COLORS.gray500,
+    textAlign: "center",
   },
   leaveRoomCard: {
     height: 58,

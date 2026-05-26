@@ -75,7 +75,7 @@ export default function SignupScreen() {
         />
 
         <AppInput
-          placeholder="이메일"
+          placeholder="아이디"
           value={email}
           onChangeText={setEmail}
           autoCapitalize="none"
@@ -97,7 +97,7 @@ export default function SignupScreen() {
         />
 
         <AppButton
-          title={isLoading ? "가입 중..." : "가입하기"}
+          title={isLoading ? "가입하기" : "가입하기"}
           onPress={handleSignup}
           disabled={isLoading}
         />

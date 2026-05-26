@@ -72,6 +72,7 @@ type DisplayPost = {
   date: string;
   status: string;
   completed: boolean;
+  createdAtTime: number;
   content: string;
   components: string[];
   deliveryMethod: string;
@@ -272,20 +273,22 @@ export default function HomeScreen() {
     );
   }, [selectedGroups, apiPosts, completedMembers]);
 
-  const filteredPosts: DisplayPost[] = posts.filter((post) => {
-    const matchesGroup = selectedGroupId
-      ? post.groupId === selectedGroupId
-      : true;
+  const filteredPosts: DisplayPost[] = posts
+    .filter((post) => {
+      const matchesGroup = selectedGroupId
+        ? post.groupId === selectedGroupId
+        : true;
 
-    const matchesFavoriteMember = selectedFavoriteMember
-      ? post.members.some(
-          (member) =>
-            member.name === selectedFavoriteMember && member.state === "모집중"
-        )
-      : true;
+      const matchesFavoriteMember = selectedFavoriteMember
+        ? post.members.some(
+            (member) =>
+              member.name === selectedFavoriteMember && member.state === "모집중"
+          )
+        : true;
 
-    return matchesGroup && matchesFavoriteMember;
-  });
+      return matchesGroup && matchesFavoriteMember;
+    })
+    .sort(sortPostsForHome);
 
   const visibleFavoriteGroups = selectedGroupId
     ? selectedGroups.filter((group) => group.id === selectedGroupId)
@@ -348,7 +351,6 @@ export default function HomeScreen() {
             </View>
           ) : selectedGroups.length === 0 ? (
             <View style={styles.emptyBox}>
-              <Text style={styles.emptyTitle}>최애 정보를 불러오는 중이에요</Text>
             </View>
           ) : (
             <>
@@ -508,9 +510,6 @@ export default function HomeScreen() {
               <View style={styles.postList}>
                 {isPostsLoading && filteredPosts.length === 0 ? (
                   <View style={styles.noPostBox}>
-                    <Text style={styles.noPostTitle}>
-                      분철 글을 불러오는 중이에요
-                    </Text>
                   </View>
                 ) : postError ? (
                   <View style={styles.noPostBox}>
@@ -650,6 +649,7 @@ function normalizeApiPosts(
           ? "모집완료"
           : getPostStatus(post.status, Boolean(post.almostFull)),
       completed: baseCompleted || allMembersCompleted,
+      createdAtTime: getCreatedAtTime(post.createdAt),
       content: post.description || "",
       components: Array.isArray(post.components) ? post.components : [],
       deliveryMethod: post.shippingFeeType || "",
@@ -750,6 +750,21 @@ function removeDuplicateDisplayPosts(posts: DisplayPost[]) {
   return Array.from(map.values());
 }
 
+function sortPostsForHome(a: DisplayPost, b: DisplayPost) {
+  if (a.completed !== b.completed) {
+    return a.completed ? 1 : -1;
+  }
+
+  return b.createdAtTime - a.createdAtTime;
+}
+
+function getCreatedAtTime(createdAt: string) {
+  if (!createdAt) return 0;
+
+  const parsed = parseCreatedAt(createdAt);
+  return parsed ? parsed.getTime() : 0;
+}
+
 function getGroupColor(codeOrName: string) {
   const key = codeOrName.toLowerCase();
 
@@ -794,10 +809,49 @@ function getMemberStatus(status: string) {
   return "모집중";
 }
 
+function parseCreatedAt(createdAt: string) {
+  const trimmed = createdAt.trim();
+
+  if (!trimmed) return null;
+
+  const hasTimezone = /([zZ]|[+-]\d{2}:?\d{2})$/.test(trimmed);
+
+  if (hasTimezone) {
+    const parsed = new Date(trimmed);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  const normalized = trimmed.replace(" ", "T");
+  const matched = normalized.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?$/
+  );
+
+  if (!matched) {
+    const fallback = new Date(trimmed);
+    return Number.isNaN(fallback.getTime()) ? null : fallback;
+  }
+
+  const [, year, month, day, hour, minute, second = "0", fraction = "0"] =
+    matched;
+  const millisecond = Number(fraction.slice(0, 3).padEnd(3, "0"));
+
+  return new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second),
+    millisecond
+  );
+}
+
 function formatTime(createdAt: string) {
   if (!createdAt) return "";
 
-  const created = new Date(createdAt);
+  const created = parseCreatedAt(createdAt);
+  if (!created) return "";
+
   const now = new Date();
   const diff = Math.floor((now.getTime() - created.getTime()) / 1000 / 60);
 
@@ -819,10 +873,9 @@ function PostCard({
   return (
     <Pressable
       onPress={onPress}
-      disabled={post.completed}
       style={({ pressed }) => [
         styles.postCard,
-        pressed && !post.completed && styles.postCardPressed,
+        pressed && styles.postCardPressed,
         post.completed && styles.postCardCompleted,
       ]}
     >
@@ -1362,14 +1415,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 18,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    elevation: 4,
   },
 
   writeText: {

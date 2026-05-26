@@ -99,7 +99,6 @@ export default function ReceivedReviewsScreen() {
 
           {isLoading ? (
             <View style={{ alignItems: "center", paddingTop: 80 }}>
-              <ActivityIndicator size="small" color="#F7C94B" />
             </View>
           ) : reviews.length > 0 ? (
             reviews.map((review) => (
@@ -124,7 +123,7 @@ export default function ReceivedReviewsScreen() {
             ))
           ) : (
             <View style={{ alignItems: "center", paddingTop: 80 }}>
-              <Text style={{ fontSize: 13, fontWeight: "700", color: COLORS.gray500 }}>
+              <Text style={{fontSize: 16, fontWeight: "900", color: COLORS.black, marginTop: 140, marginBottom: 6 }}>
                 {errorMessage || "아직 받은 후기가 없어요"}
               </Text>
             </View>
