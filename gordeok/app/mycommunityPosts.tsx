@@ -1,13 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   getMyCommunityCommentPosts,
@@ -16,6 +10,7 @@ import {
   MyCommunityCommentPost,
   MyCommunityPost,
 } from "../services/user";
+import { getCommunityPost } from "../services/community";
 import { getStoredUserId } from "../utils/api";
 
 const COLORS = {
@@ -63,6 +58,7 @@ type CommunityItem = {
   title: string;
   content: string;
   time: string;
+  authorName?: string;
 };
 
 function convertCategoryLabel(category?: string | null) {
@@ -92,6 +88,33 @@ function getCategoryStyle(category: string) {
       textColor: "#666666",
     }
   );
+}
+
+function getPostAuthorName(post: any) {
+  const nickname =
+    post?.authorNickname ||
+    post?.postAuthorNickname ||
+    post?.writerNickname ||
+    post?.authorName ||
+    post?.postAuthorName ||
+    post?.writerName;
+
+  if (nickname) return String(nickname);
+
+  const authorId = post?.authorId || post?.postAuthorId || post?.writerId;
+  if (authorId) return String(authorId);
+
+  return "작성자";
+}
+
+function uniquePostsById(items: CommunityItem[]) {
+  const seen = new Set<number>();
+
+  return items.filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
 }
 
 function formatTime(createdAt?: string) {
@@ -138,9 +161,27 @@ function mapCommunityCommentPost(post: MyCommunityCommentPost): CommunityItem {
       post.contentPreview ||
       "댓글을 작성한 게시글입니다.",
     time: formatTime(post.createdAt),
+    authorName: getPostAuthorName(post),
     categoryColor: categoryStyle.backgroundColor,
     textColor: categoryStyle.textColor,
   };
+}
+
+async function fillCommentPostAuthors(items: CommunityItem[]) {
+  return Promise.all(
+    items.map(async (item) => {
+      try {
+        const detail = await getCommunityPost(item.id);
+        return {
+          ...item,
+          authorName: getPostAuthorName(detail),
+        };
+      } catch (error) {
+        console.log("댓글 쓴 글 작성자 조회 실패:", error);
+        return item;
+      }
+    }),
+  );
 }
 
 export default function MyCommunityPostsScreen() {
@@ -169,7 +210,12 @@ export default function MyCommunityPostsScreen() {
 
         try {
           const commentsData = await getMyCommunityCommentPosts();
-          setMyComments(commentsData.map(mapCommunityCommentPost));
+          const uniqueCommentPosts = uniquePostsById(
+            commentsData.map(mapCommunityCommentPost),
+          );
+          const commentPostsWithAuthors =
+            await fillCommentPostAuthors(uniqueCommentPosts);
+          setMyComments(commentPostsWithAuthors);
         } catch (commentError) {
           console.log("댓글 쓴 글 조회 실패:", commentError);
           setMyComments([]);
@@ -188,8 +234,11 @@ export default function MyCommunityPostsScreen() {
   }, []);
 
   const currentList = selectedTab === "posts" ? myPosts : myComments;
-  const profileText = userLabel.trim()?.[0] || "사";
-  
+  const getDisplayName = (item: CommunityItem) =>
+    selectedTab === "comments" ? item.authorName || "작성자" : userLabel;
+  const getProfileText = (item: CommunityItem) =>
+    getDisplayName(item).trim()?.[0] || "작";
+
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.container}>
@@ -253,9 +302,9 @@ export default function MyCommunityPostsScreen() {
           contentContainerStyle={styles.listContent}
         >
           {isLoading ? null : currentList.length > 0 ? (
-            currentList.map((item, index) => (
+            currentList.map((item) => (
               <Pressable
-                key={`${selectedTab}-${item.id}-${index}`}
+                key={`${selectedTab}-${item.id}`}
                 style={({ pressed, hovered }) => [
                   styles.postCard,
                   (pressed || hovered) && styles.postCardHover,
@@ -269,11 +318,13 @@ export default function MyCommunityPostsScreen() {
               >
                 <View style={styles.profileRow}>
                   <View style={styles.profileCircle}>
-                    <Text style={styles.profileText}>{profileText}</Text>
+                    <Text style={styles.profileText}>
+                      {getProfileText(item)}
+                    </Text>
                   </View>
 
                   <View style={styles.profileInfo}>
-                    <Text style={styles.name}>{userLabel}</Text>
+                    <Text style={styles.name}>{getDisplayName(item)}</Text>
                     <Text style={styles.time}>{item.time}</Text>
                   </View>
 

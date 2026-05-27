@@ -30,6 +30,35 @@ const COLORS = {
 
 const MAX_LENGTH = 1000;
 
+const TRADE_STATUS_STORAGE_KEY = "GO_REUDEOK_CHAT_TRADE_STATUS";
+const REVIEW_SUBMITTED_STORAGE_KEY = "GO_REUDEOK_CHAT_REVIEW_SUBMITTED";
+
+async function readJsonMap(key: string) {
+  try {
+    const saved = await AsyncStorage.getItem(key);
+    const parsed = saved ? JSON.parse(saved) : {};
+
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch (error) {
+    console.log(`${key} 불러오기 실패:`, error);
+    return {};
+  }
+}
+
+async function saveReviewSubmitted(chatRoomId: number) {
+  const map = await readJsonMap(REVIEW_SUBMITTED_STORAGE_KEY);
+  map[String(chatRoomId)] = true;
+  await AsyncStorage.setItem(REVIEW_SUBMITTED_STORAGE_KEY, JSON.stringify(map));
+}
+
+async function saveTradeCompleted(chatRoomId: number) {
+  const map = await readJsonMap(TRADE_STATUS_STORAGE_KEY);
+  map[String(chatRoomId)] = "거래 완료";
+  await AsyncStorage.setItem(TRADE_STATUS_STORAGE_KEY, JSON.stringify(map));
+}
+
 export default function ReviewWriteScreen() {
   const {
     chatRoomId,
@@ -64,8 +93,8 @@ export default function ReviewWriteScreen() {
   const isValid = content.trim().length > 0 && !isSubmitting;
 
   const goBackToChatAsSubmitted = async (finalChatRoomId: number) => {
-    await AsyncStorage.setItem(`REVIEW_SUBMITTED_${finalChatRoomId}`, "true");
-    await AsyncStorage.setItem(`TRADE_STATUS_${finalChatRoomId}`, "거래 완료");
+    await saveReviewSubmitted(finalChatRoomId);
+    await saveTradeCompleted(finalChatRoomId);
 
     router.replace({
       pathname: "/chat/[chatRoomId]",

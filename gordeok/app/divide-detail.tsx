@@ -31,6 +31,7 @@ const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://172.20.99.65:8080";
 
 const SHEET_HALF_HEIGHT = SCREEN_HEIGHT * 0.52;
+const SHEET_COMPACT_HEIGHT = Math.min(SCREEN_HEIGHT * 0.44, 380);
 const SHEET_EXPANDED_HEIGHT = SCREEN_HEIGHT * 0.82;
 const SHEET_HIDDEN_HEIGHT = 0;
 
@@ -505,6 +506,9 @@ export default function DivideDetailScreen() {
 
   const isJoinEnabled = !!selectedMember && !isMyPost;
 
+  const initialSheetHeight =
+    post && post.members.length <= 2 ? SHEET_COMPACT_HEIGHT : SHEET_HALF_HEIGHT;
+
   const moveSheetTo = (toValue: number) => {
     currentSheetHeight.current = toValue;
     setIsSheetExpanded(toValue === SHEET_EXPANDED_HEIGHT);
@@ -550,7 +554,7 @@ export default function DivideDetailScreen() {
 
     Animated.parallel([
       Animated.spring(sheetHeight, {
-        toValue: SHEET_HALF_HEIGHT,
+        toValue: initialSheetHeight,
         useNativeDriver: false,
         tension: 90,
         friction: 14,
@@ -561,11 +565,11 @@ export default function DivideDetailScreen() {
         useNativeDriver: true,
       }),
     ]).start(() => {
-      currentSheetHeight.current = SHEET_HALF_HEIGHT;
-      gestureStartHeight.current = SHEET_HALF_HEIGHT;
+      currentSheetHeight.current = initialSheetHeight;
+      gestureStartHeight.current = initialSheetHeight;
       setIsSheetExpanded(false);
     });
-  }, [isMemberSheetOpen, sheetHeight, dimAnim]);
+  }, [isMemberSheetOpen, sheetHeight, dimAnim, initialSheetHeight]);
 
   const sheetPanResponder = useRef(
     PanResponder.create({
@@ -1159,7 +1163,7 @@ const styles = StyleSheet.create({
   },
 
   scrollContent: {
-    paddingBottom: 140,
+    paddingBottom: 118,
   },
 
   imageBox: {
@@ -1527,17 +1531,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     paddingHorizontal: 22,
-    paddingTop: 14,
-    paddingBottom: 24,
+    paddingTop: 10,
+    paddingBottom: 16,
     backgroundColor: COLORS.white,
     borderTopWidth: 1,
     borderTopColor: COLORS.line,
   },
 
   bookmarkButton: {
-    width: 64,
-    height: 64,
-    borderRadius: 18,
+    width: 56,
+    height: 56,
+    borderRadius: 16,
     backgroundColor: COLORS.white,
     borderWidth: 1,
     borderColor: COLORS.line,
@@ -1547,8 +1551,8 @@ const styles = StyleSheet.create({
 
   selectButton: {
     flex: 1,
-    height: 64,
-    borderRadius: 18,
+    height: 56,
+    borderRadius: 16,
     backgroundColor: COLORS.yellow,
     alignItems: "center",
     justifyContent: "center",

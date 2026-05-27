@@ -856,8 +856,8 @@ export default function CommunityDetailScreen() {
             styles.inputWrapper,
             {
               paddingBottom: keyboardVisible
-                ? 14
-                : Math.max(insets.bottom + 18, 24),
+                ? 6
+                : Math.max(insets.bottom + 8, 12),
             },
           ]}
         >
@@ -1345,9 +1345,9 @@ const styles = StyleSheet.create({
 
   inputWrapper: {
     paddingHorizontal: SCREEN_PADDING,
-    paddingTop: 8,
+    paddingTop: 6,
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "center",
     borderTopWidth: 1,
     borderTopColor: COLORS.line,
     backgroundColor: COLORS.white,
@@ -1355,13 +1355,13 @@ const styles = StyleSheet.create({
 
   input: {
     flex: 1,
-    maxHeight: 76,
-    minHeight: 42,
-    borderRadius: 21,
+    maxHeight: 68,
+    minHeight: 38,
+    borderRadius: 19,
     backgroundColor: COLORS.gray100,
-    paddingHorizontal: 15,
-    paddingTop: Platform.OS === "ios" ? 11 : 8,
-    paddingBottom: 8,
+    paddingHorizontal: 14,
+    paddingTop: Platform.OS === "ios" ? 9 : 7,
+    paddingBottom: Platform.OS === "ios" ? 9 : 7,
     fontSize: 14,
     fontWeight: "500",
     color: COLORS.gray900,
@@ -1369,9 +1369,9 @@ const styles = StyleSheet.create({
   },
 
   sendButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: COLORS.yellow,
     alignItems: "center",
     justifyContent: "center",

@@ -36,6 +36,7 @@ type DivideRoom = {
   color: "yellow" | "purple" | "pink" | "gray";
   role: UserRole;
   reviewSubmitted?: boolean;
+  sortTime?: number;
 
   buyerName?: string;
   selectedMember?: string;
@@ -54,6 +55,7 @@ type NoteRoom = {
   lastMessage: string;
   time: string;
   unreadCount: number;
+  sortTime?: number;
 
   postId?: string;
   postsId?: string;
@@ -75,6 +77,45 @@ const SCREEN_PADDING = 22;
 const LEAVE_WIDTH = 88;
 
 const CHAT_ROOMS_STORAGE_KEYS = ["localChatRooms", "GO_REUDEOK_CHAT_ROOMS"];
+const TRADE_STATUS_STORAGE_KEY = "GO_REUDEOK_CHAT_TRADE_STATUS";
+const REVIEW_SUBMITTED_STORAGE_KEY = "GO_REUDEOK_CHAT_REVIEW_SUBMITTED";
+
+
+async function readJsonMap(key: string) {
+  try {
+    const saved = await AsyncStorage.getItem(key);
+    const parsed = saved ? JSON.parse(saved) : {};
+
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch (error) {
+    console.log(`${key} 불러오기 실패:`, error);
+    return {};
+  }
+}
+
+async function loadStoredTradeStatusMap() {
+  return readJsonMap(TRADE_STATUS_STORAGE_KEY);
+}
+
+async function loadStoredReviewSubmittedMap() {
+  return readJsonMap(REVIEW_SUBMITTED_STORAGE_KEY);
+}
+
+function sortDivideRooms(rooms: DivideRoom[]) {
+  return [...rooms].sort((a, b) => {
+    if (a.status === "done" && b.status !== "done") return 1;
+    if (a.status !== "done" && b.status === "done") return -1;
+
+    const aSortTime = a.sortTime ?? 0;
+    const bSortTime = b.sortTime ?? 0;
+
+    if (aSortTime !== bSortTime) return bSortTime - aSortTime;
+
+    return b.id - a.id;
+  });
+}
 
 function formatChatTime(value?: string | null) {
   if (!value) return "";
@@ -95,6 +136,27 @@ function formatChatTime(value?: string | null) {
   return `${String(date.getMonth() + 1).padStart(2, "0")}.${String(
     date.getDate()
   ).padStart(2, "0")}`;
+}
+
+function getRoomSortTime(room: any) {
+  const timeValue =
+    room?.lastMessageTime ??
+    room?.lastMessageAt ??
+    room?.updatedAt ??
+    room?.createdAt ??
+    room?.joinedAt ??
+    room?.chatRoomCreatedAt ??
+    room?.chatCreatedAt;
+
+  if (timeValue) {
+    const time = new Date(timeValue).getTime();
+
+    if (!Number.isNaN(time)) return time;
+  }
+
+  const id = getChatRoomId(room);
+
+  return Number.isFinite(id) ? id : 0;
 }
 
 function getRoomColor(index: number): DivideRoom["color"] {
@@ -513,16 +575,7 @@ function mergeServerRoomsWithLocalMetadata(serverRooms: any[], localRooms: any[]
         unreadCount: serverRoom.unreadCount ?? 0,
       };
     })
-    .sort((a, b) => {
-      const aTime = a?.lastMessageTime
-        ? new Date(a.lastMessageTime).getTime()
-        : 0;
-      const bTime = b?.lastMessageTime
-        ? new Date(b.lastMessageTime).getTime()
-        : 0;
-
-      return bTime - aTime;
-    });
+    .sort((a, b) => getRoomSortTime(b) - getRoomSortTime(a));
 }
 
 async function requestChatRoomsByUserId(userId: string | number) {
@@ -593,6 +646,7 @@ function normalizeChatRooms(response: unknown) {
           })(),
         lastMessage: room.lastMessage || "",
         time: formatChatTime(room.lastMessageTime ?? room.lastMessageAt),
+        sortTime: getRoomSortTime(room),
         unreadCount: room.unreadCount ?? 0,
         status: roomStatus,
         color: roomStatus === "done" ? "gray" : getRoomColor(index),
@@ -611,7 +665,13 @@ function normalizeChatRooms(response: unknown) {
     .sort((a, b) => {
       if (a.status === "done" && b.status !== "done") return 1;
       if (a.status !== "done" && b.status === "done") return -1;
-      return 0;
+
+      const aSortTime = a.sortTime ?? 0;
+      const bSortTime = b.sortTime ?? 0;
+
+      if (aSortTime !== bSortTime) return bSortTime - aSortTime;
+
+      return b.id - a.id;
     });
 
   const noteRooms = rooms
@@ -629,12 +689,21 @@ function normalizeChatRooms(response: unknown) {
         userName: opponentName || "상대방",
         lastMessage: room.lastMessage || "",
         time: formatChatTime(room.lastMessageTime ?? room.lastMessageAt),
+        sortTime: getRoomSortTime(room),
         unreadCount: room.unreadCount ?? 0,
 
         postId,
         postsId: postId,
         communityId: postId,
       };
+    })
+    .sort((a, b) => {
+      const aSortTime = a.sortTime ?? 0;
+      const bSortTime = b.sortTime ?? 0;
+
+      if (aSortTime !== bSortTime) return bSortTime - aSortTime;
+
+      return b.id - a.id;
     });
 
   return { divideRooms, noteRooms };
@@ -672,8 +741,27 @@ export default function ChatsScreen() {
       );
 
       const normalized = normalizeChatRooms(mergedRooms);
+      const storedTradeStatusMap = await loadStoredTradeStatusMap();
+      const storedReviewSubmittedMap = await loadStoredReviewSubmittedMap();
 
-      setDivideRooms(normalized.divideRooms);
+      const divideRoomsWithLocalState = normalized.divideRooms.map((room) => {
+        const roomId = String(room.id);
+        const isDone =
+          room.status === "done" || storedTradeStatusMap[roomId] === "거래 완료";
+
+        return {
+          ...room,
+          status: isDone ? "done" : room.status,
+          color: isDone ? "gray" : room.color,
+          lastMessage: isDone
+            ? room.lastMessage || "거래가 완료되었습니다."
+            : room.lastMessage,
+          reviewSubmitted:
+            room.reviewSubmitted || storedReviewSubmittedMap[roomId] === true,
+        };
+      });
+
+      setDivideRooms(sortDivideRooms(divideRoomsWithLocalState));
       setNoteRooms(normalized.noteRooms);
     } catch (error) {
       console.log("채팅방 목록 조회 실패:", error);
@@ -716,17 +804,20 @@ export default function ChatsScreen() {
     const targetId = Number(completedChatRoomId);
 
     setDivideRooms((prev) =>
-      prev.map((room) =>
-        room.id === targetId
-          ? {
-              ...room,
-              status: "done",
-              unreadCount: 0,
-              lastMessage: "거래가 완료되었습니다.",
-              time: "방금",
-              color: "gray",
-            }
-          : room
+      sortDivideRooms(
+        prev.map((room) =>
+          room.id === targetId
+            ? {
+                ...room,
+                status: "done",
+                unreadCount: 0,
+                lastMessage: "거래가 완료되었습니다.",
+                time: "방금",
+                sortTime: Date.now(),
+                color: "gray",
+              }
+            : room
+        )
       )
     );
   }, [completedChatRoomId]);

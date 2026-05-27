@@ -55,7 +55,7 @@ const COLORS = {
 };
 
 const DEFAULT_PANEL_HEIGHT = 300;
-const INPUT_BAR_HEIGHT = 55;
+const INPUT_BAR_HEIGHT = 58;
 
 const TRADE_COMPLETE_TEXT = "거래가 완료되었습니다.";
 const TRADE_CANCEL_TEXT = "거래가 취소되었습니다.";
@@ -391,7 +391,12 @@ function normalizeChatMessage(
     return null;
   }
 
-  if (messageType === "TRANSACTION_COMPLETE") {
+  if (
+    messageType === "TRANSACTION_COMPLETE" ||
+    messageType === "TRANSACTION_COMPLETED" ||
+    messageType === "TRADE_COMPLETE" ||
+    messageType === "TRADE_COMPLETED"
+  ) {
     return {
       id: String(message.messageId ?? `trade-${Date.now()}`),
       type: "trade",
@@ -754,6 +759,8 @@ export default function ChatRoomDetailScreen() {
       : currentStatus;
   const isCompleted = effectiveTradeStatus === "거래 완료";
   const isReviewSubmitted = reviewSubmitted === "true" || isReviewSubmittedState;
+  const shouldShowTradeCompleteFallback =
+    !isNote && isCompleted && !hasCompletedTradeMessage;
 
   const keyboardSpace = Math.max(keyboardHeight - insets.bottom, 0);
 
@@ -1437,6 +1444,16 @@ export default function ChatRoomDetailScreen() {
                 />
               );
             })}
+
+            {shouldShowTradeCompleteFallback && (
+              <TradeMessage
+                key="trade-complete-fallback"
+                text={TRADE_COMPLETE_TEXT}
+                showReviewButton={isBuyer && isCompleted}
+                reviewSubmitted={isReviewSubmitted}
+                onReviewPress={handleReviewPress}
+              />
+            )}
           </ScrollView>
         </View>
 
@@ -2069,17 +2086,18 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: COLORS.line,
     paddingHorizontal: 16,
-    paddingTop: 7,
-    paddingBottom: 7,
+    paddingTop: 9,
+    paddingBottom: 9,
     zIndex: 30,
+    justifyContent: "center",
   },
   inputRow: {
     flexDirection: "row",
     alignItems: "center",
   },
   plusButton: {
-    width: 34,
-    height: 38,
+    width: 38,
+    height: 40,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 8,
@@ -2090,12 +2108,14 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     backgroundColor: "#F3F1ED",
     paddingHorizontal: 16,
+    paddingVertical: 0,
     fontSize: 13,
     color: COLORS.black,
+    textAlignVertical: "center",
   },
   sendButton: {
-    width: 37,
-    height: 37,
+    width: 38,
+    height: 38,
     borderRadius: 19,
     backgroundColor: COLORS.yellow,
     alignItems: "center",

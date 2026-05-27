@@ -3,10 +3,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -41,6 +43,7 @@ type LocalChatRoom = {
 export default function DivideJoin() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const scrollRef = useRef<ScrollView | null>(null);
 
   const postId = typeof params.postId === "string" ? params.postId : "";
   const memberItemId =
@@ -91,6 +94,12 @@ export default function DivideJoin() {
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const scrollToRequestInput = () => {
+    setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }, 120);
+  };
+
   useEffect(() => {
     const loadMyProfile = async () => {
       try {
@@ -105,11 +114,16 @@ export default function DivideJoin() {
   }, []);
 
   useEffect(() => {
-    const showSub = Keyboard.addListener("keyboardDidShow", () => {
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const showSub = Keyboard.addListener(showEvent, () => {
       setIsKeyboardVisible(true);
     });
 
-    const hideSub = Keyboard.addListener("keyboardDidHide", () => {
+    const hideSub = Keyboard.addListener(hideEvent, () => {
       setIsKeyboardVisible(false);
     });
 
@@ -132,7 +146,7 @@ export default function DivideJoin() {
 
     return `${onlyNumber.slice(0, 3)}-${onlyNumber.slice(
       3,
-      7
+      7,
     )}-${onlyNumber.slice(7, 11)}`;
   };
 
@@ -209,7 +223,7 @@ export default function DivideJoin() {
 
       await AsyncStorage.setItem(
         COMPLETED_MEMBER_STORAGE_KEY,
-        JSON.stringify([nextItem, ...filtered])
+        JSON.stringify([nextItem, ...filtered]),
       );
     } catch (error) {
       console.log("모집완료 상태 저장 실패:", error);
@@ -244,12 +258,12 @@ export default function DivideJoin() {
       };
 
       const filteredRooms = previousRooms.filter(
-        (room) => String(room.id) !== String(chatRoomId)
+        (room) => String(room.id) !== String(chatRoomId),
       );
 
       await AsyncStorage.setItem(
         "localChatRooms",
-        JSON.stringify([nextRoom, ...filteredRooms])
+        JSON.stringify([nextRoom, ...filteredRooms]),
       );
     } catch (error) {
       console.log("로컬 채팅방 저장 실패:", error);
@@ -289,7 +303,7 @@ export default function DivideJoin() {
       if (!chatRoomId) {
         Alert.alert(
           "채팅방 입장 실패",
-          "참여글은 작성됐지만 채팅방 정보를 받지 못했습니다."
+          "참여글은 작성됐지만 채팅방 정보를 받지 못했습니다.",
         );
         return;
       }
@@ -333,7 +347,7 @@ export default function DivideJoin() {
 
       Alert.alert(
         "참여글 작성 실패",
-        error?.message || "참여글 작성 중 오류가 발생했습니다."
+        error?.message || "참여글 작성 중 오류가 발생했습니다.",
       );
     } finally {
       setIsSubmitting(false);
@@ -357,86 +371,98 @@ export default function DivideJoin() {
           <View style={styles.headerRight} />
         </View>
 
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={[
-            styles.scrollContent,
-            isKeyboardVisible && styles.scrollContentKeyboard,
-          ]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
+        <KeyboardAvoidingView
+          style={styles.contentAvoider}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          keyboardVerticalOffset={0}
         >
-          {(selectedMember || selectedPrice) && (
-            <View style={styles.selectedBox}>
-              <View>
-                <Text style={styles.selectedLabel}>선택한 멤버</Text>
-                <Text style={styles.selectedMember}>
-                  {selectedMember || "멤버 정보 없음"}
-                </Text>
+          <ScrollView
+            ref={scrollRef}
+            style={styles.scroll}
+            contentContainerStyle={[
+              styles.scrollContent,
+              isKeyboardVisible && styles.scrollContentKeyboard,
+            ]}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={
+              Platform.OS === "ios" ? "interactive" : "on-drag"
+            }
+            onScrollBeginDrag={Keyboard.dismiss}
+          >
+            {(selectedMember || selectedPrice) && (
+              <View style={styles.selectedBox}>
+                <View>
+                  <Text style={styles.selectedLabel}>선택한 멤버</Text>
+                  <Text style={styles.selectedMember}>
+                    {selectedMember || "멤버 정보 없음"}
+                  </Text>
+                </View>
+
+                {selectedPrice ? (
+                  <Text style={styles.selectedPrice}>
+                    ₩{Number(selectedPrice).toLocaleString()}
+                  </Text>
+                ) : null}
               </View>
+            )}
 
-              {selectedPrice ? (
-                <Text style={styles.selectedPrice}>
-                  ₩{Number(selectedPrice).toLocaleString()}
-                </Text>
-              ) : null}
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>받으시는 분 *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="실명으로 입력해 주세요."
+                placeholderTextColor="#AFAFAF"
+                value={receiverName}
+                onChangeText={setReceiverName}
+                returnKeyType="next"
+              />
             </View>
-          )}
 
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>받으시는 분 *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="실명으로 입력해 주세요."
-              placeholderTextColor="#AFAFAF"
-              value={receiverName}
-              onChangeText={setReceiverName}
-              returnKeyType="next"
-            />
-          </View>
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>전화번호 *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="010-0000-0000"
+                placeholderTextColor="#AFAFAF"
+                keyboardType="phone-pad"
+                value={phoneNumber}
+                onChangeText={handlePhoneChange}
+                maxLength={13}
+              />
+            </View>
 
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>전화번호 *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="010-0000-0000"
-              placeholderTextColor="#AFAFAF"
-              keyboardType="phone-pad"
-              value={phoneNumber}
-              onChangeText={handlePhoneChange}
-              maxLength={13}
-            />
-          </View>
+            <View style={styles.divider} />
 
-          <View style={styles.divider} />
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>편의점 지점명 *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="배송 방법 확인 후 작성해주세요."
+                placeholderTextColor="#AFAFAF"
+                value={storeName}
+                onChangeText={setStoreName}
+                returnKeyType="next"
+              />
+            </View>
 
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>편의점 지점명 *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="예시) GS25 숙대입구점"
-              placeholderTextColor="#AFAFAF"
-              value={storeName}
-              onChangeText={setStoreName}
-              returnKeyType="next"
-            />
-          </View>
+            <View style={styles.divider} />
 
-          <View style={styles.divider} />
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>요청사항</Text>
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              placeholder="판매자에게 원하는 요청 사항을 적어 주세요."
-              placeholderTextColor="#AFAFAF"
-              multiline
-              textAlignVertical="top"
-              value={requestText}
-              onChangeText={setRequestText}
-            />
-          </View>
-        </ScrollView>
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>요청사항</Text>
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                placeholder="판매자에게 원하는 요청 사항을 적어 주세요."
+                placeholderTextColor="#AFAFAF"
+                multiline
+                textAlignVertical="top"
+                value={requestText}
+                onChangeText={setRequestText}
+                onFocus={scrollToRequestInput}
+              />
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
 
         {!isKeyboardVisible && (
           <View style={styles.bottomArea}>
@@ -470,6 +496,10 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: "#FFFFFF",
+  },
+
+  contentAvoider: {
+    flex: 1,
   },
 
   container: {
@@ -510,7 +540,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 30,
     paddingTop: 24,
-    paddingBottom: 135,
+    paddingBottom: 150,
   },
 
   scrollContentKeyboard: {
@@ -583,9 +613,13 @@ const styles = StyleSheet.create({
   },
 
   bottomArea: {
-    paddingHorizontal: 24,
-    paddingTop: 8,
-    paddingBottom: 14,
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 22,
+    paddingTop: 10,
+    paddingBottom: 0,
     backgroundColor: "#FFFFFF",
     borderTopWidth: 1,
     borderTopColor: "#F1F1F1",
@@ -596,12 +630,12 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     color: "#999999",
     textAlign: "center",
-    marginBottom: 8,
+    marginBottom: 10,
   },
 
   joinButton: {
-    height: 50,
-    borderRadius: 10,
+    height: 56,
+    borderRadius: 16,
     backgroundColor: YELLOW,
     alignItems: "center",
     justifyContent: "center",
@@ -613,7 +647,7 @@ const styles = StyleSheet.create({
 
   joinButtonText: {
     color: "#FFFFFF",
-    fontSize: 17,
-    fontWeight: "800",
+    fontSize: 18,
+    fontWeight: "900",
   },
 });

@@ -24,6 +24,60 @@ const SHEET_HEIGHT = SCREEN_HEIGHT * 0.52;
 
 const LOCAL_CHAT_ROOMS_KEY = "localChatRooms";
 const REMOVED_CHAT_ROOMS_KEY = "GO_REUDEOK_REMOVED_CHAT_ROOMS";
+const TRADE_STATUS_STORAGE_KEY = "GO_REUDEOK_CHAT_TRADE_STATUS";
+
+async function readJsonMap(key: string) {
+  try {
+    const saved = await AsyncStorage.getItem(key);
+    const parsed = saved ? JSON.parse(saved) : {};
+
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch (error) {
+    console.log(`${key} 불러오기 실패:`, error);
+    return {};
+  }
+}
+
+async function saveCompletedStatusToStorage(chatRoomId: string) {
+  try {
+    const map = await readJsonMap(TRADE_STATUS_STORAGE_KEY);
+    map[String(chatRoomId)] = "거래 완료";
+    await AsyncStorage.setItem(TRADE_STATUS_STORAGE_KEY, JSON.stringify(map));
+  } catch (error) {
+    console.log("거래 완료 상태 저장 실패:", error);
+  }
+}
+
+async function updateLocalRoomAsCompleted(chatRoomId: string) {
+  try {
+    const raw = await AsyncStorage.getItem(LOCAL_CHAT_ROOMS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+
+    if (!Array.isArray(parsed)) return;
+
+    const nextRooms = parsed.map((room: any) => {
+      const roomId = String(room?.id ?? room?.chatRoomId ?? room?.roomId ?? "");
+
+      if (roomId !== String(chatRoomId)) return room;
+
+      return {
+        ...room,
+        status: "done",
+        postStatus: "거래 완료",
+        tradeStatus: "거래 완료",
+        lastMessage: "거래가 완료되었습니다.",
+        lastMessageTime: new Date().toISOString(),
+        unreadCount: 0,
+      };
+    });
+
+    await AsyncStorage.setItem(LOCAL_CHAT_ROOMS_KEY, JSON.stringify(nextRooms));
+  } catch (error) {
+    console.log("로컬 채팅방 거래 완료 반영 실패:", error);
+  }
+}
 
 const API_BASE_URL = (
   process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://172.20.99.65:8080"
@@ -781,15 +835,18 @@ export default function ChatMenuScreen() {
     } as any);
   };
 
-  const moveToChatWithCompletedStatus = () => {
+  const moveToChatWithCompletedStatus = async () => {
     const nextStatus: TradeStatus = "거래 완료";
+    const targetChatRoomId = typeof chatRoomId === "string" ? chatRoomId : "1";
 
     setTradeStatus(nextStatus);
+    await saveCompletedStatusToStorage(targetChatRoomId);
+    await updateLocalRoomAsCompleted(targetChatRoomId);
 
     router.replace({
       pathname: "/chat/[chatRoomId]",
       params: {
-        chatRoomId: typeof chatRoomId === "string" ? chatRoomId : "1",
+        chatRoomId: targetChatRoomId,
         type: "divide",
         role: isSeller ? "seller" : "buyer",
         title: roomTitle,
@@ -893,7 +950,7 @@ export default function ChatMenuScreen() {
               await completeChatRoom(chatRoomId);
             }
 
-            moveToChatWithCompletedStatus();
+            await moveToChatWithCompletedStatus();
           } catch (error: any) {
             console.log("거래 완료 처리 실패:", error);
 

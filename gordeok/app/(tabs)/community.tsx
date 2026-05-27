@@ -122,6 +122,7 @@ function formatDate(value?: string) {
 export default function CommunityScreen() {
   const [selectedCategory, setSelectedCategory] = useState("전체");
   const [selectedSort, setSelectedSort] = useState<SortType>("latest");
+  const [sortOpen, setSortOpen] = useState(false);
   const [posts, setPosts] = useState<CommunityPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -149,13 +150,13 @@ export default function CommunityScreen() {
         setRefreshing(false);
       }
     },
-    [selectedCategory, selectedSort]
+    [selectedCategory, selectedSort],
   );
 
   useFocusEffect(
     useCallback(() => {
       loadPosts(posts.length === 0);
-    }, [loadPosts, posts.length])
+    }, [loadPosts, posts.length]),
   );
 
   const handleRefresh = useCallback(() => {
@@ -177,6 +178,13 @@ export default function CommunityScreen() {
     });
   }, [posts, selectedSort]);
 
+  const selectedSortLabel = useMemo(() => {
+    return (
+      sortOptions.find((option) => option.key === selectedSort)?.label ??
+      "최신순"
+    );
+  }, [selectedSort]);
+
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.container}>
@@ -192,7 +200,10 @@ export default function CommunityScreen() {
               <Pressable
                 key={category}
                 style={styles.categoryButton}
-                onPress={() => setSelectedCategory(category)}
+                onPress={() => {
+                  setSelectedCategory(category);
+                  setSortOpen(false);
+                }}
               >
                 <Text
                   style={[
@@ -209,24 +220,6 @@ export default function CommunityScreen() {
           })}
         </View>
 
-        <View style={styles.sortWrap}>
-          {sortOptions.map((option) => {
-            const active = selectedSort === option.key;
-
-            return (
-              <Pressable
-                key={option.key}
-                style={[styles.sortButton, active && styles.sortButtonActive]}
-                onPress={() => setSelectedSort(option.key)}
-              >
-                <Text style={[styles.sortText, active && styles.sortTextActive]}>
-                  {option.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
         <FlatList
           data={filteredPosts}
           extraData={posts}
@@ -236,6 +229,28 @@ export default function CommunityScreen() {
             filteredPosts.length === 0 && styles.emptyListContent,
           ]}
           showsVerticalScrollIndicator={false}
+          removeClippedSubviews={false}
+          onScrollBeginDrag={() => setSortOpen(false)}
+          ListHeaderComponent={
+            <View style={[styles.sortWrap, sortOpen && styles.sortWrapOpen]}>
+              <View style={styles.sortDropdownBox}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.sortSelectButton,
+                    pressed && styles.sortSelectButtonPressed,
+                  ]}
+                  onPress={() => setSortOpen((prev) => !prev)}
+                >
+                  <Text style={styles.sortSelectText}>{selectedSortLabel}</Text>
+                  <Ionicons
+                    name={sortOpen ? "chevron-up" : "chevron-down"}
+                    size={15}
+                    color={COLORS.gray500}
+                  />
+                </Pressable>
+              </View>
+            </View>
+          }
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -246,9 +261,7 @@ export default function CommunityScreen() {
           ListEmptyComponent={
             <View style={styles.emptyBox}>
               <Text style={styles.emptyText}>
-                {loading
-                  ? "게시글이 없어요."
-                  : "게시글이 없어요."}
+                {loading ? "게시글이 없어요." : "게시글이 없어요."}
               </Text>
             </View>
           }
@@ -273,7 +286,9 @@ export default function CommunityScreen() {
 
                   <View style={styles.writerBox}>
                     <Text style={styles.name}>{item.authorNickname}</Text>
-                    <Text style={styles.time}>{formatDate(item.createdAt)}</Text>
+                    <Text style={styles.time}>
+                      {formatDate(item.createdAt)}
+                    </Text>
                   </View>
                 </View>
 
@@ -333,6 +348,37 @@ export default function CommunityScreen() {
             );
           }}
         />
+
+        {sortOpen && (
+          <View style={styles.sortDropdownOverlay}>
+            {sortOptions.map((option) => {
+              const active = selectedSort === option.key;
+
+              return (
+                <Pressable
+                  key={option.key}
+                  style={[
+                    styles.sortDropdownItem,
+                    active && styles.sortDropdownItemActive,
+                  ]}
+                  onPress={() => {
+                    setSelectedSort(option.key);
+                    setSortOpen(false);
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.sortDropdownText,
+                      active && styles.sortDropdownTextActive,
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
 
         <Pressable
           style={({ pressed }) => [
@@ -409,37 +455,90 @@ const styles = StyleSheet.create({
   },
 
   sortWrap: {
-    height: 50,
-    paddingHorizontal: SCREEN_PADDING,
+    height: 40,
+    paddingRight: 12,
+    paddingLeft: SCREEN_PADDING,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    justifyContent: "flex-end",
     borderBottomWidth: 1,
     borderBottomColor: COLORS.line,
     backgroundColor: COLORS.white,
+    zIndex: 20,
+    overflow: "visible",
   },
 
-  sortButton: {
-    height: 31,
-    paddingHorizontal: 13,
+  sortWrapOpen: {
+    zIndex: 50,
+  },
+
+  sortDropdownBox: {
+    position: "relative",
+    alignItems: "flex-end",
+    zIndex: 60,
+  },
+
+  sortSelectButton: {
+    height: 32,
+    minWidth: 92,
+    paddingHorizontal: 8,
     borderRadius: 16,
-    backgroundColor: COLORS.gray100,
+    backgroundColor: COLORS.white,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+  },
+
+  sortSelectButtonPressed: {
+    opacity: 0.65,
+  },
+
+  sortSelectText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: COLORS.gray500,
+    marginRight: 4,
+  },
+
+  sortDropdownOverlay: {
+    position: "absolute",
+    top: 150,
+    right: 12,
+    width: 104,
+    borderRadius: 12,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    paddingVertical: 5,
+    shadowColor: COLORS.black,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 20,
+    zIndex: 999,
+  },
+
+  sortDropdownItem: {
+    height: 30,
+    paddingHorizontal: 10,
     justifyContent: "center",
     alignItems: "center",
   },
 
-  sortButtonActive: {
-    backgroundColor: COLORS.black,
+  sortDropdownItemActive: {
+    backgroundColor: COLORS.gray100,
   },
 
-  sortText: {
+  sortDropdownText: {
     fontSize: 13,
-    fontWeight: "800",
-    color: COLORS.gray500,
+    fontWeight: "700",
+    color: COLORS.gray400,
+    textAlign: "center",
   },
 
-  sortTextActive: {
-    color: COLORS.white,
+  sortDropdownTextActive: {
+    color: COLORS.gray700,
+    fontWeight: "900",
   },
 
   listContent: {
