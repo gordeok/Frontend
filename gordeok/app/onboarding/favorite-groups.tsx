@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -9,10 +10,21 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+
 import { getIdols } from "../../services/idol";
 import { saveFavoriteIdols } from "../../services/user";
-import type { Idol } from "../../types/idol";
+
+type Idol = {
+  id: number;
+  name: string;
+  code?: string;
+  imageUrl?: string;
+  logoUrl?: string;
+  profileImage?: string;
+  idolImageUrl?: string;
+};
 
 export default function FavoriteGroups() {
   const router = useRouter();
@@ -31,6 +43,8 @@ export default function FavoriteGroups() {
         setErrorMessage("");
 
         const data = await getIdols();
+        console.log("아이돌 목록 응답:", data);
+
         setGroups(Array.isArray(data) ? data : []);
       } catch (error: any) {
         console.log("아이돌 목록 조회 실패:", error);
@@ -61,6 +75,16 @@ export default function FavoriteGroups() {
       prev.includes(groupId)
         ? prev.filter((id) => id !== groupId)
         : [...prev, groupId]
+    );
+  };
+
+  const getGroupImageUrl = (group: Idol) => {
+    return (
+      group.imageUrl ||
+      group.logoUrl ||
+      group.profileImage ||
+      group.idolImageUrl ||
+      ""
     );
   };
 
@@ -95,13 +119,17 @@ export default function FavoriteGroups() {
       >
         <Text style={styles.title}>최애 그룹을 선택해 주세요</Text>
 
-        <TextInput
-          placeholder="그룹 검색"
-          placeholderTextColor="#B8B8C2"
-          style={styles.search}
-          value={keyword}
-          onChangeText={setKeyword}
-        />
+        <View style={styles.searchBox}>
+          <Ionicons name="search" size={18} color="#A6A6B0" />
+
+          <TextInput
+            placeholder="그룹 검색"
+            placeholderTextColor="#B8B8C2"
+            style={styles.searchInput}
+            value={keyword}
+            onChangeText={setKeyword}
+          />
+        </View>
 
         {isLoading ? (
           <Text style={styles.noticeText}>그룹 목록을 불러오는 중이에요.</Text>
@@ -113,6 +141,7 @@ export default function FavoriteGroups() {
           <View style={styles.grid}>
             {filteredGroups.map((group) => {
               const isSelected = selectedGroups.includes(group.id);
+              const imageUrl = getGroupImageUrl(group);
 
               return (
                 <Pressable
@@ -129,7 +158,26 @@ export default function FavoriteGroups() {
                       isSelected && styles.selectedCircle,
                     ]}
                   >
-                    <Text style={styles.logoText}>{group.name.slice(0, 3)}</Text>
+                    {imageUrl ? (
+                      <Image
+                        source={{ uri: imageUrl }}
+                        style={[
+                          styles.groupImage,
+                          isSelected && styles.selectedImage,
+                        ]}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <Text
+                        style={[
+                          styles.logoText,
+                          isSelected && styles.selectedLogoText,
+                        ]}
+                      >
+                        {group.name.slice(0, 3)}
+                      </Text>
+                    )}
+
                   </View>
 
                   <Text
@@ -161,7 +209,7 @@ export default function FavoriteGroups() {
           disabled={selectedGroups.length === 0 || isSaving}
           onPress={goNext}
         >
-          <Text style={styles.nextText}>{isSaving ? "저장 중" : "다음"}</Text>
+          <Text style={styles.nextText}>{isSaving ? "다음" : "다음"}</Text>
         </Pressable>
       </View>
     </View>
@@ -175,11 +223,21 @@ function StepHeader({ current }: { current: number }) {
 
       {[1, 2, 3].map((step) => (
         <View key={step} style={styles.stepItem}>
-          <View style={[styles.stepCircle, current === step && styles.activeStep]}>
+          <View
+            style={[
+              styles.stepCircle,
+              current === step && styles.activeStep,
+            ]}
+          >
             <Text style={styles.stepNum}>{step}</Text>
           </View>
 
-          <Text style={[styles.stepLabel, current === step && styles.activeLabel]}>
+          <Text
+            style={[
+              styles.stepLabel,
+              current === step && styles.activeLabel,
+            ]}
+          >
             {step === 1
               ? "최애 그룹 선택"
               : step === 2
@@ -202,6 +260,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 140,
   },
+
   stepWrap: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -212,15 +271,16 @@ const styles = StyleSheet.create({
   },
   stepLine: {
     position: "absolute",
-    top: 13,
-    left: 40,
-    right: 40,
-    height: 2,
-    backgroundColor: "#E5E5E5",
+    top: 14,
+    left: 14,
+    right: 14,
+    height: 1,
+    backgroundColor: "#E2E2E6",
     zIndex: 0,
   },
   stepItem: {
     alignItems: "center",
+    zIndex: 1,
   },
   stepCircle: {
     width: 28,
@@ -229,7 +289,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#DFDFE3",
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 2,
   },
   activeStep: {
     backgroundColor: "#F7C94B",
@@ -247,6 +306,7 @@ const styles = StyleSheet.create({
     color: "#F4B900",
     fontWeight: "700",
   },
+
   title: {
     textAlign: "center",
     fontSize: 20,
@@ -254,45 +314,83 @@ const styles = StyleSheet.create({
     color: "#202633",
     marginBottom: 36,
   },
-  search: {
+  searchBox: {
     height: 44,
     backgroundColor: "#F1F1F6",
     borderRadius: 12,
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
     marginBottom: 28,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
+  searchInput: {
+    flex: 1,
+    height: "100%",
+    fontSize: 14,
+    color: "#202633",
+    padding: 0,
+  },
+
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    justifyContent: "space-between",
+    justifyContent: "flex-start",
   },
   groupItem: {
-    width: "30%",
+    width: "33.333%",
     alignItems: "center",
     marginBottom: 24,
   },
   pressedItem: {
     opacity: 0.75,
   },
+
   logoCircle: {
     width: 74,
     height: 74,
     borderRadius: 37,
-    backgroundColor: "#D9D9D9",
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    opacity: 0.7,
+    overflow: "hidden",
+    opacity: 0.95,
+    borderWidth: 1.5,
+    borderColor: "#E4E4EA",
   },
   selectedCircle: {
-    backgroundColor: "#F7C94B",
+    backgroundColor: "#FFF7D8",
     opacity: 1,
-    borderWidth: 2,
-    borderColor: "#202633",
+    borderWidth: 2.5,
+    borderColor: "#F7C94B",
+  },
+  groupImage: {
+    width: "100%",
+    height: "100%",
+  },
+  selectedImage: {
+    opacity: 0.88,
   },
   logoText: {
-    color: "#fff",
+    color: "#A0A0A8",
     fontWeight: "800",
     fontSize: 16,
+  },
+  selectedLogoText: {
+    color: "#202633",
+  },
+  checkBadge: {
+    position: "absolute",
+    right: 2,
+    bottom: 2,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#F7C94B",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
   },
   groupName: {
     marginTop: 10,
@@ -310,6 +408,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 36,
   },
+
   bottom: {
     position: "absolute",
     bottom: 0,

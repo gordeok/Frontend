@@ -1,8 +1,15 @@
 // 최애 편집 화면
 
 import { useEffect, useMemo, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView } from "react-native";
-import { useRouter } from "expo-router";
+import {
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  ScrollView,
+  Image,
+} from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
 import { getIdolMembers } from "@/services/idol";
@@ -11,6 +18,10 @@ import {
   getFavoriteMembers,
   saveFavoriteMembers,
 } from "@/services/user";
+
+const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_BASE_URL ||
+  "https://frostily-derby-underpass.ngrok-free.dev";
 
 type Idol = {
   id: number;
@@ -22,6 +33,15 @@ type Member = {
   id: number;
   idolId: number;
   name: string;
+
+  imageUrl?: string;
+  profileImage?: string;
+  profileImageUrl?: string;
+  memberImageUrl?: string;
+  photoUrl?: string;
+  image?: string;
+  imagePath?: string;
+  thumbnailUrl?: string;
 };
 
 type GroupWithMembers = Idol & {
@@ -30,6 +50,12 @@ type GroupWithMembers = Idol & {
 
 export default function FavoriteEditScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
+
+  const editGroupId =
+    typeof params.editGroupId === "string" && params.editGroupId
+      ? Number(params.editGroupId)
+      : null;
 
   const [groups, setGroups] = useState<GroupWithMembers[]>([]);
   const [selectedMembers, setSelectedMembers] = useState<number[]>([]);
@@ -46,11 +72,21 @@ export default function FavoriteEditScreen() {
         const favoriteIdols = await getFavoriteIdols();
         const favoriteMembers = await getFavoriteMembers();
 
+        console.log("최애 편집 그룹 응답:", favoriteIdols);
+        console.log("최애 편집 멤버 응답:", favoriteMembers);
+        console.log("현재 편집할 그룹 ID:", editGroupId);
+
         setSelectedMembers(favoriteMembers.map((member) => Number(member.id)));
 
+        const targetIdols = editGroupId
+          ? favoriteIdols.filter((idol) => Number(idol.id) === editGroupId)
+          : favoriteIdols;
+
         const groupsWithMembers = await Promise.all(
-          favoriteIdols.map(async (idol) => {
+          targetIdols.map(async (idol) => {
             const members = await getIdolMembers(Number(idol.id));
+
+            console.log(`${idol.name} 전체 멤버 응답:`, members);
 
             return {
               id: Number(idol.id),
@@ -73,7 +109,7 @@ export default function FavoriteEditScreen() {
     };
 
     loadFavorites();
-  }, []);
+  }, [editGroupId]);
 
   const isConfirmEnabled = useMemo(() => {
     if (groups.length === 0) return false;
@@ -88,6 +124,37 @@ export default function FavoriteEditScreen() {
       prev.includes(memberId)
         ? prev.filter((id) => id !== memberId)
         : [...prev, memberId]
+    );
+  };
+
+  const normalizeImageUrl = (url?: string) => {
+    if (!url) return "";
+
+    const trimmedUrl = String(url).trim();
+
+    if (!trimmedUrl) return "";
+
+    if (trimmedUrl.startsWith("http://") || trimmedUrl.startsWith("https://")) {
+      return trimmedUrl;
+    }
+
+    if (trimmedUrl.startsWith("/")) {
+      return `${API_BASE_URL}${trimmedUrl}`;
+    }
+
+    return `${API_BASE_URL}/${trimmedUrl}`;
+  };
+
+  const getMemberImageUrl = (member: Member) => {
+    return normalizeImageUrl(
+      member.imageUrl ||
+        member.profileImage ||
+        member.profileImageUrl ||
+        member.memberImageUrl ||
+        member.photoUrl ||
+        member.image ||
+        member.imagePath ||
+        member.thumbnailUrl
     );
   };
 
@@ -127,10 +194,10 @@ export default function FavoriteEditScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {isLoading ? (
-          <Text style={styles.noticeText}>최애 정보를 불러오는 중이에요.</Text>
-        ) : errorMessage ? (
+        {errorMessage ? (
           <Text style={styles.noticeText}>{errorMessage}</Text>
+        ) : isLoading ? (
+          <View style={styles.loadingBlank} />
         ) : groups.length === 0 ? (
           <Text style={styles.noticeText}>선택된 최애 그룹이 없어요.</Text>
         ) : (
@@ -142,6 +209,7 @@ export default function FavoriteEditScreen() {
                 {group.members.map((member) => {
                   const memberId = Number(member.id);
                   const isSelected = selectedMembers.includes(memberId);
+                  const memberImageUrl = getMemberImageUrl(member);
 
                   return (
                     <Pressable
@@ -149,13 +217,31 @@ export default function FavoriteEditScreen() {
                       style={[styles.card, isSelected && styles.selectedCard]}
                       onPress={() => toggleMember(memberId)}
                     >
-                      <View style={styles.imagePlaceholder} />
+                      <View style={styles.imageBox}>
+                        {memberImageUrl ? (
+                          <Image
+                            source={{ uri: memberImageUrl }}
+                            style={[
+                              styles.memberImage,
+                              !isSelected && styles.unselectedImage,
+                            ]}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <View style={styles.imagePlaceholder}>
+                            <Text style={styles.placeholderText}>
+                              {member.name.slice(0, 2)}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
 
                       <Text
                         style={[
                           styles.memberName,
                           isSelected && styles.selectedText,
                         ]}
+                        numberOfLines={1}
                       >
                         {member.name}
                       </Text>
@@ -219,6 +305,10 @@ const styles = StyleSheet.create({
     paddingBottom: 140,
   },
 
+  loadingBlank: {
+    height: 36,
+  },
+
   noticeText: {
     textAlign: "center",
     color: "#999",
@@ -241,7 +331,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "flex-start",
-    gap: 17
+    gap: 17,
   },
 
   card: {
@@ -263,9 +353,32 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
 
-  imagePlaceholder: {
+  imageBox: {
     height: 88,
     backgroundColor: "#E2E3E7",
+    overflow: "hidden",
+  },
+
+  memberImage: {
+    width: "100%",
+    height: "100%",
+  },
+
+  unselectedImage: {
+    opacity: 0.65,
+  },
+
+  imagePlaceholder: {
+    flex: 1,
+    backgroundColor: "#E2E3E7",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  placeholderText: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#FFFFFF",
   },
 
   memberName: {
@@ -274,6 +387,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     color: "#999",
+    paddingHorizontal: 4,
   },
 
   selectedText: {

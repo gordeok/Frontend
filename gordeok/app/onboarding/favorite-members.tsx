@@ -1,12 +1,36 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+
 import { getIdolMembers, getIdols } from "../../services/idol";
 import { saveFavoriteMembers } from "../../services/user";
-import type { Idol, IdolMember } from "../../types/idol";
+import type { Idol } from "../../types/idol";
+
+const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost:8080";
+
+type IdolMemberWithImage = {
+  id: number;
+  idolId?: number;
+  name: string;
+
+  imageUrl?: string;
+  profileImage?: string;
+  memberImageUrl?: string;
+  photoUrl?: string;
+  image?: string;
+  imagePath?: string;
+};
 
 type GroupWithMembers = Idol & {
-  members: IdolMember[];
+  members: IdolMemberWithImage[];
 };
 
 export default function FavoriteMembers() {
@@ -48,6 +72,8 @@ export default function FavoriteMembers() {
           filteredIdols.map(async (idol) => {
             const members = await getIdolMembers(idol.id);
 
+            console.log(`${idol.name} 멤버 목록 응답:`, members);
+
             return {
               ...idol,
               members: Array.isArray(members) ? members : [],
@@ -81,6 +107,35 @@ export default function FavoriteMembers() {
       prev.includes(memberId)
         ? prev.filter((id) => id !== memberId)
         : [...prev, memberId]
+    );
+  };
+
+  const normalizeImageUrl = (url?: string) => {
+    if (!url) return "";
+
+    const trimmedUrl = url.trim();
+
+    if (!trimmedUrl) return "";
+
+    if (trimmedUrl.startsWith("http://") || trimmedUrl.startsWith("https://")) {
+      return trimmedUrl;
+    }
+
+    if (trimmedUrl.startsWith("/")) {
+      return `${API_BASE_URL}${trimmedUrl}`;
+    }
+
+    return `${API_BASE_URL}/${trimmedUrl}`;
+  };
+
+  const getMemberImageUrl = (member: IdolMemberWithImage) => {
+    return normalizeImageUrl(
+      member.imageUrl ||
+        member.profileImage ||
+        member.memberImageUrl ||
+        member.photoUrl ||
+        member.image ||
+        member.imagePath
     );
   };
 
@@ -130,6 +185,7 @@ export default function FavoriteMembers() {
               <View style={styles.grid}>
                 {group.members.map((member) => {
                   const isSelected = selectedMembers.includes(member.id);
+                  const memberImageUrl = getMemberImageUrl(member);
 
                   return (
                     <Pressable
@@ -137,13 +193,28 @@ export default function FavoriteMembers() {
                       style={[styles.card, isSelected && styles.selectedCard]}
                       onPress={() => toggleMember(member.id)}
                     >
-                      <View style={styles.imagePlaceholder} />
+                      <View style={styles.imageBox}>
+                        {memberImageUrl ? (
+                          <Image
+                            source={{ uri: memberImageUrl }}
+                            style={styles.memberImage}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <View style={styles.imagePlaceholder}>
+                            <Text style={styles.placeholderText}>
+                              {member.name.slice(0, 2)}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
 
                       <Text
                         style={[
                           styles.memberName,
                           isSelected && styles.selectedText,
                         ]}
+                        numberOfLines={1}
                       >
                         {member.name}
                       </Text>
@@ -166,7 +237,7 @@ export default function FavoriteMembers() {
           disabled={!isNextEnabled || isSaving}
           onPress={goNext}
         >
-          <Text style={styles.nextText}>{isSaving ? "저장 중" : "다음"}</Text>
+          <Text style={styles.nextText}>{isSaving ? "다음" : "다음"}</Text>
         </Pressable>
       </View>
     </View>
@@ -180,11 +251,15 @@ function StepHeader({ current }: { current: number }) {
 
       {[1, 2, 3].map((step) => (
         <View key={step} style={styles.stepItem}>
-          <View style={[styles.stepCircle, current === step && styles.activeStep]}>
+          <View
+            style={[styles.stepCircle, current === step && styles.activeStep]}
+          >
             <Text style={styles.stepNum}>{step}</Text>
           </View>
 
-          <Text style={[styles.stepLabel, current === step && styles.activeLabel]}>
+          <Text
+            style={[styles.stepLabel, current === step && styles.activeLabel]}
+          >
             {step === 1
               ? "최애 그룹 선택"
               : step === 2
@@ -291,9 +366,25 @@ const styles = StyleSheet.create({
     borderColor: "#F7C94B",
     backgroundColor: "#fff",
   },
-  imagePlaceholder: {
+  imageBox: {
     height: 88,
     backgroundColor: "#E2E3E7",
+    overflow: "hidden",
+  },
+  imagePlaceholder: {
+    flex: 1,
+    backgroundColor: "#E2E3E7",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  placeholderText: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  memberImage: {
+    width: "100%",
+    height: "100%",
   },
   memberName: {
     marginTop: 10,
@@ -301,6 +392,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     color: "#999",
+    paddingHorizontal: 4,
   },
   selectedText: {
     color: "#202633",

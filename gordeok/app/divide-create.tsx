@@ -707,7 +707,13 @@ export default function DivideCreate() {
       }
 
       try {
-        await createSellerChatRoom(createdPostId, title.trim());
+        const chatRoomResult = await createSellerChatRoom(createdPostId, title.trim());
+        if (chatRoomResult?.chatRoomId) {
+          const raw = await AsyncStorage.getItem("GO_REUDEOK_CHATROOM_POST_MAP");
+          const mapData = raw ? JSON.parse(raw) : {};
+          mapData[String(chatRoomResult.chatRoomId)] = String(createdPostId);
+          await AsyncStorage.setItem("GO_REUDEOK_CHATROOM_POST_MAP", JSON.stringify(mapData));
+        }
       } catch (chatRoomError) {
         console.log("판매자 채팅방 생성 실패, 게시글 등록은 완료됨:", chatRoomError);
       }
@@ -1225,7 +1231,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 30,
     paddingTop: 24,
-    paddingBottom: 135,
+    paddingBottom: 115,
   },
 
   scrollContentKeyboard: {
@@ -1738,8 +1744,8 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     paddingHorizontal: 24,
-    paddingTop: 8,
-    paddingBottom: 14,
+    paddingTop: 12,
+    paddingBottom: 0,
     backgroundColor: "#FFFFFF",
     borderTopWidth: 1,
     borderTopColor: "#F1F1F1",

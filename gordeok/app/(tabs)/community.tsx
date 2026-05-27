@@ -5,6 +5,7 @@ import { router, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
   FlatList,
+  Image,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -36,6 +37,10 @@ const SCREEN_PADDING = 22;
 const categories = ["전체", "포카교환", "오프동행", "질문게시판", "자유게시판"];
 
 type SortType = "latest" | "likes" | "views";
+
+type CommunityPostWithProfile = CommunityPost & {
+  authorProfileImage?: string | null;
+};
 
 const sortOptions: { key: SortType; label: string }[] = [
   { key: "latest", label: "최신순" },
@@ -123,7 +128,7 @@ export default function CommunityScreen() {
   const [selectedCategory, setSelectedCategory] = useState("전체");
   const [selectedSort, setSelectedSort] = useState<SortType>("latest");
   const [sortOpen, setSortOpen] = useState(false);
-  const [posts, setPosts] = useState<CommunityPost[]>([]);
+  const [posts, setPosts] = useState<CommunityPostWithProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -141,7 +146,9 @@ export default function CommunityScreen() {
           size: 10,
         });
 
-        setPosts(response.content ?? []);
+        console.log("커뮤니티 목록 응답:", response);
+
+        setPosts((response.content ?? []) as CommunityPostWithProfile[]);
       } catch (error) {
         console.log("커뮤니티 목록 불러오기 실패", error);
         setPosts([]);
@@ -150,13 +157,13 @@ export default function CommunityScreen() {
         setRefreshing(false);
       }
     },
-    [selectedCategory, selectedSort],
+    [selectedCategory, selectedSort]
   );
 
   useFocusEffect(
     useCallback(() => {
       loadPosts(posts.length === 0);
-    }, [loadPosts, posts.length]),
+    }, [loadPosts, posts.length])
   );
 
   const handleRefresh = useCallback(() => {
@@ -268,6 +275,7 @@ export default function CommunityScreen() {
           renderItem={({ item }) => {
             const categoryLabel = convertCategoryLabel(item.category);
             const badgeColor = getCategoryBadgeColor(categoryLabel);
+            const profileImageUrl = item.authorProfileImage;
 
             return (
               <Pressable
@@ -279,9 +287,31 @@ export default function CommunityScreen() {
               >
                 <View style={styles.profileRow}>
                   <View style={styles.profileCircle}>
-                    <Text style={styles.profileText}>
-                      {item.authorNickname?.[0] ?? "덕"}
-                    </Text>
+                    {profileImageUrl ? (
+                      <Image
+                        key={profileImageUrl}
+                        source={{ uri: profileImageUrl }}
+                        style={styles.profileImage}
+                        resizeMode="cover"
+                        onLoad={() => {
+                          console.log(
+                            "커뮤니티 프로필 이미지 로드 성공:",
+                            profileImageUrl
+                          );
+                        }}
+                        onError={(error) => {
+                          console.log(
+                            "커뮤니티 프로필 이미지 로드 실패:",
+                            profileImageUrl,
+                            error.nativeEvent
+                          );
+                        }}
+                      />
+                    ) : (
+                      <Text style={styles.profileText}>
+                        {item.authorNickname?.slice(0, 1) ?? "덕"}
+                      </Text>
+                    )}
                   </View>
 
                   <View style={styles.writerBox}>
@@ -589,6 +619,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 12,
     backgroundColor: "#FFF1C6",
+    overflow: "hidden",
+  },
+
+  profileImage: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
   },
 
   profileText: {

@@ -1,8 +1,16 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { getCommunityPost } from "../services/community";
 import {
   getMyCommunityCommentPosts,
   getMyCommunityPosts,
@@ -10,8 +18,6 @@ import {
   MyCommunityCommentPost,
   MyCommunityPost,
 } from "../services/user";
-import { getCommunityPost } from "../services/community";
-import { getStoredUserId } from "../utils/api";
 
 const COLORS = {
   white: "#FFFFFF",
@@ -24,6 +30,8 @@ const COLORS = {
   yellow: "#F7C94B",
   line: "#F2EDE6",
 };
+
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "";
 
 const CATEGORY_BADGE_COLORS: Record<
   string,
@@ -59,6 +67,7 @@ type CommunityItem = {
   content: string;
   time: string;
   authorName?: string;
+  profileImage?: string | null;
 };
 
 function convertCategoryLabel(category?: string | null) {
@@ -107,6 +116,45 @@ function getPostAuthorName(post: any) {
   return "작성자";
 }
 
+function getPostAuthorProfileImage(post: any) {
+  return (
+    post?.authorProfileImage ||
+    post?.postAuthorProfileImage ||
+    post?.writerProfileImage ||
+    post?.profileImage ||
+    post?.authorImage ||
+    null
+  );
+}
+
+function getImageUrl(url?: string | null) {
+  if (!url) return "";
+
+  const trimmedUrl = String(url).trim();
+
+  if (!trimmedUrl) return "";
+
+  if (
+    trimmedUrl.startsWith("http://") ||
+    trimmedUrl.startsWith("https://") ||
+    trimmedUrl.startsWith("file://")
+  ) {
+    return trimmedUrl;
+  }
+
+  if (!API_BASE_URL) {
+    return trimmedUrl;
+  }
+
+  const baseUrl = API_BASE_URL.endsWith("/")
+    ? API_BASE_URL.slice(0, -1)
+    : API_BASE_URL;
+
+  const path = trimmedUrl.startsWith("/") ? trimmedUrl : `/${trimmedUrl}`;
+
+  return `${baseUrl}${path}`;
+}
+
 function uniquePostsById(items: CommunityItem[]) {
   const seen = new Set<number>();
 
@@ -133,6 +181,7 @@ function formatTime(createdAt?: string) {
 }
 
 function mapCommunityPost(post: MyCommunityPost): CommunityItem {
+  const postAny = post as any;
   const categoryLabel = convertCategoryLabel(post.category);
   const categoryStyle = getCategoryStyle(categoryLabel);
 
@@ -142,12 +191,14 @@ function mapCommunityPost(post: MyCommunityPost): CommunityItem {
     title: post.title,
     content: post.preview,
     time: formatTime(post.createdAt),
+    profileImage: getPostAuthorProfileImage(postAny),
     categoryColor: categoryStyle.backgroundColor,
     textColor: categoryStyle.textColor,
   };
 }
 
 function mapCommunityCommentPost(post: MyCommunityCommentPost): CommunityItem {
+  const postAny = post as any;
   const categoryLabel = convertCategoryLabel(post.category);
   const categoryStyle = getCategoryStyle(categoryLabel);
 
@@ -161,7 +212,8 @@ function mapCommunityCommentPost(post: MyCommunityCommentPost): CommunityItem {
       post.contentPreview ||
       "댓글을 작성한 게시글입니다.",
     time: formatTime(post.createdAt),
-    authorName: getPostAuthorName(post),
+    authorName: getPostAuthorName(postAny),
+    profileImage: getPostAuthorProfileImage(postAny),
     categoryColor: categoryStyle.backgroundColor,
     textColor: categoryStyle.textColor,
   };
@@ -172,15 +224,18 @@ async function fillCommentPostAuthors(items: CommunityItem[]) {
     items.map(async (item) => {
       try {
         const detail = await getCommunityPost(item.id);
+        const detailAny = detail as any;
+
         return {
           ...item,
-          authorName: getPostAuthorName(detail),
+          authorName: getPostAuthorName(detailAny),
+          profileImage: getPostAuthorProfileImage(detailAny),
         };
       } catch (error) {
         console.log("댓글 쓴 글 작성자 조회 실패:", error);
         return item;
       }
-    }),
+    })
   );
 }
 
@@ -191,6 +246,10 @@ export default function MyCommunityPostsScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [userLabel, setUserLabel] = useState("사용자");
+  const [myProfileImage, setMyProfileImage] = useState<string | null>(null);
+  const [imageErrorMap, setImageErrorMap] = useState<Record<string, boolean>>(
+    {}
+  );
 
   useEffect(() => {
     const loadPosts = async () => {
@@ -200,9 +259,18 @@ export default function MyCommunityPostsScreen() {
 
         try {
           const profile = await getMyProfile();
+          const profileAny = profile as any;
+
           setUserLabel(profile.nickname || "사용자");
+          setMyProfileImage(
+            profileAny.profileImage ||
+              profileAny.profileImageUrl ||
+              profileAny.userProfileImage ||
+              null
+          );
         } catch {
           setUserLabel("사용자");
+          setMyProfileImage(null);
         }
 
         const postsData = await getMyCommunityPosts();
@@ -211,7 +279,7 @@ export default function MyCommunityPostsScreen() {
         try {
           const commentsData = await getMyCommunityCommentPosts();
           const uniqueCommentPosts = uniquePostsById(
-            commentsData.map(mapCommunityCommentPost),
+            commentsData.map(mapCommunityCommentPost)
           );
           const commentPostsWithAuthors =
             await fillCommentPostAuthors(uniqueCommentPosts);
@@ -234,10 +302,20 @@ export default function MyCommunityPostsScreen() {
   }, []);
 
   const currentList = selectedTab === "posts" ? myPosts : myComments;
+
   const getDisplayName = (item: CommunityItem) =>
     selectedTab === "comments" ? item.authorName || "작성자" : userLabel;
+
   const getProfileText = (item: CommunityItem) =>
     getDisplayName(item).trim()?.[0] || "작";
+
+  const getProfileImage = (item: CommunityItem) => {
+    if (selectedTab === "posts") {
+      return getImageUrl(myProfileImage || item.profileImage);
+    }
+
+    return getImageUrl(item.profileImage);
+  };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
@@ -302,54 +380,80 @@ export default function MyCommunityPostsScreen() {
           contentContainerStyle={styles.listContent}
         >
           {isLoading ? null : currentList.length > 0 ? (
-            currentList.map((item) => (
-              <Pressable
-                key={`${selectedTab}-${item.id}`}
-                style={({ pressed, hovered }) => [
-                  styles.postCard,
-                  (pressed || hovered) && styles.postCardHover,
-                ]}
-                onPress={() =>
-                  router.push({
-                    pathname: "/community/[postsId]",
-                    params: { postsId: String(item.id) },
-                  } as any)
-                }
-              >
-                <View style={styles.profileRow}>
-                  <View style={styles.profileCircle}>
-                    <Text style={styles.profileText}>
-                      {getProfileText(item)}
-                    </Text>
-                  </View>
+            currentList.map((item) => {
+              const profileImage = getProfileImage(item);
+              const imageKey = `${selectedTab}-${item.id}`;
+              const hasProfileImage =
+                !!profileImage && imageErrorMap[imageKey] !== true;
 
-                  <View style={styles.profileInfo}>
-                    <Text style={styles.name}>{getDisplayName(item)}</Text>
-                    <Text style={styles.time}>{item.time}</Text>
-                  </View>
+              return (
+                <Pressable
+                  key={`${selectedTab}-${item.id}`}
+                  style={({ pressed, hovered }) => [
+                    styles.postCard,
+                    (pressed || hovered) && styles.postCardHover,
+                  ]}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/community/[postsId]",
+                      params: { postsId: String(item.id) },
+                    } as any)
+                  }
+                >
+                  <View style={styles.profileRow}>
+                    <View style={styles.profileCircle}>
+                      {hasProfileImage ? (
+                        <Image
+                          source={{ uri: profileImage }}
+                          style={styles.profileImage}
+                          resizeMode="cover"
+                          onError={() => {
+                            console.log(
+                              "커뮤니티 프로필 이미지 로드 실패:",
+                              profileImage
+                            );
 
-                  <View
-                    style={[
-                      styles.categoryBadge,
-                      { backgroundColor: item.categoryColor },
-                    ]}
-                  >
-                    <Text
-                      style={[styles.categoryText, { color: item.textColor }]}
+                            setImageErrorMap((prev) => ({
+                              ...prev,
+                              [imageKey]: true,
+                            }));
+                          }}
+                        />
+                      ) : (
+                        <Text style={styles.profileText}>
+                          {getProfileText(item)}
+                        </Text>
+                      )}
+                    </View>
+
+                    <View style={styles.profileInfo}>
+                      <Text style={styles.name}>{getDisplayName(item)}</Text>
+                      <Text style={styles.time}>{item.time}</Text>
+                    </View>
+
+                    <View
+                      style={[
+                        styles.categoryBadge,
+                        { backgroundColor: item.categoryColor },
+                      ]}
                     >
-                      {item.category}
+                      <Text
+                        style={[styles.categoryText, { color: item.textColor }]}
+                      >
+                        {item.category}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.contentBox}>
+                    <Text style={styles.postTitle}>{item.title}</Text>
+                    <Text style={styles.postContent} numberOfLines={2}>
+                      {item.content}
                     </Text>
                   </View>
-                </View>
-
-                <View style={styles.contentBox}>
-                  <Text style={styles.postTitle}>{item.title}</Text>
-                  <Text style={styles.postContent} numberOfLines={2}>
-                    {item.content}
-                  </Text>
-                </View>
-              </Pressable>
-            ))
+                </Pressable>
+              );
+            })
           ) : (
             <View style={styles.emptyBox}>
               <Text style={styles.emptyText}>
@@ -484,6 +588,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginRight: 10,
+    overflow: "hidden",
+  },
+
+  profileImage: {
+    width: "100%",
+    height: "100%",
   },
 
   profileText: {

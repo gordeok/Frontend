@@ -1,7 +1,16 @@
 // 로그인 화면
 
 import { useState } from "react";
-import { Alert, StyleSheet, Text, View } from "react-native";
+import {
+  Alert,
+  Image,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -53,47 +62,72 @@ export default function LoginScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.logo}>로고</Text>
-
-      <View style={styles.form}>
-        <AppInput
-          placeholder="아이디"
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
+    <KeyboardAvoidingView
+      style={styles.keyboardView}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+    >
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        onScrollBeginDrag={() => Keyboard.dismiss()}
+        showsVerticalScrollIndicator={false}
+      >
+        <Image
+          source={require("@/assets/img/logo2.png")}
+          style={styles.logo}
+          resizeMode="contain"
         />
 
-        <AppInput
-          placeholder="비밀번호"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-        />
+        <View style={styles.form}>
+          <AppInput
+            placeholder="아이디"
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+          />
 
-        <AppButton
-          title={isLoading ? "로그인" : "로그인"}
-          onPress={handleLogin}
-          disabled={isLoading}
-        />
-      </View>
-    </View>
+          <AppInput
+            placeholder="비밀번호"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+          />
+
+          <AppButton
+            title="로그인"
+            onPress={handleLogin}
+            disabled={isLoading}
+          />
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  keyboardView: {
     flex: 1,
+    backgroundColor: "#FFFFFF",
+  },
+  scrollView: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+  },
+  container: {
+    flexGrow: 1,
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     paddingHorizontal: 40,
-    paddingTop: 190,
+    paddingTop: 220,
+    paddingBottom: 80,
   },
   logo: {
-    fontSize: 28,
-    fontFamily: "NotoSansKRBold",
-    marginBottom: 90,
+    width: 155,
+    height: 85,
+    marginBottom: 65,
   },
   form: {
     width: "100%",

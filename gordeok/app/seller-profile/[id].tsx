@@ -3,7 +3,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -18,9 +18,14 @@ import { apiRequest, getStoredUserId } from "../../utils/api";
 
 const YELLOW = "#F3C24F";
 
+const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_BASE_URL ||
+  "https://frostily-derby-underpass.ngrok-free.dev";
+
 type SaleItem = {
   id: number;
   title: string;
+  imageUrl?: string;
   isPlaceholder?: boolean;
 };
 
@@ -31,11 +36,13 @@ type ReviewItem = {
   date: string;
   content: string;
   rating?: number;
+  profileImage?: string;
 };
 
 type SellerProfile = {
   id: string;
   nickname: string;
+  profileImage?: string;
   joinedAt: string;
   followerCount: number;
   followingCount: number;
@@ -55,6 +62,8 @@ type MyReviewApiItem = {
   writerNickname?: string;
   nickname?: string;
   reviewerProfileImage?: string;
+  profileImage?: string;
+  profileImageUrl?: string;
   rating?: number;
   content?: string;
   createdAt?: string;
@@ -65,6 +74,7 @@ type ProfileApiResponse = {
   email?: string;
   nickname: string;
   profileImage?: string;
+  profileImageUrl?: string;
   trustScore?: number;
   hasScamReport?: boolean;
   createdAt?: string;
@@ -79,6 +89,12 @@ type MySaleApiItem = {
   postId: number;
   postTitle: string;
   thumbnailUrl?: string;
+  imageUrl?: string;
+  albumImageUrl?: string;
+  postImageUrl?: string;
+  image?: string;
+  imageUrls?: string[];
+  images?: string[];
   postStatus?: string;
   participantCount?: number;
   createdAt?: string;
@@ -93,7 +109,15 @@ type PostListItem = {
   nickname?: string;
   sellerNickname?: string;
   authorNickname?: string;
-  title: string;
+  title?: string;
+  postTitle?: string;
+  imageUrl?: string;
+  thumbnailUrl?: string;
+  albumImageUrl?: string;
+  postImageUrl?: string;
+  image?: string;
+  imageUrls?: string[];
+  images?: string[];
   status?: string;
   createdAt?: string;
 };
@@ -105,10 +129,45 @@ const EMPTY_SALE_SLOTS: SaleItem[] = [
   { id: -4, title: "", isPlaceholder: true },
 ];
 
+function normalizeImageUrl(url?: string | null) {
+  if (!url) return "";
+
+  const trimmedUrl = String(url).trim();
+
+  if (!trimmedUrl) return "";
+
+  if (trimmedUrl.startsWith("http://") || trimmedUrl.startsWith("https://")) {
+    return trimmedUrl;
+  }
+
+  if (trimmedUrl.startsWith("/")) {
+    return `${API_BASE_URL}${trimmedUrl}`;
+  }
+
+  return `${API_BASE_URL}/${trimmedUrl}`;
+}
+
+function getSaleImageUrl(data: any) {
+  const rawUrl =
+    data?.thumbnailUrl ||
+    data?.imageUrls?.[0] ||
+    data?.images?.[0] ||
+    data?.imageUrl ||
+    data?.albumImageUrl ||
+    data?.postImageUrl ||
+    data?.thumbnailImageUrl ||
+    data?.image ||
+    "";
+
+  return normalizeImageUrl(rawUrl);
+}
+
 function getPageContent<T>(response: any): T[] {
   if (Array.isArray(response)) return response;
   if (Array.isArray(response?.content)) return response.content;
   if (Array.isArray(response?.data)) return response.data;
+  if (Array.isArray(response?.data?.content)) return response.data.content;
+  if (Array.isArray(response?.items)) return response.items;
   return [];
 }
 
@@ -126,6 +185,7 @@ function formatDate(value?: string) {
   if (!value) return "-";
 
   const date = new Date(value);
+
   if (Number.isNaN(date.getTime())) {
     return value.slice(0, 10).replaceAll("-", ".");
   }
@@ -138,7 +198,7 @@ function formatDate(value?: string) {
 }
 
 function getProfileReviewCount(data: any) {
-  const count =
+  return (
     Number(
       data?.receivedReviewCount ??
         data?.reviewCount ??
@@ -146,9 +206,8 @@ function getProfileReviewCount(data: any) {
         data?.receivedReviews?.length ??
         data?.reviews?.length ??
         0
-    ) || 0;
-
-  return count;
+    ) || 0
+  );
 }
 
 function normalizeReview(item: MyReviewApiItem): ReviewItem {
@@ -162,6 +221,9 @@ function normalizeReview(item: MyReviewApiItem): ReviewItem {
     date: formatDate(item.createdAt),
     content: item.content || "",
     rating: item.rating,
+    profileImage: normalizeImageUrl(
+      item.reviewerProfileImage || item.profileImage || item.profileImageUrl
+    ),
   };
 }
 
@@ -169,8 +231,8 @@ function getProfileReviews(data: any): ReviewItem[] {
   const reviewList = Array.isArray(data?.receivedReviews)
     ? data.receivedReviews
     : Array.isArray(data?.reviews)
-      ? data.reviews
-      : [];
+    ? data.reviews
+    : [];
 
   return reviewList.map(normalizeReview).filter((review: ReviewItem) => {
     return Number.isFinite(review.id);
@@ -184,6 +246,7 @@ function normalizeProfile(
   return {
     id: String(data.userId ?? fallbackId),
     nickname: data.nickname || "판매자",
+    profileImage: normalizeImageUrl(data.profileImage || data.profileImageUrl),
     joinedAt: formatDate(data.createdAt),
     followerCount: 0,
     followingCount: 0,
@@ -199,13 +262,15 @@ function normalizeMySale(item: MySaleApiItem): SaleItem {
   return {
     id: Number(item.postId),
     title: item.postTitle || "제목 없음",
+    imageUrl: getSaleImageUrl(item),
   };
 }
 
 function normalizePostSale(item: PostListItem): SaleItem {
   return {
     id: Number(item.postId ?? item.id),
-    title: item.title || "제목 없음",
+    title: item.postTitle || item.title || "제목 없음",
+    imageUrl: getSaleImageUrl(item),
   };
 }
 
@@ -215,7 +280,9 @@ export default function SellerProfileScreen() {
 
   const [scoreModalVisible, setScoreModalVisible] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
-  const [sellerProfile, setSellerProfile] = useState<SellerProfile | null>(null);
+  const [sellerProfile, setSellerProfile] = useState<SellerProfile | null>(
+    null
+  );
   const [isMyProfile, setIsMyProfile] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
@@ -274,18 +341,35 @@ export default function SellerProfileScreen() {
             ]);
 
           console.log("내 프로필 API 원본 응답:", profileRes);
+          console.log("내 판매 목록 OPEN 응답:", openSalesRes);
+          console.log("내 판매 목록 COMPLETED 응답:", completedSalesRes);
           console.log("현재 로그인 유저 ID:", myUserId);
           console.log("프로필 대상 유저 ID:", routeSellerId);
 
           const openSales = getPageContent<MySaleApiItem>(openSalesRes);
-          const completedSales = getPageContent<MySaleApiItem>(completedSalesRes);
+          const completedSales =
+            getPageContent<MySaleApiItem>(completedSalesRes);
           const reviews = getReviewContent(reviewsRes);
 
           const mergedSales = [...openSales, ...completedSales]
             .map(normalizeMySale)
             .filter((item, index, array) => {
-              return array.findIndex((target) => target.id === item.id) === index;
+              return (
+                array.findIndex((target) => target.id === item.id) === index
+              );
             });
+
+          console.log("내 판매 목록 이미지 확인:", mergedSales);
+          console.log("내 판매 목록 이미지 원본 확인:", [
+            ...openSales,
+            ...completedSales,
+          ].map((item) => ({
+            postId: item.postId,
+            postTitle: item.postTitle,
+            thumbnailUrl: item.thumbnailUrl,
+            imageUrls: item.imageUrls,
+            imageUrl: item.imageUrl,
+          })));
 
           const normalizedReviews = reviews.map(normalizeReview);
 
@@ -314,13 +398,7 @@ export default function SellerProfileScreen() {
         ]);
 
         console.log("판매자 프로필 API 원본 응답:", profileRes);
-        console.log("후기 필드 확인:", {
-          receivedReviewCount: profileRes?.receivedReviewCount,
-          reviewCount: profileRes?.reviewCount,
-          reviewsCount: profileRes?.reviewsCount,
-          receivedReviews: profileRes?.receivedReviews,
-          reviews: profileRes?.reviews,
-        });
+        console.log("판매자 게시글 목록 응답:", postsRes);
         console.log("현재 로그인 유저 ID:", myUserId);
         console.log("프로필 대상 유저 ID:", routeSellerId);
 
@@ -356,6 +434,17 @@ export default function SellerProfileScreen() {
         });
 
         const sellerPosts = sellerPostItems.map(normalizePostSale);
+
+        console.log("상대방 판매 목록 이미지 확인:", sellerPosts);
+        console.log("상대방 판매 목록 이미지 원본 확인:", sellerPostItems.map((item) => ({
+          id: item.id,
+          postId: item.postId,
+          title: item.title,
+          postTitle: item.postTitle,
+          thumbnailUrl: item.thumbnailUrl,
+          imageUrls: item.imageUrls,
+          imageUrl: item.imageUrl,
+        })));
 
         let receivedReviews: ReviewItem[] = getProfileReviews(profileRes);
 
@@ -478,10 +567,7 @@ export default function SellerProfileScreen() {
         </View>
 
         {isLoading ? (
-          <View style={styles.centerState}>
-            <ActivityIndicator size="small" color={YELLOW} />
-            <Text style={styles.centerText}>판매자 정보를 불러오는 중이에요</Text>
-          </View>
+          <View style={styles.centerState} />
         ) : errorMessage || !sellerProfile ? (
           <View style={styles.centerState}>
             <Text style={styles.errorText}>{errorMessage}</Text>
@@ -520,14 +606,24 @@ export default function SellerProfileScreen() {
 
               <View style={styles.profileTop}>
                 <View style={styles.profileCircle}>
-                  <Text style={styles.profileInitial}>
-                    {sellerProfile.nickname.slice(0, 1)}
-                  </Text>
+                  {sellerProfile.profileImage ? (
+                    <Image
+                      source={{ uri: sellerProfile.profileImage }}
+                      style={styles.profileImage}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <Text style={styles.profileInitial}>
+                      {sellerProfile.nickname.slice(0, 1)}
+                    </Text>
+                  )}
                 </View>
 
                 <View style={styles.profileInfo}>
                   <Text style={styles.nickname}>{sellerProfile.nickname}</Text>
-                  <Text style={styles.subText}>가입 {sellerProfile.joinedAt}</Text>
+                  <Text style={styles.subText}>
+                    가입 {sellerProfile.joinedAt}
+                  </Text>
                   <Text style={styles.subText}>
                     팔로워 {sellerProfile.followerCount}명 · 팔로잉{" "}
                     {sellerProfile.followingCount}명
@@ -600,7 +696,22 @@ export default function SellerProfileScreen() {
                       } as any);
                     }}
                   >
-                    <View style={styles.saleThumb} />
+                    <View style={styles.saleThumb}>
+                      {!item.isPlaceholder && item.imageUrl ? (
+                        <Image
+                          source={{ uri: item.imageUrl }}
+                          style={styles.saleImage}
+                          resizeMode="cover"
+                          onError={(error) => {
+                            console.log(
+                              "판매 목록 이미지 로드 실패:",
+                              item.imageUrl,
+                              error.nativeEvent
+                            );
+                          }}
+                        />
+                      ) : null}
+                    </View>
 
                     {!item.isPlaceholder && (
                       <Text numberOfLines={1} style={styles.saleTitle}>
@@ -744,7 +855,15 @@ function ReviewRow({ review, isLast }: { review: ReviewItem; isLast: boolean }) 
   return (
     <View style={[styles.reviewItem, isLast && styles.reviewItemLast]}>
       <View style={styles.reviewProfile}>
-        <Text style={styles.reviewInitial}>{review.initial}</Text>
+        {review.profileImage ? (
+          <Image
+            source={{ uri: review.profileImage }}
+            style={styles.reviewProfileImage}
+            resizeMode="cover"
+          />
+        ) : (
+          <Text style={styles.reviewInitial}>{review.initial}</Text>
+        )}
       </View>
 
       <View style={styles.reviewContent}>
@@ -822,13 +941,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 24,
-  },
-
-  centerText: {
-    marginTop: 10,
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#777777",
   },
 
   errorText: {
@@ -931,6 +1043,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginRight: 16,
+    overflow: "hidden",
+  },
+
+  profileImage: {
+    width: "100%",
+    height: "100%",
   },
 
   profileInitial: {
@@ -1063,6 +1181,12 @@ const styles = StyleSheet.create({
     height: 72,
     borderRadius: 12,
     backgroundColor: "#FFF0CC",
+    overflow: "hidden",
+  },
+
+  saleImage: {
+    width: "100%",
+    height: "100%",
   },
 
   saleTitle: {
@@ -1103,6 +1227,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 12,
     marginTop: 1,
+    overflow: "hidden",
+  },
+
+  reviewProfileImage: {
+    width: "100%",
+    height: "100%",
   },
 
   reviewInitial: {

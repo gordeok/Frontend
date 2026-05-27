@@ -6,6 +6,7 @@ import {
   Alert,
   Animated,
   Dimensions,
+  Image,
   Modal,
   PanResponder,
   ScrollView,
@@ -17,14 +18,408 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { completeChatRoom } from "../../services/chat";
-import { getStoredUserId } from "../../utils/api";
+import { getMyProfile } from "../../services/user";
+import { apiRequest, getStoredUserId } from "../../utils/api";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const SHEET_HEIGHT = SCREEN_HEIGHT * 0.52;
 
+const DEFAULT_PROFILE = require("../../assets/img/profile.jpg");
+
 const LOCAL_CHAT_ROOMS_KEY = "localChatRooms";
 const REMOVED_CHAT_ROOMS_KEY = "GO_REUDEOK_REMOVED_CHAT_ROOMS";
 const TRADE_STATUS_STORAGE_KEY = "GO_REUDEOK_CHAT_TRADE_STATUS";
+const CHAT_ROOM_LINKED_POST_STORAGE_KEY = "GO_REUDEOK_CHAT_ROOM_LINKED_POSTS";
+
+const API_BASE_URL = (
+  process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://172.20.99.65:8080"
+).replace(/\/$/, "");
+
+const COLORS = {
+  white: "#FFFFFF",
+  black: "#111111",
+  gray700: "#666666",
+  gray500: "#999999",
+  gray100: "#F8F8F8",
+  yellow: "#F7C94B",
+  green: "#DDF7EB",
+  greenText: "#24A466",
+  blue: "#E7F4FF",
+  blueText: "#2383C4",
+  red: "#D94A4A",
+  line: "#EFEFEF",
+};
+
+type TradeStatus =
+  | "모집 중"
+  | "모집 완료"
+  | "배송 중"
+  | "거래 완료"
+  | "거래 취소";
+
+type Member = {
+  id: string;
+  nickname: string;
+  member: string;
+  initial: string;
+  color: string;
+  initialColor: string;
+  profileImageUrl?: string;
+  isSeller?: boolean;
+  receiver?: string;
+  phone?: string;
+  store?: string;
+  request?: string;
+  userId?: string;
+  role?: string;
+};
+
+type MenuParticipant = {
+  userId?: string | number;
+  nickname?: string;
+  memberName?: string;
+  role?: string;
+  profileImage?: string;
+  profileImageUrl?: string;
+  profileImg?: string;
+  userProfileImage?: string;
+  authorProfileImage?: string;
+  sellerProfileImage?: string;
+  buyerProfileImage?: string;
+  imageUrl?: string;
+  image?: string;
+  photoUrl?: string;
+  thumbnailUrl?: string;
+};
+
+type LocalChatRoom = {
+  id: string;
+  type?: string;
+  chatRoomType?: string;
+  roomType?: string;
+  title?: string;
+  status?: string;
+  postStatus?: string;
+  sellerName?: string;
+  buyerName?: string;
+  selectedMember?: string;
+  totalMemberCount?: number;
+  completedMemberCount?: number;
+  allMembersCompleted?: boolean;
+  postId?: string | number;
+  postsId?: string | number;
+  communityId?: string | number;
+  communityPostId?: string | number;
+  thumbnailUrl?: string;
+  albumImageUrl?: string;
+  postImageUrl?: string;
+  imageUrl?: string;
+  image?: string;
+  imageUrls?: any[];
+  images?: any[];
+  post?: any;
+  dividePost?: any;
+  participants?: MenuParticipant[];
+};
+
+type ChatRoomMenuInfo = {
+  chatRoomId?: string | number;
+  title?: string;
+  postTitle?: string;
+  communityTitle?: string;
+  roomName?: string;
+  chatRoomTitle?: string;
+  postStatus?: string;
+  status?: string;
+  myRole?: string;
+  postId?: string | number;
+  postsId?: string | number;
+  id?: string | number;
+  communityId?: string | number;
+  communityPostId?: string | number;
+  thumbnailUrl?: string;
+  albumImageUrl?: string;
+  postImageUrl?: string;
+  imageUrl?: string;
+  image?: string;
+  imageUrls?: any[];
+  images?: any[];
+  post?: {
+    postId?: string | number;
+    postsId?: string | number;
+    id?: string | number;
+    communityId?: string | number;
+    thumbnailUrl?: string;
+    albumImageUrl?: string;
+    postImageUrl?: string;
+    imageUrl?: string;
+    image?: string;
+    imageUrls?: any[];
+    images?: any[];
+  };
+  dividePost?: any;
+  participants?: MenuParticipant[];
+};
+
+type BuyerInfoResponse = {
+  nickname?: string;
+  memberName?: string;
+  realName?: string;
+  phoneNumber?: string;
+  storeName?: string;
+  requestMessage?: string;
+  profileImage?: string;
+  profileImageUrl?: string;
+  profileImg?: string;
+  userProfileImage?: string;
+  imageUrl?: string;
+  image?: string;
+};
+
+function normalizeImageUrl(url?: string | null) {
+  if (!url) return "";
+
+  const trimmed = String(url).trim();
+
+  if (!trimmed) return "";
+
+  if (trimmed.startsWith("http://localhost:8080")) {
+    return trimmed.replace("http://localhost:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("https://localhost:8080")) {
+    return trimmed.replace("https://localhost:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("http://127.0.0.1:8080")) {
+    return trimmed.replace("http://127.0.0.1:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("https://127.0.0.1:8080")) {
+    return trimmed.replace("https://127.0.0.1:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+
+  if (trimmed.startsWith("/")) {
+    return `${API_BASE_URL}${trimmed}`;
+  }
+
+  return `${API_BASE_URL}/${trimmed}`;
+}
+
+function getFirstImageFromArray(value: any) {
+  if (!Array.isArray(value)) return "";
+
+  const first = value.find((item) => {
+    if (typeof item === "string") return item.trim().length > 0;
+
+    return (
+      item?.imageUrl ||
+      item?.url ||
+      item?.thumbnailUrl ||
+      item?.albumImageUrl ||
+      item?.postImageUrl ||
+      item?.image
+    );
+  });
+
+  if (!first) return "";
+
+  if (typeof first === "string") return first;
+
+  return (
+    first?.imageUrl ||
+    first?.url ||
+    first?.thumbnailUrl ||
+    first?.albumImageUrl ||
+    first?.postImageUrl ||
+    first?.image ||
+    ""
+  );
+}
+
+function getAlbumImageUrl(...sources: any[]) {
+  for (const source of sources) {
+    const raw =
+      source?.thumbnailUrl ||
+      source?.albumImageUrl ||
+      source?.postImageUrl ||
+      source?.imageUrl ||
+      source?.image ||
+      getFirstImageFromArray(source?.imageUrls) ||
+      getFirstImageFromArray(source?.images) ||
+      source?.post?.thumbnailUrl ||
+      source?.post?.albumImageUrl ||
+      source?.post?.postImageUrl ||
+      source?.post?.imageUrl ||
+      source?.post?.image ||
+      getFirstImageFromArray(source?.post?.imageUrls) ||
+      getFirstImageFromArray(source?.post?.images) ||
+      source?.dividePost?.thumbnailUrl ||
+      source?.dividePost?.albumImageUrl ||
+      source?.dividePost?.postImageUrl ||
+      source?.dividePost?.imageUrl ||
+      source?.dividePost?.image ||
+      getFirstImageFromArray(source?.dividePost?.imageUrls) ||
+      getFirstImageFromArray(source?.dividePost?.images);
+
+    const normalized = normalizeImageUrl(raw);
+
+    if (normalized) return normalized;
+  }
+
+  return "";
+}
+
+function getProfileImageUrl(...sources: any[]) {
+  for (const source of sources) {
+    const raw =
+      source?.profileImage ||
+      source?.profileImageUrl ||
+      source?.profileImg ||
+      source?.userProfileImage ||
+      source?.authorProfileImage ||
+      source?.sellerProfileImage ||
+      source?.buyerProfileImage ||
+      source?.imageUrl ||
+      source?.image ||
+      source?.photoUrl ||
+      source?.thumbnailUrl;
+
+    const normalized = normalizeImageUrl(raw);
+
+    if (normalized) return normalized;
+  }
+
+  return "";
+}
+
+async function fetchUserProfile(userId: string | number) {
+  try {
+    return await apiRequest<any>(`/api/users/${userId}/profile`, {
+      method: "GET",
+    });
+  } catch (error) {
+    console.log(`메뉴 user ${userId} 프로필 조회 실패:`, error);
+    return null;
+  }
+}
+
+async function fetchPostDetail(postId: string | number) {
+  try {
+    return await apiRequest<any>(`/api/posts/${postId}`, {
+      method: "GET",
+    });
+  } catch (error) {
+    console.log(`메뉴 post ${postId} 이미지 조회 실패:`, error);
+    return null;
+  }
+}
+
+function getPageContent<T>(response: any): T[] {
+  if (Array.isArray(response)) return response;
+  if (Array.isArray(response?.content)) return response.content;
+  if (Array.isArray(response?.data)) return response.data;
+  if (Array.isArray(response?.items)) return response.items;
+  return [];
+}
+
+function normalizeTitleForSearch(value?: string | null) {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/앨범/g, "")
+    .replace(/EP/g, "")
+    .replace(/ep/g, "")
+    .replace(/분철합니다/g, "분철")
+    .replace(/분철해요/g, "분철")
+    .replace(/분철합니다\./g, "분철")
+    .replace(/해요/g, "")
+    .replace(/합니다/g, "")
+    .replace(/[~!！?？.。,_\-–—]/g, "")
+    .toLowerCase();
+}
+
+function getPostIdFromAny(post: any) {
+  const idValue =
+    post?.postId ??
+    post?.id ??
+    post?.postsId ??
+    post?.post?.postId ??
+    post?.post?.id ??
+    post?.dividePost?.postId ??
+    post?.dividePost?.id ??
+    "";
+
+  return String(idValue ?? "").trim();
+}
+
+async function findDividePostByMenuTitle(menu: any, localRoom?: any) {
+  try {
+    const targetTitle = String(
+      menu?.title ||
+        menu?.postTitle ||
+        menu?.roomName ||
+        menu?.chatRoomTitle ||
+        localRoom?.title ||
+        ""
+    ).trim();
+
+    if (!targetTitle) return null;
+
+    const postsRes = await apiRequest<any>("/api/posts", {
+      method: "GET",
+      query: {
+        page: 0,
+        size: 300,
+        sort: "latest",
+      },
+    });
+
+    const posts = getPageContent<any>(postsRes);
+    const normalizedTargetTitle = normalizeTitleForSearch(targetTitle);
+    const targetImage = normalizeImageUrl(getAlbumImageUrl(menu, localRoom));
+
+    const found = posts.find((post: any) => {
+      const normalizedPostTitle = normalizeTitleForSearch(post?.title);
+      const postImage = normalizeImageUrl(getAlbumImageUrl(post));
+
+      const titleMatched =
+        !!normalizedTargetTitle &&
+        !!normalizedPostTitle &&
+        (normalizedPostTitle === normalizedTargetTitle ||
+          normalizedPostTitle.includes(normalizedTargetTitle) ||
+          normalizedTargetTitle.includes(normalizedPostTitle));
+
+      const imageMatched = !!targetImage && !!postImage && targetImage === postImage;
+
+      return titleMatched || imageMatched;
+    });
+
+    const foundId = getPostIdFromAny(found);
+
+    console.log("메뉴 분철 게시글 제목 역조회:", {
+      targetTitle,
+      normalizedTargetTitle,
+      foundId,
+      foundTitle: found?.title,
+      postsCount: posts.length,
+    });
+
+    if (!foundId) return null;
+
+    return {
+      postId: foundId,
+      post: found,
+    };
+  } catch (error) {
+    console.log("메뉴 분철 게시글 제목 역조회 실패:", error);
+    return null;
+  }
+}
 
 async function readJsonMap(key: string) {
   try {
@@ -79,102 +474,6 @@ async function updateLocalRoomAsCompleted(chatRoomId: string) {
   }
 }
 
-const API_BASE_URL = (
-  process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://172.20.99.65:8080"
-).replace(/\/$/, "");
-
-const COLORS = {
-  white: "#FFFFFF",
-  black: "#111111",
-  gray700: "#666666",
-  gray500: "#999999",
-  gray100: "#F8F8F8",
-  yellow: "#F7C94B",
-  green: "#DDF7EB",
-  greenText: "#24A466",
-  blue: "#E7F4FF",
-  blueText: "#2383C4",
-  red: "#D94A4A",
-  line: "#EFEFEF",
-};
-
-type TradeStatus =
-  | "모집 중"
-  | "모집 완료"
-  | "배송 중"
-  | "거래 완료"
-  | "거래 취소";
-
-type Member = {
-  id: string;
-  nickname: string;
-  member: string;
-  initial: string;
-  color: string;
-  initialColor: string;
-  isSeller?: boolean;
-  receiver?: string;
-  phone?: string;
-  store?: string;
-  request?: string;
-  userId?: string;
-  role?: string;
-};
-
-type LocalChatRoom = {
-  id: string;
-  title?: string;
-  status?: string;
-  postStatus?: string;
-  sellerName?: string;
-  buyerName?: string;
-  selectedMember?: string;
-  totalMemberCount?: number;
-  completedMemberCount?: number;
-  allMembersCompleted?: boolean;
-  postId?: string | number;
-  postsId?: string | number;
-  communityId?: string | number;
-  communityPostId?: string | number;
-  participants?: MenuParticipant[];
-};
-
-type MenuParticipant = {
-  userId?: string | number;
-  nickname?: string;
-  memberName?: string;
-  role?: string;
-};
-
-type ChatRoomMenuInfo = {
-  chatRoomId?: string | number;
-  title?: string;
-  postStatus?: string;
-  status?: string;
-  myRole?: string;
-  postId?: string | number;
-  postsId?: string | number;
-  id?: string | number;
-  communityId?: string | number;
-  communityPostId?: string | number;
-  post?: {
-    postId?: string | number;
-    postsId?: string | number;
-    id?: string | number;
-    communityId?: string | number;
-  };
-  participants?: MenuParticipant[];
-};
-
-type BuyerInfoResponse = {
-  nickname?: string;
-  memberName?: string;
-  realName?: string;
-  phoneNumber?: string;
-  storeName?: string;
-  requestMessage?: string;
-};
-
 export default function ChatMenuScreen() {
   const {
     chatRoomId,
@@ -201,6 +500,8 @@ export default function ChatMenuScreen() {
     postsId,
     id,
     communityId,
+    dividePostId,
+    linkedPostId,
   } = useLocalSearchParams<{
     chatRoomId?: string;
     role?: string;
@@ -226,6 +527,8 @@ export default function ChatMenuScreen() {
     postsId?: string;
     id?: string;
     communityId?: string;
+    dividePostId?: string;
+    linkedPostId?: string;
   }>();
 
   const [localRoom, setLocalRoom] = useState<LocalChatRoom | null>(null);
@@ -233,6 +536,19 @@ export default function ChatMenuScreen() {
   const [menuParticipants, setMenuParticipants] = useState<MenuParticipant[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string>("");
   const [isMenuLoaded, setIsMenuLoaded] = useState(false);
+  const [fetchedAlbumImageUrl, setFetchedAlbumImageUrl] = useState("");
+  const [fetchedSelfProfileImg, setFetchedSelfProfileImg] = useState("");
+  const [fetchedPostId, setFetchedPostId] = useState("");
+  const [linkedDividePostId, setLinkedDividePostId] = useState("");
+  const [linkedCommunityPostId, setLinkedCommunityPostId] = useState("");
+  const [fetchedBuyerMemberName, setFetchedBuyerMemberName] = useState("");
+
+  const getFirstValueText = (...values: any[]) =>
+    values
+      .map((value) =>
+        value === null || value === undefined ? "" : String(value).trim()
+      )
+      .find(Boolean) ?? "";
 
   useEffect(() => {
     const loadLocalRoom = async () => {
@@ -259,68 +575,21 @@ export default function ChatMenuScreen() {
     loadLocalRoom();
   }, [chatRoomId]);
 
-  const getFirstValueText = (...values: any[]) =>
-    values
-      .map((value) =>
-        value === null || value === undefined ? "" : String(value).trim()
-      )
-      .find(Boolean) ?? "";
-
   const fetchChatRoomMenuInfo = async (roomId: string, userId: string) => {
-    const response = await fetch(
-      `${API_BASE_URL}/api/chat-rooms/${roomId}/menu?userId=${userId}`,
-      {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-          "ngrok-skip-browser-warning": "true",
-        },
-      }
+    const data = await apiRequest<ChatRoomMenuInfo>(
+      `/api/chat-rooms/${roomId}/menu?userId=${userId}`,
+      { method: "GET" }
     );
-
-    const text = await response.text();
-    let data: ChatRoomMenuInfo | null = null;
-
-    try {
-      data = text ? JSON.parse(text) : null;
-    } catch {
-      data = null;
-    }
-
-    if (!response.ok) {
-      throw new Error((data as any)?.message || "채팅방 메뉴 정보를 불러오지 못했어요.");
-    }
-
+    console.log("채팅 메뉴 RAW 응답 (apiRequest):", JSON.stringify(data));
     return data;
   };
 
   const fetchBuyerInfo = async (buyerUserId: string) => {
     if (!chatRoomId) return null;
-
-    const response = await fetch(
-      `${API_BASE_URL}/api/chat-rooms/${chatRoomId}/participants/${buyerUserId}/info`,
-      {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-          "ngrok-skip-browser-warning": "true",
-        },
-      }
+    const data = await apiRequest<BuyerInfoResponse>(
+      `/api/chat-rooms/${chatRoomId}/participants/${buyerUserId}/info`,
+      { method: "GET" }
     );
-
-    const text = await response.text();
-    let data: BuyerInfoResponse | null = null;
-
-    try {
-      data = text ? JSON.parse(text) : null;
-    } catch {
-      data = null;
-    }
-
-    if (!response.ok) {
-      throw new Error((data as any)?.message || "참여자 정보를 불러오지 못했어요.");
-    }
-
     return data;
   };
 
@@ -338,15 +607,201 @@ export default function ChatMenuScreen() {
 
         setCurrentUserId(String(storedUserId));
 
+        // 현재 사용자(개설자/본인) 프로필 이미지 별도 조회 (/api/users/me 사용)
+        try {
+          const selfProfile = await getMyProfile();
+          console.log("메뉴 본인 프로필 응답:", selfProfile);
+          const selfImg = getProfileImageUrl(selfProfile);
+          console.log("메뉴 본인 프로필 이미지:", selfImg);
+          if (selfImg) setFetchedSelfProfileImg(selfImg);
+        } catch (selfProfileError) {
+          console.log("메뉴 본인 프로필 조회 실패:", selfProfileError);
+        }
+
         const menu = await fetchChatRoomMenuInfo(String(chatRoomId), String(storedUserId));
         const participants = Array.isArray(menu?.participants)
           ? menu.participants
           : [];
 
         console.log("채팅 메뉴 응답:", menu);
+        console.log("채팅 메뉴 앨범 이미지:", getAlbumImageUrl(menu, localRoom));
+        console.log("채팅 메뉴 참여자 이미지:", participants);
+
+        // 프로필 이미지 + 멤버 이름 없는 참여자는 API에서 별도로 가져옴
+        const enrichedParticipants = await Promise.all(
+          participants.map(async (p: MenuParticipant) => {
+            const roleText = String(p.role ?? "").toUpperCase();
+            const isBuyerParticipant = roleText === "BUYER";
+            let enriched = { ...p };
+
+            // 프로필 이미지 없으면 유저 API에서 가져옴
+            if (!getProfileImageUrl(p) && p.userId) {
+              const profile = await fetchUserProfile(p.userId);
+              if (profile) {
+                enriched.profileImageUrl = getProfileImageUrl(profile) || undefined;
+              }
+            }
+
+            // memberName 없는 구매자는 buyerInfo API에서 가져옴
+            if (isBuyerParticipant && !String(p.memberName ?? "").trim() && p.userId && chatRoomId) {
+              try {
+                const buyerInfo = await apiRequest<BuyerInfoResponse>(
+                  `/api/chat-rooms/${chatRoomId}/participants/${p.userId}/info`,
+                  { method: "GET" }
+                );
+                if (buyerInfo?.memberName) {
+                  enriched.memberName = buyerInfo.memberName;
+                  console.log("메뉴 구매자 멤버 이름 조회 성공:", buyerInfo.memberName);
+                }
+              } catch {
+                // 조회 실패해도 무시
+              }
+            }
+
+            return enriched;
+          })
+        );
 
         setMenuInfo(menu);
-        setMenuParticipants(participants);
+        setMenuParticipants(enrichedParticipants);
+
+        // 구매자 멤버 이름 — enriched participants에서 추출
+        const buyerParticipant = enrichedParticipants.find(
+          (p) => String(p.role ?? "").toUpperCase() === "BUYER"
+        );
+        const buyerMemberNameFromApi = String(buyerParticipant?.memberName ?? "").trim();
+        if (buyerMemberNameFromApi) setFetchedBuyerMemberName(buyerMemberNameFromApi);
+
+        const mAny = menu as any;
+        const roomTypeText = String(type ?? localRoom?.type ?? localRoom?.chatRoomType ?? "")
+          .trim()
+          .toLowerCase();
+        const isDirectRoom = roomTypeText === "note" || roomTypeText === "direct";
+
+        // 앨범 이미지 — menu에서 직접 추출하고, 없으면 제목으로 게시글을 찾아서 보완
+        let initialAlbum = getAlbumImageUrl(menu, localRoom);
+        let foundDividePostByTitle: { postId: string; post: any } | null = null;
+
+        if (!isDirectRoom) {
+          foundDividePostByTitle = await findDividePostByMenuTitle(menu, localRoom);
+
+          if (!initialAlbum && foundDividePostByTitle?.post) {
+            const foundImage = getAlbumImageUrl(foundDividePostByTitle.post);
+
+            if (foundImage) {
+              initialAlbum = foundImage;
+              console.log("메뉴 앨범 이미지 title 검색으로 찾음:", foundImage);
+            }
+          }
+        }
+
+        if (initialAlbum) {
+          setFetchedAlbumImageUrl(initialAlbum);
+          console.log("메뉴 앨범 이미지 state 저장:", initialAlbum);
+        }
+
+        let savedDividePostId = "";
+        let savedCommunityPostId = "";
+
+        if (chatRoomId) {
+          try {
+            const raw = await AsyncStorage.getItem(CHAT_ROOM_LINKED_POST_STORAGE_KEY);
+            const mapData = raw ? JSON.parse(raw) : {};
+            const saved = mapData[String(chatRoomId)];
+
+            console.log("메뉴 연결 게시글 매핑 조회:", saved);
+
+            if (saved && typeof saved === "object") {
+              savedDividePostId = String(saved.dividePostId ?? "").trim();
+              savedCommunityPostId = String(saved.communityPostId ?? "").trim();
+            } else if (saved) {
+              if (isDirectRoom) savedCommunityPostId = String(saved).trim();
+              else savedDividePostId = String(saved).trim();
+            }
+          } catch (error) {
+            console.log("메뉴 연결 게시글 매핑 조회 실패:", error);
+          }
+        }
+
+        if (savedDividePostId) setLinkedDividePostId(savedDividePostId);
+        if (savedCommunityPostId) setLinkedCommunityPostId(savedCommunityPostId);
+
+        const routeDividePostId =
+          !isDirectRoom
+            ? postId ?? postsId ?? dividePostId ?? linkedPostId ?? id
+            : "";
+
+        const routeCommunityPostId =
+          isDirectRoom
+            ? communityId ?? postId ?? postsId ?? linkedPostId ?? id
+            : "";
+
+        let resolvedDividePostId = String(
+          routeDividePostId ??
+            mAny?.dividePostId ??
+            mAny?.postId ??
+            mAny?.postsId ??
+            mAny?.post?.postId ??
+            mAny?.post?.postsId ??
+            mAny?.post?.id ??
+            mAny?.dividePost?.postId ??
+            mAny?.dividePost?.id ??
+            localRoom?.postId ??
+            localRoom?.postsId ??
+            savedDividePostId ??
+            ""
+        ).trim();
+
+        let resolvedCommunityPostId = String(
+          routeCommunityPostId ??
+            mAny?.communityPostId ??
+            mAny?.communityId ??
+            mAny?.post?.communityId ??
+            localRoom?.communityPostId ??
+            localRoom?.communityId ??
+            savedCommunityPostId ??
+            ""
+        ).trim();
+
+        if (!resolvedDividePostId && foundDividePostByTitle?.postId) {
+          resolvedDividePostId = foundDividePostByTitle.postId;
+          console.log("메뉴 분철 postId title 검색으로 찾음:", resolvedDividePostId);
+        }
+
+        // 예전 버전에서 쓰던 저장 키도 한 번만 호환 처리
+        if (!resolvedDividePostId && !resolvedCommunityPostId && chatRoomId) {
+          try {
+            const raw = await AsyncStorage.getItem("GO_REUDEOK_CHATROOM_POST_MAP");
+            const mapData = raw ? JSON.parse(raw) : {};
+            const mapped = mapData[String(chatRoomId)];
+            if (mapped) {
+              if (isDirectRoom) resolvedCommunityPostId = String(mapped).trim();
+              else resolvedDividePostId = String(mapped).trim();
+              console.log("이전 로컬 매핑에서 게시글 ID 발견:", mapped);
+            }
+          } catch {}
+        }
+
+        console.log("메뉴 분철 postId 계산:", resolvedDividePostId);
+        console.log("메뉴 커뮤니티 postId 계산:", resolvedCommunityPostId);
+
+        if (resolvedDividePostId) {
+          setFetchedPostId(resolvedDividePostId);
+          setLinkedDividePostId(resolvedDividePostId);
+        }
+
+        if (resolvedCommunityPostId) {
+          setLinkedCommunityPostId(resolvedCommunityPostId);
+        }
+
+        if (!isDirectRoom && !initialAlbum && resolvedDividePostId) {
+          const postDetail = await fetchPostDetail(resolvedDividePostId);
+          console.log("메뉴 게시글 상세 응답:", postDetail);
+          const postImage = getAlbumImageUrl(postDetail);
+          if (postImage) setFetchedAlbumImageUrl(postImage);
+        } else if (initialAlbum) {
+          // 이미 위에서 setFetchedAlbumImageUrl 호출했음
+        }
       } catch (error) {
         console.log("채팅 메뉴 조회 실패:", error);
       } finally {
@@ -355,7 +810,7 @@ export default function ChatMenuScreen() {
     };
 
     loadMenuInfo();
-  }, [chatRoomId]);
+  }, [chatRoomId, postId, postsId, id, communityId, dividePostId, linkedPostId, type, localRoom]);
 
   const normalizedRole =
     typeof role === "string" ? role.trim().toLowerCase() : "";
@@ -397,29 +852,66 @@ export default function ChatMenuScreen() {
       ? "쪽지"
       : "분철 채팅방";
 
-  const communityPostId = String(
-    postId ??
-      postsId ??
-      communityId ??
-      id ??
-      menuInfo?.postId ??
-      menuInfo?.postsId ??
-      menuInfo?.communityPostId ??
-      menuInfo?.communityId ??
-      menuInfo?.post?.postId ??
-      menuInfo?.post?.postsId ??
-      menuInfo?.post?.id ??
-      menuInfo?.post?.communityId ??
-      localRoom?.postId ??
-      localRoom?.postsId ??
-      localRoom?.communityPostId ??
-      localRoom?.communityId ??
-      ""
+  const albumImageUrl = fetchedAlbumImageUrl || getAlbumImageUrl(menuInfo, localRoom);
+
+  const _m = menuInfo as any;
+
+  const targetDividePostId = String(
+    !isNote
+      ? postId ??
+          postsId ??
+          dividePostId ??
+          linkedPostId ??
+          id ??
+          _m?.dividePostId ??
+          _m?.postId ??
+          _m?.postsId ??
+          _m?.post?.postId ??
+          _m?.post?.postsId ??
+          _m?.post?.id ??
+          _m?.dividePost?.postId ??
+          _m?.dividePost?.id ??
+          localRoom?.postId ??
+          localRoom?.postsId ??
+          linkedDividePostId ??
+          fetchedPostId ??
+          ""
+      : ""
   ).trim();
+
+  const targetCommunityPostId = String(
+    isNote
+      ? communityId ??
+          postId ??
+          postsId ??
+          linkedPostId ??
+          id ??
+          _m?.communityPostId ??
+          _m?.communityId ??
+          _m?.post?.communityId ??
+          localRoom?.communityPostId ??
+          localRoom?.communityId ??
+          linkedCommunityPostId ??
+          ""
+      : ""
+  ).trim();
+
+  console.log("분철 게시글 ID 계산:", targetDividePostId, "| postId param:", postId, "| menuInfo keys:", _m ? Object.keys(_m) : []);
+  console.log("커뮤니티 게시글 ID 계산:", targetCommunityPostId);
+
+  const sellerParticipant = menuParticipants.find(
+    (participant) =>
+      String(participant.role ?? "").trim().toUpperCase() === "SELLER"
+  );
+
+  const currentParticipant = menuParticipants.find(
+    (participant) => String(participant.userId ?? "") === String(currentUserId)
+  );
 
   const sellerDisplayName =
     cleanName(sellerName) ||
     cleanName(localRoom?.sellerName) ||
+    cleanName(sellerParticipant?.nickname) ||
     (isBuyer ? cleanName(opponentName) : "") ||
     "판매자";
 
@@ -457,11 +949,11 @@ export default function ChatMenuScreen() {
     : rawBuyerName;
 
   const buyerMemberName =
-    typeof selectedMember === "string" && selectedMember.trim().length > 0
+    (typeof selectedMember === "string" && selectedMember.trim().length > 0
       ? selectedMember.trim()
       : localRoom?.selectedMember && localRoom.selectedMember.trim().length > 0
       ? localRoom.selectedMember.trim()
-      : "";
+      : "") || fetchedBuyerMemberName;
 
   const parsedTotalMemberCount = Number(
     totalMemberCount ?? localRoom?.totalMemberCount ?? 0
@@ -524,6 +1016,7 @@ export default function ChatMenuScreen() {
     initial: sellerDisplayName.slice(0, 1),
     color: "#FFF1B8",
     initialColor: "#D09A00",
+    profileImageUrl: getProfileImageUrl(sellerParticipant),
     isSeller: true,
     role: "SELLER",
   };
@@ -531,10 +1024,11 @@ export default function ChatMenuScreen() {
   const buyerMember: Member = {
     id: "buyer",
     nickname: buyerDisplayName,
-    member: isNote ? "" : buyerMemberName || "선택 멤버",
+    member: isNote ? "" : buyerMemberName,
     initial: buyerDisplayName.slice(0, 1),
     color: "#DDF7EB",
     initialColor: "#1E8E61",
+    profileImageUrl: "",
     receiver:
       typeof receiverName === "string" && receiverName.trim().length > 0
         ? receiverName.trim()
@@ -570,10 +1064,11 @@ export default function ChatMenuScreen() {
           ? undefined
           : String(participant.userId),
       nickname,
-      member: isNote ? "" : isParticipantSeller ? "개설자" : memberName || "선택 멤버",
+      member: isNote ? "" : memberName,
       initial: nickname.slice(0, 1),
       color: isParticipantSeller ? "#FFF1B8" : "#DDF7EB",
       initialColor: isParticipantSeller ? "#D09A00" : "#1E8E61",
+      profileImageUrl: getProfileImageUrl(participant),
       isSeller: isParticipantSeller,
       role: roleText,
       receiver:
@@ -605,6 +1100,7 @@ export default function ChatMenuScreen() {
       initial: (cleanName(opponentName) || "상대방").slice(0, 1),
       color: "#DDF7EB",
       initialColor: "#1E8E61",
+      profileImageUrl: "",
     },
   ];
 
@@ -618,10 +1114,11 @@ export default function ChatMenuScreen() {
     id: "me",
     userId: currentUserId || undefined,
     nickname: currentUserDisplayName,
-    member: isNote ? "" : isSeller ? "개설자" : buyerMemberName || "선택 멤버",
+    member: isNote ? "" : isSeller ? "개설자" : buyerMemberName,
     initial: currentUserDisplayName.slice(0, 1) || "나",
     color: "#FFE0CA",
     initialColor: "#E0702A",
+    profileImageUrl: getProfileImageUrl(currentParticipant) || fetchedSelfProfileImg,
     isSeller,
     role: isSeller ? "SELLER" : isBuyer ? "BUYER" : "MEMBER",
     receiver:
@@ -657,7 +1154,10 @@ export default function ChatMenuScreen() {
       : []
     : [sellerMember];
 
-  const visibleMembers = [selfMember, ...(apiOtherMembers.length > 0 ? apiOtherMembers : fallbackOtherMembers)];
+  const visibleMembers = [
+    selfMember,
+    ...(apiOtherMembers.length > 0 ? apiOtherMembers : fallbackOtherMembers),
+  ];
 
   const getIsMe = (member: Member) => {
     return member.id === "me";
@@ -706,6 +1206,7 @@ export default function ChatMenuScreen() {
             nickname,
             member: info.memberName || member.member,
             initial: nickname.slice(0, 1),
+            profileImageUrl: getProfileImageUrl(info) || member.profileImageUrl,
             receiver: info.realName || member.receiver || "-",
             phone: info.phoneNumber || member.phone || "-",
             store: info.storeName || member.store || "-",
@@ -816,7 +1317,14 @@ export default function ChatMenuScreen() {
   ).current;
 
   const handleOpenCommunityPost = () => {
-    if (!communityPostId) {
+    console.log(
+      "커뮤니티 게시글 이동 시도 - targetCommunityPostId:",
+      targetCommunityPostId,
+      "menuInfo:",
+      JSON.stringify(menuInfo)
+    );
+
+    if (!targetCommunityPostId) {
       Alert.alert(
         "커뮤니티 글",
         "연결된 커뮤니티 게시글 정보를 찾지 못했어요."
@@ -827,10 +1335,33 @@ export default function ChatMenuScreen() {
     router.push({
       pathname: "/community/[postId]",
       params: {
-        postId: communityPostId,
-        postsId: communityPostId,
-        id: communityPostId,
-        communityId: communityPostId,
+        postId: targetCommunityPostId,
+        postsId: targetCommunityPostId,
+        id: targetCommunityPostId,
+        communityId: targetCommunityPostId,
+      },
+    } as any);
+  };
+
+  const handleOpenDividePost = () => {
+    console.log(
+      "분철 게시글 이동 시도 - targetDividePostId:",
+      targetDividePostId,
+      "menuInfo:",
+      JSON.stringify(menuInfo)
+    );
+
+    if (!targetDividePostId) {
+      Alert.alert("게시글 정보 없음", "연결된 분철 게시글 정보를 찾지 못했어요.");
+      return;
+    }
+
+    router.push({
+      pathname: "/divide-detail",
+      params: {
+        postId: targetDividePostId,
+        postsId: targetDividePostId,
+        id: targetDividePostId,
       },
     } as any);
   };
@@ -1020,8 +1551,30 @@ export default function ChatMenuScreen() {
           </TouchableOpacity>
         ) : (
           <View style={styles.tradeCard}>
+            <TouchableOpacity activeOpacity={0.8} onPress={handleOpenDividePost}>
             <View style={styles.tradeTop}>
-              <View style={styles.thumbnail} />
+              <View style={styles.thumbnail}>
+                {albumImageUrl ? (
+                  <Image
+                    key={albumImageUrl}
+                    source={{ uri: albumImageUrl }}
+                    style={styles.thumbnailImage}
+                    resizeMode="cover"
+                    onLoad={() => {
+                      console.log("메뉴 앨범 이미지 로드 성공:", albumImageUrl);
+                    }}
+                    onError={(error) => {
+                      console.log(
+                        "메뉴 앨범 이미지 로드 실패:",
+                        albumImageUrl,
+                        error.nativeEvent
+                      );
+                    }}
+                  />
+                ) : (
+                  <Ionicons name="albums-outline" size={24} color={COLORS.black} />
+                )}
+              </View>
 
               <View style={styles.tradeInfo}>
                 <View style={styles.titleRow}>
@@ -1044,6 +1597,7 @@ export default function ChatMenuScreen() {
                 ) : null}
               </View>
             </View>
+          </TouchableOpacity>
 
             {isSeller && (
               <View style={styles.tradeButtonRow}>
@@ -1104,14 +1658,12 @@ export default function ChatMenuScreen() {
                         { backgroundColor: member.color },
                       ]}
                     >
-                      <Text
-                        style={[
-                          styles.memberInitial,
-                          { color: member.initialColor },
-                        ]}
-                      >
-                        {member.initial}
-                      </Text>
+                      <Image
+                          key={member.profileImageUrl || "default"}
+                          source={member.profileImageUrl ? { uri: member.profileImageUrl } : DEFAULT_PROFILE}
+                          style={styles.memberProfileImage}
+                          resizeMode="cover"
+                        />
                     </View>
 
                     {!isNote && member.isSeller && (
@@ -1243,11 +1795,12 @@ function BuyerInfoBottomSheet({
               <View
                 style={[styles.sheetProfile, { backgroundColor: member.color }]}
               >
-                <Text
-                  style={[styles.sheetInitial, { color: member.initialColor }]}
-                >
-                  {member.initial}
-                </Text>
+                <Image
+                    key={member.profileImageUrl || "default"}
+                    source={member.profileImageUrl ? { uri: member.profileImageUrl } : DEFAULT_PROFILE}
+                    style={styles.sheetProfileImage}
+                    resizeMode="cover"
+                  />
               </View>
 
               <View>
@@ -1353,6 +1906,14 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "#FFE07A",
     marginRight: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  thumbnailImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 12,
   },
   tradeInfo: {
     flex: 1,
@@ -1496,6 +2057,12 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+  },
+  memberProfileImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 17,
   },
   memberInitial: {
     fontSize: 20,
@@ -1642,6 +2209,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginRight: 14,
+    overflow: "hidden",
+  },
+  sheetProfileImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 18,
   },
   sheetInitial: {
     fontSize: 17,
@@ -1672,6 +2245,6 @@ const styles = StyleSheet.create({
   infoValue: {
     fontSize: 17,
     color: COLORS.black,
-    fontWeight: "400",
+    fontWeight: "600",
   },
 });

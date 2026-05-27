@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet } from "react-native";
+import { View, Image, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import AppButton from "@/components/common/AppButton";
 import { COLORS } from "@/constants/theme";
@@ -8,7 +8,11 @@ export default function StartScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.logo}>고르덕{"\n"}로고</Text>
+      <Image
+        source={require("@/assets/img/logo1.png")}
+        style={styles.logo}
+        resizeMode="contain"
+      />
 
       <View style={styles.buttonBox}>
         <AppButton
@@ -35,12 +39,9 @@ const styles = StyleSheet.create({
   },
 
   logo: {
-    fontSize: 44,
-    fontFamily: "NotoSansKRExtraBold",
-    color: COLORS.black,
-    lineHeight: 56,
+    width: 180,
+    height: 180,
     marginBottom: 80,
-    textAlign: "center",
   },
 
   buttonBox: {

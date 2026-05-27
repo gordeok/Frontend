@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -24,26 +24,76 @@ const COLORS = {
   line: "#F2EDE6",
 };
 
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "";
+
 type ReviewItem = {
   id: number;
   name: string;
   date: string;
   text: string;
+  profileImage?: string | null;
 };
 
 function formatDate(value?: string) {
   if (!value) return "-";
+
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value.slice(0, 10).replaceAll("-", ".");
-  return date.toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" }).replace(/\. /g, ".").replace(/\.$/, "");
+
+  if (Number.isNaN(date.getTime())) {
+    return value.slice(0, 10).replaceAll("-", ".");
+  }
+
+  return date
+    .toLocaleDateString("ko-KR", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+    .replace(/\. /g, ".")
+    .replace(/\.$/, "");
+}
+
+function getImageUrl(url?: string | null) {
+  if (!url) return "";
+
+  const trimmedUrl = String(url).trim();
+
+  if (!trimmedUrl) return "";
+
+  if (
+    trimmedUrl.startsWith("http://") ||
+    trimmedUrl.startsWith("https://") ||
+    trimmedUrl.startsWith("file://")
+  ) {
+    return trimmedUrl;
+  }
+
+  if (!API_BASE_URL) {
+    return trimmedUrl;
+  }
+
+  const baseUrl = API_BASE_URL.endsWith("/")
+    ? API_BASE_URL.slice(0, -1)
+    : API_BASE_URL;
+
+  const path = trimmedUrl.startsWith("/") ? trimmedUrl : `/${trimmedUrl}`;
+
+  return `${baseUrl}${path}`;
 }
 
 function mapReview(review: MyReview): ReviewItem {
+  const reviewAny = review as any;
+
   return {
     id: review.reviewId,
     name: review.reviewerNickname,
     date: formatDate(review.createdAt),
     text: review.content,
+    profileImage:
+      reviewAny.reviewerProfileImage ||
+      reviewAny.profileImage ||
+      reviewAny.reviewerImage ||
+      null,
   };
 }
 
@@ -51,6 +101,9 @@ export default function ReceivedReviewsScreen() {
   const [reviews, setReviews] = useState<ReviewItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [imageErrorMap, setImageErrorMap] = useState<Record<number, boolean>>(
+    {}
+  );
 
   useEffect(() => {
     const loadReviews = async () => {
@@ -59,6 +112,9 @@ export default function ReceivedReviewsScreen() {
         setErrorMessage("");
 
         const data = await getMyReviews();
+
+        console.log("받은 후기 응답:", data);
+
         setReviews(data.map(mapReview));
       } catch (error: any) {
         console.log("받은 후기 조회 실패:", error);
@@ -98,33 +154,57 @@ export default function ReceivedReviewsScreen() {
           </View>
 
           {isLoading ? (
-            <View style={{ alignItems: "center", paddingTop: 80 }}>
-            </View>
+            <View style={styles.emptyArea} />
           ) : reviews.length > 0 ? (
-            reviews.map((review) => (
-              <View key={review.id} style={styles.reviewCard}>
-                <View style={styles.reviewTop}>
-                  <View style={styles.profileCircle}>
-                    <Text style={styles.profileInitial}>
-                      {review.name.slice(0, 1)}
-                    </Text>
+            reviews.map((review) => {
+              const profileImageUrl = getImageUrl(review.profileImage);
+              const hasProfileImage =
+                !!profileImageUrl && imageErrorMap[review.id] !== true;
+
+              return (
+                <View key={review.id} style={styles.reviewCard}>
+                  <View style={styles.reviewTop}>
+                    <View style={styles.profileCircle}>
+                      {hasProfileImage ? (
+                        <Image
+                          source={{ uri: profileImageUrl }}
+                          style={styles.profileImage}
+                          resizeMode="cover"
+                          onError={() => {
+                            console.log(
+                              "후기 프로필 이미지 로드 실패:",
+                              profileImageUrl
+                            );
+
+                            setImageErrorMap((prev) => ({
+                              ...prev,
+                              [review.id]: true,
+                            }));
+                          }}
+                        />
+                      ) : (
+                        <Text style={styles.profileInitial}>
+                          {review.name?.slice(0, 1) || "?"}
+                        </Text>
+                      )}
+                    </View>
+
+                    <View style={styles.reviewInfo}>
+                      <Text style={styles.reviewName} numberOfLines={1}>
+                        {review.name}
+                      </Text>
+                      <Text style={styles.reviewDate}>{review.date}</Text>
+                    </View>
                   </View>
 
-                  <View style={styles.reviewInfo}>
-                    <Text style={styles.reviewName} numberOfLines={1}>
-                      {review.name}
-                    </Text>
-                    <Text style={styles.reviewDate}>{review.date}</Text>
-                  </View>
+                  <Text style={styles.reviewText}>{review.text}</Text>
                 </View>
-
-                <Text style={styles.reviewText}>{review.text}</Text>
-              </View>
-            ))
+              );
+            })
           ) : (
-            <View style={{ alignItems: "center", paddingTop: 80 }}>
-              <Text style={{fontSize: 16, fontWeight: "900", color: COLORS.black, marginTop: 140, marginBottom: 6 }}>
-                {errorMessage || "아직 받은 후기가 없어요"}
+            <View style={styles.emptyArea}>
+              <Text style={styles.emptyText}>
+                {errorMessage || "받은 후기가 없어요"}
               </Text>
             </View>
           )}
@@ -133,7 +213,6 @@ export default function ReceivedReviewsScreen() {
     </SafeAreaView>
   );
 }
-
 
 const styles = StyleSheet.create({
   safeArea: {
@@ -205,6 +284,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginRight: 10,
+    overflow: "hidden",
+  },
+
+  profileImage: {
+    width: "100%",
+    height: "100%",
   },
 
   profileInitial: {
@@ -235,5 +320,18 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: COLORS.gray700,
     lineHeight: 20,
+  },
+
+  emptyArea: {
+    alignItems: "center",
+    paddingTop: 80,
+  },
+
+  emptyText: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: COLORS.black,
+    marginTop: 140,
+    marginBottom: 6,
   },
 });

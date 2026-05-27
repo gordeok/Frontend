@@ -4,6 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 
 import {
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -22,6 +23,57 @@ import {
 } from "../../services/user";
 
 const YELLOW = "#F3C24F";
+
+const DEFAULT_PROFILE = require("../../assets/img/profile.jpg");
+
+const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_BASE_URL ||
+  "https://frostily-derby-underpass.ngrok-free.dev";
+
+function normalizeImageUrl(url?: string | null) {
+  if (!url) return "";
+
+  const trimmed = String(url).trim();
+
+  if (!trimmed) return "";
+
+  if (trimmed.startsWith("http://localhost:8080")) {
+    return trimmed.replace("http://localhost:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("https://localhost:8080")) {
+    return trimmed.replace("https://localhost:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("http://127.0.0.1:8080")) {
+    return trimmed.replace("http://127.0.0.1:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("https://127.0.0.1:8080")) {
+    return trimmed.replace("https://127.0.0.1:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+
+  if (trimmed.startsWith("/")) {
+    return `${API_BASE_URL}${trimmed}`;
+  }
+
+  return `${API_BASE_URL}/${trimmed}`;
+}
+
+function getProfileImageUrl(profile: any) {
+  return normalizeImageUrl(
+    profile?.profileImage ||
+      profile?.profileImageUrl ||
+      profile?.profileImg ||
+      profile?.imageUrl ||
+      profile?.image ||
+      profile?.userProfileImage
+  );
+}
 
 function formatJoinDate(value?: string) {
   if (!value) return "-";
@@ -47,6 +99,10 @@ export default function MyPageScreen() {
         setLoading(true);
 
         const profileData = await getMyProfile();
+
+        console.log("마이페이지 프로필 응답:", profileData);
+        console.log("마이페이지 프로필 이미지:", getProfileImageUrl(profileData));
+
         setProfile(profileData);
 
         const trustData = await getTrustScore(profileData.userId);
@@ -64,6 +120,7 @@ export default function MyPageScreen() {
   }, []);
 
   const score = trustScore?.totalScore ?? profile?.trustScore ?? 0;
+  const profileImageUrl = getProfileImageUrl(profile);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
@@ -89,9 +146,12 @@ export default function MyPageScreen() {
 
             <View style={styles.profileTop}>
               <View style={styles.profileCircle}>
-                <Text style={styles.profileInitial}>
-                  {profile?.nickname?.[0] ?? "덕"}
-                </Text>
+                <Image
+                  key={profileImageUrl || "default"}
+                  source={profileImageUrl ? { uri: profileImageUrl } : DEFAULT_PROFILE}
+                  style={styles.profileImage}
+                  resizeMode="cover"
+                />
               </View>
 
               <View style={styles.profileInfo}>
@@ -354,11 +414,20 @@ const styles = StyleSheet.create({
   profileCircle: {
     width: 62,
     height: 62,
-    borderRadius: 16,
+    borderRadius: 20,
     backgroundColor: "#EEF1F6",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 16,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+
+  profileImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 18,
   },
 
   profileInitial: {

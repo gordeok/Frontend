@@ -8,6 +8,7 @@ import {
   StyleSheet,
   TextInput,
   ScrollView,
+  Image,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -20,10 +21,23 @@ import {
   saveFavoriteMembers,
 } from "@/services/user";
 
+const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_BASE_URL ||
+  "https://frostily-derby-underpass.ngrok-free.dev";
+
 type Idol = {
   id: number;
   name: string;
   code: string;
+
+  imageUrl?: string;
+  logoUrl?: string;
+  profileImage?: string;
+  idolImageUrl?: string;
+  photoUrl?: string;
+  image?: string;
+  imagePath?: string;
+  thumbnailUrl?: string;
 };
 
 type FavoriteMember = {
@@ -55,6 +69,8 @@ export default function GroupEditScreen() {
         const idols = await getIdols();
         const savedIdols = await getFavoriteIdols();
         const savedMembers = await getFavoriteMembers();
+
+        console.log("그룹 편집 아이돌 응답:", idols);
 
         const savedIdolIds = savedIdols.map((idol) => Number(idol.id));
 
@@ -92,6 +108,37 @@ export default function GroupEditScreen() {
 
     return [...selectedFirst, ...restGroups];
   }, [keyword, allGroups, selectedGroups]);
+
+  const normalizeImageUrl = (url?: string) => {
+    if (!url) return "";
+
+    const trimmedUrl = String(url).trim();
+
+    if (!trimmedUrl) return "";
+
+    if (trimmedUrl.startsWith("http://") || trimmedUrl.startsWith("https://")) {
+      return trimmedUrl;
+    }
+
+    if (trimmedUrl.startsWith("/")) {
+      return `${API_BASE_URL}${trimmedUrl}`;
+    }
+
+    return `${API_BASE_URL}/${trimmedUrl}`;
+  };
+
+  const getGroupImageUrl = (group: Idol) => {
+    return normalizeImageUrl(
+      group.imageUrl ||
+        group.logoUrl ||
+        group.profileImage ||
+        group.idolImageUrl ||
+        group.photoUrl ||
+        group.image ||
+        group.imagePath ||
+        group.thumbnailUrl
+    );
+  };
 
   const toggleGroup = (groupId: number) => {
     setSelectedGroups((prev) => {
@@ -161,23 +208,28 @@ export default function GroupEditScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        <TextInput
-          placeholder="그룹 검색"
-          placeholderTextColor="#B8B8C2"
-          style={styles.search}
-          value={keyword}
-          onChangeText={setKeyword}
-        />
+        <View style={styles.searchBox}>
+          <Ionicons name="search" size={18} color="#A6A6B0" />
 
-        {isLoading ? (
-          <Text style={styles.noticeText}>그룹 정보를 불러오는 중이에요.</Text>
-        ) : errorMessage ? (
+          <TextInput
+            placeholder="그룹 검색"
+            placeholderTextColor="#B8B8C2"
+            style={styles.searchInput}
+            value={keyword}
+            onChangeText={setKeyword}
+          />
+        </View>
+
+        {errorMessage ? (
           <Text style={styles.noticeText}>{errorMessage}</Text>
+        ) : isLoading ? (
+          <View style={styles.loadingBlank} />
         ) : (
           <View style={styles.grid}>
             {visibleGroups.map((group) => {
               const groupId = Number(group.id);
               const isSelected = selectedGroups.includes(groupId);
+              const imageUrl = getGroupImageUrl(group);
 
               return (
                 <Pressable
@@ -194,14 +246,25 @@ export default function GroupEditScreen() {
                       isSelected && styles.selectedCircle,
                     ]}
                   >
-                    <Text
-                      style={[
-                        styles.logoText,
-                        isSelected && styles.selectedLogoText,
-                      ]}
-                    >
-                      {group.name.slice(0, 3)}
-                    </Text>
+                    {imageUrl ? (
+                      <Image
+                        source={{ uri: imageUrl }}
+                        style={[
+                          styles.groupImage,
+                          !isSelected && styles.unselectedImage,
+                        ]}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <Text
+                        style={[
+                          styles.logoText,
+                          isSelected && styles.selectedLogoText,
+                        ]}
+                      >
+                        {group.name.slice(0, 3)}
+                      </Text>
+                    )}
                   </View>
 
                   <Text
@@ -233,7 +296,7 @@ export default function GroupEditScreen() {
           disabled={selectedGroups.length === 0 || isSaving}
           onPress={handleNext}
         >
-          <Text style={styles.nextText}>{isSaving ? "저장 중" : "다음"}</Text>
+          <Text style={styles.nextText}>{isSaving ? "다음" : "다음"}</Text>
         </Pressable>
       </View>
     </View>
@@ -278,14 +341,27 @@ const styles = StyleSheet.create({
     paddingBottom: 130,
   },
 
-  search: {
+  searchBox: {
     height: 44,
     backgroundColor: "#F1F1F6",
     borderRadius: 12,
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
     marginBottom: 28,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+
+  searchInput: {
+    flex: 1,
+    height: "100%",
     fontSize: 14,
     color: "#202633",
+    padding: 0,
+  },
+
+  loadingBlank: {
+    height: 36,
   },
 
   noticeText: {
@@ -298,11 +374,11 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    justifyContent: "space-between",
+    justifyContent: "flex-start",
   },
 
   groupItem: {
-    width: "30%",
+    width: "33.333%",
     alignItems: "center",
     marginBottom: 24,
   },
@@ -315,28 +391,39 @@ const styles = StyleSheet.create({
     width: 74,
     height: 74,
     borderRadius: 37,
-    backgroundColor: "#D9D9D9",
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    opacity: 0.45,
-    borderWidth: 2,
-    borderColor: "transparent",
+    overflow: "hidden",
+    opacity: 0.95,
+    borderWidth: 1.5,
+    borderColor: "#E4E4EA",
   },
 
   selectedCircle: {
-    backgroundColor: YELLOW,
+    backgroundColor: "#FFF7D8",
     opacity: 1,
-    borderColor: "#202633",
+    borderWidth: 2.5,
+    borderColor: YELLOW,
+  },
+
+  groupImage: {
+    width: "100%",
+    height: "100%",
+  },
+
+  unselectedImage: {
+    opacity: 0.55,
   },
 
   logoText: {
-    color: "#fff",
+    color: "#A0A0A8",
     fontWeight: "800",
     fontSize: 16,
   },
 
   selectedLogoText: {
-    color: "#fff",
+    color: "#202633",
   },
 
   groupName: {

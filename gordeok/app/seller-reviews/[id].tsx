@@ -3,6 +3,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -25,12 +26,15 @@ const COLORS = {
   yellow: "#F3C24F",
 };
 
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "";
+
 type SellerReview = {
   id: number;
   initial: string;
   nickname: string;
   date: string;
   content: string;
+  profileImage?: string | null;
 };
 
 type MyReviewApiItem = {
@@ -40,7 +44,9 @@ type MyReviewApiItem = {
   reviewerNickname?: string;
   writerNickname?: string;
   nickname?: string;
-  reviewerProfileImage?: string;
+  reviewerProfileImage?: string | null;
+  profileImage?: string | null;
+  writerProfileImage?: string | null;
   rating?: number;
   content?: string;
   createdAt?: string;
@@ -49,7 +55,7 @@ type MyReviewApiItem = {
 type ProfileApiResponse = {
   userId: number;
   nickname: string;
-  profileImage?: string;
+  profileImage?: string | null;
   trustScore?: number;
   hasScamReport?: boolean;
   createdAt?: string;
@@ -79,6 +85,34 @@ function formatDate(value?: string) {
   return `${year}.${month}.${day}`;
 }
 
+function getImageUrl(url?: string | null) {
+  if (!url) return "";
+
+  const trimmedUrl = String(url).trim();
+
+  if (!trimmedUrl) return "";
+
+  if (
+    trimmedUrl.startsWith("http://") ||
+    trimmedUrl.startsWith("https://") ||
+    trimmedUrl.startsWith("file://")
+  ) {
+    return trimmedUrl;
+  }
+
+  if (!API_BASE_URL) {
+    return trimmedUrl;
+  }
+
+  const baseUrl = API_BASE_URL.endsWith("/")
+    ? API_BASE_URL.slice(0, -1)
+    : API_BASE_URL;
+
+  const path = trimmedUrl.startsWith("/") ? trimmedUrl : `/${trimmedUrl}`;
+
+  return `${baseUrl}${path}`;
+}
+
 function normalizeReview(item: MyReviewApiItem): SellerReview {
   const nickname =
     item.reviewerNickname ||
@@ -92,6 +126,11 @@ function normalizeReview(item: MyReviewApiItem): SellerReview {
     nickname,
     date: formatDate(item.createdAt),
     content: item.content || "",
+    profileImage:
+      item.reviewerProfileImage ||
+      item.profileImage ||
+      item.writerProfileImage ||
+      null,
   };
 }
 
@@ -105,6 +144,9 @@ export default function SellerReviewsScreen() {
   const [reviews, setReviews] = useState<SellerReview[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [imageErrorMap, setImageErrorMap] = useState<Record<number, boolean>>(
+    {}
+  );
 
   useEffect(() => {
     const loadReviews = async () => {
@@ -140,6 +182,8 @@ export default function SellerReviewsScreen() {
           ]);
 
           setSellerName(profileRes?.nickname || "판매자");
+
+          console.log("내 받은 후기 API 응답:", reviewsRes);
 
           const reviewList = getPageContent<MyReviewApiItem>(reviewsRes)
             .map(normalizeReview)
@@ -232,38 +276,65 @@ export default function SellerReviewsScreen() {
             </Text>
 
             {sortedReviews.length > 0 ? (
-              sortedReviews.map((review) => (
-                <Pressable
-                  key={review.id}
-                  style={({ pressed }) => [
-                    styles.reviewCard,
-                    pressed && styles.reviewCardHover,
-                  ]}
-                  onPress={() => {
-                    console.log("받은 후기 선택", review.id, sellerId);
-                  }}
-                >
-                  <View style={styles.reviewProfile}>
-                    <Text style={styles.reviewInitial}>{review.initial}</Text>
-                  </View>
+              sortedReviews.map((review) => {
+                const profileImageUrl = getImageUrl(review.profileImage);
+                const hasProfileImage =
+                  !!profileImageUrl && imageErrorMap[review.id] !== true;
 
-                  <View style={styles.reviewInfo}>
-                    <View style={styles.reviewTop}>
-                      <Text numberOfLines={1} style={styles.reviewName}>
-                        {review.nickname}
-                      </Text>
+                return (
+                  <Pressable
+                    key={review.id}
+                    style={({ pressed }) => [
+                      styles.reviewCard,
+                      pressed && styles.reviewCardHover,
+                    ]}
+                    onPress={() => {
+                      console.log("받은 후기 선택", review.id, sellerId);
+                    }}
+                  >
+                    <View style={styles.reviewProfile}>
+                      {hasProfileImage ? (
+                        <Image
+                          source={{ uri: profileImageUrl }}
+                          style={styles.reviewProfileImage}
+                          resizeMode="cover"
+                          onError={() => {
+                            console.log(
+                              "후기 프로필 이미지 로드 실패:",
+                              profileImageUrl
+                            );
 
-                      <Text style={styles.reviewDate}>
-                        {review.date || "작성일 없음"}
-                      </Text>
+                            setImageErrorMap((prev) => ({
+                              ...prev,
+                              [review.id]: true,
+                            }));
+                          }}
+                        />
+                      ) : (
+                        <Text style={styles.reviewInitial}>
+                          {review.initial}
+                        </Text>
+                      )}
                     </View>
 
-                    <Text numberOfLines={3} style={styles.reviewText}>
-                      {review.content || "후기 내용이 없습니다."}
-                    </Text>
-                  </View>
-                </Pressable>
-              ))
+                    <View style={styles.reviewInfo}>
+                      <View style={styles.reviewTop}>
+                        <Text numberOfLines={1} style={styles.reviewName}>
+                          {review.nickname}
+                        </Text>
+
+                        <Text style={styles.reviewDate}>
+                          {review.date || "작성일 없음"}
+                        </Text>
+                      </View>
+
+                      <Text numberOfLines={3} style={styles.reviewText}>
+                        {review.content || "후기 내용이 없습니다."}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })
             ) : (
               <View style={styles.emptyBox}>
                 <Text style={styles.emptyTitle}>받은 후기가 없어요</Text>
@@ -379,6 +450,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginRight: 11,
+    overflow: "hidden",
+  },
+
+  reviewProfileImage: {
+    width: "100%",
+    height: "100%",
   },
 
   reviewInitial: {

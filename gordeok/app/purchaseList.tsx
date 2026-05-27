@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,6 +11,10 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getMyPurchases, MyPurchase } from "../services/user";
+
+const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_BASE_URL ||
+  "https://frostily-derby-underpass.ngrok-free.dev";
 
 const COLORS = {
   white: "#FFFFFF",
@@ -39,31 +43,101 @@ type PurchaseItem = {
   date: string;
   status: PurchaseStatus;
   canWriteReview: boolean;
+  thumbnailUrl: string;
 };
+
+function normalizeImageUrl(url?: string | null) {
+  if (!url) return "";
+
+  const trimmed = String(url).trim();
+
+  if (!trimmed) return "";
+
+  if (trimmed.startsWith("http://localhost:8080")) {
+    return trimmed.replace("http://localhost:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("https://localhost:8080")) {
+    return trimmed.replace("https://localhost:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("http://127.0.0.1:8080")) {
+    return trimmed.replace("http://127.0.0.1:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("https://127.0.0.1:8080")) {
+    return trimmed.replace("https://127.0.0.1:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+
+  if (trimmed.startsWith("/")) {
+    return `${API_BASE_URL}${trimmed}`;
+  }
+
+  return `${API_BASE_URL}/${trimmed}`;
+}
+
+function getPurchaseImageUrl(item: any) {
+  const rawUrl =
+    Array.isArray(item?.imageUrls) && item.imageUrls.length > 0
+      ? item.imageUrls[0]
+      : Array.isArray(item?.imageUrl) && item.imageUrl.length > 0
+      ? item.imageUrl[0]
+      : item?.thumbnailUrl ||
+        item?.imageUrl ||
+        item?.albumImageUrl ||
+        item?.postImageUrl ||
+        item?.image;
+
+  return normalizeImageUrl(rawUrl);
+}
 
 function formatDate(value?: string) {
   if (!value) return "-";
+
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value.slice(0, 10).replaceAll("-", ".");
-  return date.toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" }).replace(/\. /g, ".").replace(/\.$/, "");
+
+  if (Number.isNaN(date.getTime())) {
+    return value.slice(0, 10).replaceAll("-", ".");
+  }
+
+  return date
+    .toLocaleDateString("ko-KR", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+    .replace(/\. /g, ".")
+    .replace(/\.$/, "");
 }
 
 function mapPurchase(item: MyPurchase): PurchaseItem {
-  const isDone = item.postStatus === "COMPLETED" || item.postStatus === "CLOSED" || item.postStatus === "거래완료";
+  const itemAny = item as any;
+
+  const isDone =
+    itemAny.postStatus === "COMPLETED" ||
+    itemAny.postStatus === "CLOSED" ||
+    itemAny.postStatus === "거래완료";
 
   return {
-    id: item.participationId,
-    postId: item.postId,
-    title: item.postTitle,
-    member: `${item.memberName} 참여`,
-    date: formatDate(item.createdAt),
+    id: itemAny.participationId,
+    postId: itemAny.postId,
+    title: itemAny.postTitle,
+    member: `${itemAny.memberName} 참여`,
+    date: formatDate(itemAny.createdAt),
     status: isDone ? "거래완료" : "예약중",
-    canWriteReview: item.canWriteReview,
+    canWriteReview: itemAny.canWriteReview,
+    thumbnailUrl: getPurchaseImageUrl(itemAny),
   };
 }
 
 export default function PurchaseListScreen() {
-  const [selectedTab, setSelectedTab] = useState<"progress" | "done">("progress");
+  const [selectedTab, setSelectedTab] = useState<"progress" | "done">(
+    "progress"
+  );
   const [progressList, setProgressList] = useState<PurchaseItem[]>([]);
   const [doneList, setDoneList] = useState<PurchaseItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -80,8 +154,19 @@ export default function PurchaseListScreen() {
           getMyPurchases("COMPLETED"),
         ]);
 
-        setProgressList(openData.map(mapPurchase));
-        setDoneList(completedData.map(mapPurchase));
+        console.log("구매 목록 OPEN 응답:", openData);
+        console.log("구매 목록 COMPLETED 응답:", completedData);
+
+        const mappedOpenData = openData.map(mapPurchase);
+        const mappedCompletedData = completedData.map(mapPurchase);
+
+        console.log("구매 목록 앨범 이미지 확인:", {
+          progress: mappedOpenData,
+          done: mappedCompletedData,
+        });
+
+        setProgressList(mappedOpenData);
+        setDoneList(mappedCompletedData);
       } catch (error: any) {
         console.log("구매 목록 조회 실패:", error);
         setProgressList([]);
@@ -180,8 +265,7 @@ export default function PurchaseListScreen() {
           contentContainerStyle={styles.listContent}
         >
           {isLoading ? (
-            <View style={styles.emptyBox}>
-            </View>
+            <View style={styles.emptyBox} />
           ) : currentList.length > 0 ? (
             currentList.map((item) => {
               const statusStyle = getStatusStyle(item.status);
@@ -203,11 +287,33 @@ export default function PurchaseListScreen() {
                 >
                   <View style={styles.cardTop}>
                     <View style={styles.imageBox}>
-                      <Ionicons
-                        name="albums-outline"
-                        size={22}
-                        color={COLORS.black}
-                      />
+                      {item.thumbnailUrl ? (
+                        <Image
+                          key={item.thumbnailUrl}
+                          source={{ uri: item.thumbnailUrl }}
+                          style={styles.albumImage}
+                          resizeMode="cover"
+                          onLoad={() => {
+                            console.log(
+                              "구매 목록 앨범 이미지 로드 성공:",
+                              item.thumbnailUrl
+                            );
+                          }}
+                          onError={(error) => {
+                            console.log(
+                              "구매 목록 앨범 이미지 로드 실패:",
+                              item.thumbnailUrl,
+                              error.nativeEvent
+                            );
+                          }}
+                        />
+                      ) : (
+                        <Ionicons
+                          name="albums-outline"
+                          size={22}
+                          color={COLORS.black}
+                        />
+                      )}
                     </View>
 
                     <View style={styles.itemInfo}>
@@ -235,13 +341,6 @@ export default function PurchaseListScreen() {
                       ]}
                       onPress={(event) => {
                         event.stopPropagation();
-                        router.push({
-                          pathname: "/review-write",
-                          params: {
-                            postId: String(item.postId),
-                            participationId: String(item.id),
-                          },
-                        } as any);
                       }}
                     >
                       <Text style={styles.reviewButtonText}>후기 작성하기</Text>
@@ -252,8 +351,8 @@ export default function PurchaseListScreen() {
             })
           ) : (
             <View style={styles.emptyBox}>
-              <Text style={styles.emptyTitle}>구매 내역이 없어요</Text>
-              <Text style={styles.emptyText}>
+              <Text style={styles.emptyTitle}>
+                {errorMessage || "구매 내역이 없어요"}
               </Text>
             </View>
           )}
@@ -262,7 +361,6 @@ export default function PurchaseListScreen() {
     </SafeAreaView>
   );
 }
-
 
 const styles = StyleSheet.create({
   safeArea: {
@@ -374,6 +472,13 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.lightYellow,
     justifyContent: "center",
     alignItems: "center",
+    overflow: "hidden",
+  },
+
+  albumImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 12,
   },
 
   itemInfo: {

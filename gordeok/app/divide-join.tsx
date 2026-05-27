@@ -308,6 +308,14 @@ export default function DivideJoin() {
         return;
       }
 
+      // chatRoomId → postId 매핑 저장
+      try {
+        const raw = await AsyncStorage.getItem("GO_REUDEOK_CHATROOM_POST_MAP");
+        const mapData = raw ? JSON.parse(raw) : {};
+        mapData[String(chatRoomId)] = String(postId);
+        await AsyncStorage.setItem("GO_REUDEOK_CHATROOM_POST_MAP", JSON.stringify(mapData));
+      } catch {}
+
       await saveCompletedMemberItem();
       await saveChatRoomToList(String(chatRoomId));
 

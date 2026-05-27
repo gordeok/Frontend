@@ -556,7 +556,7 @@ const styles = StyleSheet.create({
     minHeight: 270,
     paddingHorizontal: SCREEN_PADDING,
     paddingTop: 20,
-    paddingBottom: 14,
+    paddingBottom: 1,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.line,
   },
@@ -671,7 +671,7 @@ const styles = StyleSheet.create({
 
   warningBox: {
     marginHorizontal: SCREEN_PADDING,
-    marginTop: 22,
+    marginTop: 10,
     paddingHorizontal: 14,
     paddingVertical: 13,
     borderRadius: 12,

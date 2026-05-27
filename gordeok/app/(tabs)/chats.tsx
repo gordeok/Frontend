@@ -4,6 +4,7 @@ import {
   Alert,
   Animated,
   FlatList,
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -37,6 +38,9 @@ type DivideRoom = {
   role: UserRole;
   reviewSubmitted?: boolean;
   sortTime?: number;
+  albumImageUrl?: string;
+
+  postId?: string;
 
   buyerName?: string;
   selectedMember?: string;
@@ -73,6 +77,10 @@ const COLORS = {
   line: "#EEEEEE",
 };
 
+const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_BASE_URL ||
+  "https://frostily-derby-underpass.ngrok-free.dev";
+
 const SCREEN_PADDING = 22;
 const LEAVE_WIDTH = 88;
 
@@ -80,6 +88,67 @@ const CHAT_ROOMS_STORAGE_KEYS = ["localChatRooms", "GO_REUDEOK_CHAT_ROOMS"];
 const TRADE_STATUS_STORAGE_KEY = "GO_REUDEOK_CHAT_TRADE_STATUS";
 const REVIEW_SUBMITTED_STORAGE_KEY = "GO_REUDEOK_CHAT_REVIEW_SUBMITTED";
 
+function normalizeImageUrl(url?: string | null) {
+  if (!url) return "";
+
+  const trimmed = String(url).trim();
+
+  if (!trimmed) return "";
+
+  if (trimmed.startsWith("http://localhost:8080")) {
+    return trimmed.replace("http://localhost:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("https://localhost:8080")) {
+    return trimmed.replace("https://localhost:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("http://127.0.0.1:8080")) {
+    return trimmed.replace("http://127.0.0.1:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("https://127.0.0.1:8080")) {
+    return trimmed.replace("https://127.0.0.1:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+
+  if (trimmed.startsWith("/")) {
+    return `${API_BASE_URL}${trimmed}`;
+  }
+
+  return `${API_BASE_URL}/${trimmed}`;
+}
+
+function getRoomAlbumImageUrl(room: any) {
+  const rawUrl =
+    Array.isArray(room?.imageUrls) && room.imageUrls.length > 0
+      ? room.imageUrls[0]
+      : Array.isArray(room?.post?.imageUrls) && room.post.imageUrls.length > 0
+      ? room.post.imageUrls[0]
+      : Array.isArray(room?.dividePost?.imageUrls) &&
+        room.dividePost.imageUrls.length > 0
+      ? room.dividePost.imageUrls[0]
+      : room?.thumbnailUrl ||
+        room?.albumImageUrl ||
+        room?.imageUrl ||
+        room?.postImageUrl ||
+        room?.image ||
+        room?.post?.thumbnailUrl ||
+        room?.post?.albumImageUrl ||
+        room?.post?.imageUrl ||
+        room?.post?.postImageUrl ||
+        room?.post?.image ||
+        room?.dividePost?.thumbnailUrl ||
+        room?.dividePost?.albumImageUrl ||
+        room?.dividePost?.imageUrl ||
+        room?.dividePost?.postImageUrl ||
+        room?.dividePost?.image;
+
+  return normalizeImageUrl(rawUrl);
+}
 
 async function readJsonMap(key: string) {
   try {
@@ -316,6 +385,20 @@ function getNotePostId(room: any) {
   );
 }
 
+function getDividePostId(room: any) {
+  return getFirstText(
+    room.postId,
+    room.postsId,
+    room.dividePostId,
+    room.groupPostId,
+    room.post?.postId,
+    room.post?.postsId,
+    room.post?.id,
+    room.dividePost?.postId,
+    room.dividePost?.id
+  );
+}
+
 function extractChatRooms(response: unknown): ChatRoomApiItem[] {
   if (Array.isArray(response)) return response as ChatRoomApiItem[];
 
@@ -449,6 +532,22 @@ function mergeServerRoomsWithLocalMetadata(serverRooms: any[], localRooms: any[]
             localRoom.sellerName ||
             localRoom.sellerNickname ||
             localRoom.organizer,
+
+          thumbnailUrl:
+            serverRoom.thumbnailUrl ||
+            serverRoom.albumImageUrl ||
+            serverRoom.imageUrl ||
+            serverRoom.postImageUrl ||
+            localRoom.thumbnailUrl ||
+            localRoom.albumImageUrl ||
+            localRoom.imageUrl ||
+            localRoom.postImageUrl,
+
+          imageUrls:
+            serverRoom.imageUrls ||
+            serverRoom.post?.imageUrls ||
+            localRoom.imageUrls ||
+            localRoom.post?.imageUrls,
 
           lastMessage: serverRoom.lastMessage ?? localRoom.lastMessage ?? "",
           lastMessageTime:
@@ -623,6 +722,8 @@ function normalizeChatRooms(response: unknown) {
       else if (role === "MEMBER") normalizedRole = "member";
       else normalizedRole = "buyer";
 
+      const albumImageUrl = getRoomAlbumImageUrl(room);
+
       return {
         id: getChatRoomId(room),
         title: getServerGroupTitle(room) || "분철 채팅방",
@@ -631,19 +732,19 @@ function normalizeChatRooms(response: unknown) {
           room.sellerNickname ||
           room.organizer ||
           "판매자",
-          memberCount: (() => {
-            const currentMembers = Number(
-              room.currentMembers ?? room.currentMemberCount ?? 1
-            );
-          
-            const recruitMembers = Number(
-              room.maxMembers ?? room.maxMemberCount ?? 0
-            );
-          
-            const displayMaxMembers = recruitMembers > 0 ? recruitMembers + 1 : 1;
-          
-            return `${currentMembers}/${displayMaxMembers}명`;
-          })(),
+        memberCount: (() => {
+          const currentMembers = Number(
+            room.currentMembers ?? room.currentMemberCount ?? 1
+          );
+
+          const recruitMembers = Number(
+            room.maxMembers ?? room.maxMemberCount ?? 0
+          );
+
+          const displayMaxMembers = recruitMembers > 0 ? recruitMembers + 1 : 1;
+
+          return `${currentMembers}/${displayMaxMembers}명`;
+        })(),
         lastMessage: room.lastMessage || "",
         time: formatChatTime(room.lastMessageTime ?? room.lastMessageAt),
         sortTime: getRoomSortTime(room),
@@ -652,6 +753,9 @@ function normalizeChatRooms(response: unknown) {
         color: roomStatus === "done" ? "gray" : getRoomColor(index),
         role: normalizedRole,
         reviewSubmitted: Boolean(room.reviewSubmitted),
+        albumImageUrl,
+
+        postId: getDividePostId(room) || undefined,
 
         buyerName: room.buyerName || room.buyerNickname || "",
         selectedMember: room.selectedMember || room.memberName || "",
@@ -760,6 +864,8 @@ export default function ChatsScreen() {
             room.reviewSubmitted || storedReviewSubmittedMap[roomId] === true,
         };
       });
+
+      console.log("채팅방 앨범 이미지 확인:", divideRoomsWithLocalState);
 
       setDivideRooms(sortDivideRooms(divideRoomsWithLocalState));
       setNoteRooms(normalized.noteRooms);
@@ -894,6 +1000,10 @@ export default function ChatsScreen() {
 
         status: room.status === "done" ? "거래 완료" : "모집 중",
         reviewSubmitted: room.reviewSubmitted ? "true" : "false",
+
+        postId: room.postId || "",
+        postsId: room.postId || "",
+        id: room.postId || "",
       },
     } as any);
   };
@@ -1212,9 +1322,28 @@ function DivideRoomItem({
       onPress={onPress}
     >
       <View style={[styles.albumIcon, getAlbumIconStyle(room.color)]}>
-        <View style={[styles.albumIconCircle, getAlbumCircleStyle(room.color)]}>
-          <View style={[styles.albumIconDot, getAlbumDotStyle(room.color)]} />
-        </View>
+        {room.albumImageUrl ? (
+          <Image
+            key={room.albumImageUrl}
+            source={{ uri: room.albumImageUrl }}
+            style={styles.albumImage}
+            resizeMode="cover"
+            onLoad={() => {
+              console.log("채팅방 앨범 이미지 로드 성공:", room.albumImageUrl);
+            }}
+            onError={(error) => {
+              console.log(
+                "채팅방 앨범 이미지 로드 실패:",
+                room.albumImageUrl,
+                error.nativeEvent
+              );
+            }}
+          />
+        ) : (
+          <View style={[styles.albumIconCircle, getAlbumCircleStyle(room.color)]}>
+            <View style={[styles.albumIconDot, getAlbumDotStyle(room.color)]} />
+          </View>
+        )}
       </View>
 
       <View style={styles.chatContent}>
@@ -1484,6 +1613,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginRight: 14,
+    overflow: "hidden",
+  },
+  albumImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 14,
   },
   albumIconCircle: {
     width: 29,

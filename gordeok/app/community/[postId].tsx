@@ -50,6 +50,7 @@ const SCREEN_PADDING = 22;
 const COMMENT_MENU_HEIGHT = 44;
 const SCREEN_HEIGHT = Dimensions.get("window").height;
 const LOCAL_CHAT_ROOMS_KEY = "localChatRooms";
+const CHAT_ROOM_LINKED_POST_STORAGE_KEY = "GO_REUDEOK_CHAT_ROOM_LINKED_POSTS";
 
 const CATEGORY_STYLES: Record<
   string,
@@ -82,6 +83,7 @@ type Comment = {
   name: string;
   profileText: string;
   profileColor: string;
+  profileImage: string;
   time: string;
   content: string;
 };
@@ -173,6 +175,36 @@ function normalizeImageUrl(url?: string | null) {
   }
 
   return trimmedUrl;
+}
+
+function getPostProfileImage(data: any) {
+  return normalizeImageUrl(
+    data?.authorProfileImage ||
+      data?.profileImage ||
+      data?.profileImageUrl ||
+      data?.writerProfileImage ||
+      data?.userProfileImage ||
+      data?.author?.profileImage ||
+      data?.author?.profileImageUrl ||
+      data?.user?.profileImage ||
+      data?.user?.profileImageUrl
+  );
+}
+
+function getCommentProfileImage(comment: any) {
+  return normalizeImageUrl(
+    comment?.profileImage ||
+      comment?.profileImageUrl ||
+      comment?.authorProfileImage ||
+      comment?.writerProfileImage ||
+      comment?.userProfileImage ||
+      comment?.memberProfileImage ||
+      comment?.commentUserProfileImage ||
+      comment?.author?.profileImage ||
+      comment?.author?.profileImageUrl ||
+      comment?.user?.profileImage ||
+      comment?.user?.profileImageUrl
+  );
 }
 
 function getCommunityImages(data: any) {
@@ -268,6 +300,60 @@ function getChatRoomId(data: any) {
   return String(rawChatRoomId);
 }
 
+async function readJsonMap(key: string) {
+  try {
+    const raw = await AsyncStorage.getItem(key);
+    if (!raw) return {};
+
+    const parsed = JSON.parse(raw);
+
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch (error) {
+    console.log(`${key} 불러오기 실패:`, error);
+    return {};
+  }
+}
+
+async function saveChatRoomLinkedPostInfo(room: {
+  chatRoomId: string;
+  postId: string;
+  title: string;
+}) {
+  try {
+    if (!room.chatRoomId || !room.postId) return;
+
+    const map = await readJsonMap(CHAT_ROOM_LINKED_POST_STORAGE_KEY);
+    const prev =
+      map[String(room.chatRoomId)] &&
+      typeof map[String(room.chatRoomId)] === "object" &&
+      !Array.isArray(map[String(room.chatRoomId)])
+        ? map[String(room.chatRoomId)]
+        : {};
+
+    map[String(room.chatRoomId)] = {
+      ...prev,
+      type: "note",
+      communityPostId: String(room.postId),
+      title: room.title,
+    };
+
+    await AsyncStorage.setItem(
+      CHAT_ROOM_LINKED_POST_STORAGE_KEY,
+      JSON.stringify(map)
+    );
+
+    console.log(
+      "쪽지방 연결 커뮤니티 게시글 저장:",
+      room.chatRoomId,
+      map[String(room.chatRoomId)]
+    );
+  } catch (error) {
+    console.log("쪽지방 연결 커뮤니티 게시글 저장 실패:", error);
+  }
+}
+
 async function saveDirectChatRoomToLocal(room: {
   chatRoomId: string;
   title: string;
@@ -311,11 +397,16 @@ async function saveDirectChatRoomToLocal(room: {
     ];
 
     await AsyncStorage.setItem(LOCAL_CHAT_ROOMS_KEY, JSON.stringify(nextRooms));
+
+    await saveChatRoomLinkedPostInfo({
+      chatRoomId: room.chatRoomId,
+      postId: room.postId,
+      title: room.title,
+    });
   } catch (error) {
     console.log("쪽지 채팅방 로컬 저장 실패:", error);
   }
 }
-
 
 function convertComment(comment: any, index: number): Comment {
   const name =
@@ -338,6 +429,7 @@ function convertComment(comment: any, index: number): Comment {
     name,
     profileText: getProfileText(name),
     profileColor: "#FFF1C6",
+    profileImage: getCommentProfileImage(comment),
     time: formatDate(comment?.createdAt ?? comment?.createdDate),
     content: comment?.content ?? comment?.comment ?? comment?.body ?? "",
   };
@@ -384,6 +476,7 @@ export default function CommunityDetailScreen() {
       const data = await getCommunityPost(postId);
 
       console.log("커뮤니티 상세 데이터:", data);
+      console.log("커뮤니티 작성자 프로필 이미지:", getPostProfileImage(data));
       console.log("커뮤니티 이미지 데이터:", getCommunityImages(data));
       console.log("커뮤니티 댓글 데이터:", getCommentArray(data));
 
@@ -502,55 +595,55 @@ export default function CommunityDetailScreen() {
 
   const handleCreateDirectChat = async () => {
     if (!commentMenu || creatingDirectChat) return;
-  
+
     const toUserId = commentMenu.toUserId;
-  
+
     if (!toUserId) {
       Alert.alert("쪽지 보내기 실패", "댓글 작성자 정보를 찾을 수 없어요.");
       setCommentMenu(null);
       return;
     }
-  
+
     try {
       setCreatingDirectChat(true);
-  
+
       const fromUserId = await getStoredUserId();
-  
+
       console.log("쪽지 fromUserId:", fromUserId);
       console.log("쪽지 toUserId:", toUserId);
-  
+
       if (!fromUserId) {
         Alert.alert("로그인이 필요해요", "로그인 후 쪽지를 보낼 수 있어요.");
         setCommentMenu(null);
         return;
       }
-  
+
       if (Number(fromUserId) === Number(toUserId)) {
         Alert.alert("쪽지 보내기", "내 댓글에는 쪽지를 보낼 수 없어요.");
         setCommentMenu(null);
         return;
       }
-  
+
       const url = `${API_BASE_URL}/api/chat-rooms/direct?fromUserId=${encodeURIComponent(
         String(fromUserId)
       )}&toUserId=${encodeURIComponent(String(toUserId))}`;
-  
+
       console.log("쪽지 채팅방 생성 요청:", url);
-  
+
       const response = await fetch(url, {
         method: "POST",
         headers: {
           Accept: "application/json",
         },
       });
-  
+
       const responseText = await response.text();
-  
+
       console.log("쪽지 채팅방 생성 status:", response.status);
       console.log("쪽지 채팅방 생성 response:", responseText);
-  
+
       let result: any = null;
-  
+
       if (responseText) {
         try {
           result = JSON.parse(responseText);
@@ -558,7 +651,7 @@ export default function CommunityDetailScreen() {
           result = responseText;
         }
       }
-  
+
       if (!response.ok) {
         const message =
           typeof result === "object" && result?.message
@@ -566,16 +659,16 @@ export default function CommunityDetailScreen() {
             : typeof result === "string" && result.trim()
             ? result
             : "쪽지 채팅방을 만들지 못했어요.";
-  
+
         throw new Error(message);
       }
-  
+
       const chatRoomId = getChatRoomId(result);
-  
+
       console.log("생성된 쪽지 chatRoomId:", chatRoomId);
-  
+
       setCommentMenu(null);
-  
+
       if (chatRoomId) {
         const postData: any = post;
 
@@ -632,7 +725,7 @@ export default function CommunityDetailScreen() {
       router.push("/chats");
     } catch (error: any) {
       console.log("쪽지 채팅방 생성 실패:", error);
-  
+
       Alert.alert(
         "쪽지 보내기 실패",
         error?.message ?? "서버 오류가 발생했어요."
@@ -641,7 +734,6 @@ export default function CommunityDetailScreen() {
       setCreatingDirectChat(false);
     }
   };
-
 
   if (loading || !post) {
     return (
@@ -663,17 +755,14 @@ export default function CommunityDetailScreen() {
         </View>
 
         <View style={styles.loadingBox}>
-          <Text style={styles.loadingText}>
-            {loading
-              ? "게시글을 불러오는 중이에요."
-              : "게시글을 불러오지 못했어요."}
-          </Text>
+          <Text style={styles.loadingText}></Text>
         </View>
       </SafeAreaView>
     );
   }
 
   const postData: any = post;
+  const authorProfileImage = getPostProfileImage(postData);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
@@ -738,15 +827,32 @@ export default function CommunityDetailScreen() {
           <Pressable onPress={closeMenusAndKeyboard}>
             <View style={styles.postBox}>
               <View style={styles.profileRow}>
-                <View
-                  style={[
-                    styles.profileCircle,
-                    { backgroundColor: "#FFF1C6" },
-                  ]}
-                >
-                  <Text style={styles.profileText}>
-                    {getProfileText(postData.authorNickname)}
-                  </Text>
+                <View style={styles.profileCircle}>
+                  {authorProfileImage ? (
+                    <Image
+                      key={authorProfileImage}
+                      source={{ uri: authorProfileImage }}
+                      style={styles.profileImage}
+                      resizeMode="cover"
+                      onLoad={() => {
+                        console.log(
+                          "게시글 작성자 프로필 이미지 로드 성공:",
+                          authorProfileImage
+                        );
+                      }}
+                      onError={(error) => {
+                        console.log(
+                          "게시글 작성자 프로필 이미지 로드 실패:",
+                          authorProfileImage,
+                          error.nativeEvent
+                        );
+                      }}
+                    />
+                  ) : (
+                    <Text style={styles.profileText}>
+                      {getProfileText(postData.authorNickname)}
+                    </Text>
+                  )}
                 </View>
 
                 <View style={styles.writerBox}>
@@ -1010,13 +1116,30 @@ function CommentItem({
   return (
     <View style={styles.commentItemWrap}>
       <Pressable style={styles.commentItem} onPress={onBackgroundPress}>
-        <View
-          style={[
-            styles.commentProfile,
-            { backgroundColor: comment.profileColor },
-          ]}
-        >
-          <Text style={styles.commentProfileText}>{comment.profileText}</Text>
+        <View style={styles.commentProfile}>
+          {comment.profileImage ? (
+            <Image
+              key={comment.profileImage}
+              source={{ uri: comment.profileImage }}
+              style={styles.commentProfileImage}
+              resizeMode="cover"
+              onLoad={() => {
+                console.log(
+                  "댓글 프로필 이미지 로드 성공:",
+                  comment.profileImage
+                );
+              }}
+              onError={(error) => {
+                console.log(
+                  "댓글 프로필 이미지 로드 실패:",
+                  comment.profileImage,
+                  error.nativeEvent
+                );
+              }}
+            />
+          ) : (
+            <Text style={styles.commentProfileText}>{comment.profileText}</Text>
+          )}
         </View>
 
         <View style={styles.commentContent}>
@@ -1147,6 +1270,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,
+    backgroundColor: "#FFF1C6",
+    overflow: "hidden",
+  },
+
+  profileImage: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
   },
 
   profileText: {
@@ -1294,6 +1425,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginRight: 11,
+    backgroundColor: "#FFF1C6",
+    overflow: "hidden",
+  },
+
+  commentProfileImage: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
   },
 
   commentProfileText: {

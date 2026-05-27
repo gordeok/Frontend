@@ -62,12 +62,15 @@ const TRADE_CANCEL_TEXT = "거래가 취소되었습니다.";
 
 const TRADE_STATUS_STORAGE_KEY = "GO_REUDEOK_CHAT_TRADE_STATUS";
 const REVIEW_SUBMITTED_STORAGE_KEY = "GO_REUDEOK_CHAT_REVIEW_SUBMITTED";
+const CHAT_ROOM_LINKED_POST_STORAGE_KEY = "GO_REUDEOK_CHAT_ROOM_LINKED_POSTS";
 
 const API_BASE_URL = (
   process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://172.20.99.65:8080"
 ).replace(/\/$/, "");
 
 const WS_URL = `${API_BASE_URL}/ws`;
+
+const DEFAULT_PROFILE = require("../../assets/img/profile.jpg");
 
 type TradeStatus =
   | "모집 중"
@@ -96,15 +99,32 @@ type Message = {
   color?: string;
   initialColor?: string;
   imageUrl?: string;
+  profileImage?: string;
 };
 
 type ChatRoomMenuInfo = {
   title?: string;
+  postTitle?: string;
+  communityTitle?: string;
+  roomName?: string;
+  chatRoomTitle?: string;
   postId?: string | number;
   postsId?: string | number;
   id?: string | number;
   communityId?: string | number;
   communityPostId?: string | number;
+  opponentNickname?: string;
+  opponentName?: string;
+  sellerNickname?: string;
+  buyerNickname?: string;
+  myRole?: string;
+  role?: string;
+  sellerUserId?: string | number;
+  sellerId?: string | number;
+  seller?: {
+    sellerId?: string | number;
+    userId?: string | number;
+  };
   post?: {
     postId?: string | number;
     postsId?: string | number;
@@ -116,6 +136,14 @@ type ChatRoomMenuInfo = {
     nickname?: string;
     memberName?: string;
     role?: string;
+    profileImage?: string;
+    profileImageUrl?: string;
+    authorProfileImage?: string;
+    userProfileImage?: string;
+    senderProfileImage?: string;
+    memberProfileImage?: string;
+    imageUrl?: string;
+    image?: string;
   }[];
 };
 
@@ -124,16 +152,18 @@ function getFirstText(...values: Array<string | undefined>) {
 }
 
 function getFirstValueText(...values: any[]) {
-  return values
-    .map((value) =>
-      value === null || value === undefined ? "" : String(value).trim()
-    )
-    .find(Boolean) ?? "";
+  return (
+    values
+      .map((value) =>
+        value === null || value === undefined ? "" : String(value).trim()
+      )
+      .find(Boolean) ?? ""
+  );
 }
 
 async function getChatRoomMenuInfo(
   chatRoomId: string,
-  userId: string,
+  userId: string
 ): Promise<ChatRoomMenuInfo | null> {
   const response = await fetch(
     `${API_BASE_URL}/api/chat-rooms/${chatRoomId}/menu?userId=${userId}`,
@@ -142,7 +172,7 @@ async function getChatRoomMenuInfo(
       headers: {
         Accept: "application/json",
       },
-    },
+    }
   );
 
   const text = await response.text();
@@ -208,7 +238,57 @@ async function readJsonMap(key: string) {
   }
 }
 
-async function getStoredTradeStatus(chatRoomId: string): Promise<TradeStatus | null> {
+
+type ChatRoomLinkedPostInfo = {
+  dividePostId?: string;
+  communityPostId?: string;
+  type?: "divide" | "note";
+  title?: string;
+};
+
+async function getStoredLinkedPostInfo(
+  chatRoomId: string
+): Promise<ChatRoomLinkedPostInfo> {
+  const map = await readJsonMap(CHAT_ROOM_LINKED_POST_STORAGE_KEY);
+  const saved = map[String(chatRoomId)];
+
+  return saved && typeof saved === "object" && !Array.isArray(saved)
+    ? saved
+    : {};
+}
+
+async function saveStoredLinkedPostInfo(
+  chatRoomId: string,
+  info: ChatRoomLinkedPostInfo
+) {
+  try {
+    const map = await readJsonMap(CHAT_ROOM_LINKED_POST_STORAGE_KEY);
+    const prev =
+      map[String(chatRoomId)] &&
+      typeof map[String(chatRoomId)] === "object" &&
+      !Array.isArray(map[String(chatRoomId)])
+        ? map[String(chatRoomId)]
+        : {};
+
+    map[String(chatRoomId)] = {
+      ...prev,
+      ...info,
+    };
+
+    await AsyncStorage.setItem(
+      CHAT_ROOM_LINKED_POST_STORAGE_KEY,
+      JSON.stringify(map)
+    );
+
+    console.log("채팅방 연결 게시글 저장:", chatRoomId, map[String(chatRoomId)]);
+  } catch (error) {
+    console.log("채팅방 연결 게시글 저장 실패:", error);
+  }
+}
+
+async function getStoredTradeStatus(
+  chatRoomId: string
+): Promise<TradeStatus | null> {
   const map = await readJsonMap(TRADE_STATUS_STORAGE_KEY);
   const savedStatus = map[String(chatRoomId)];
 
@@ -243,7 +323,10 @@ async function saveStoredReviewSubmitted(chatRoomId: string) {
   try {
     const map = await readJsonMap(REVIEW_SUBMITTED_STORAGE_KEY);
     map[String(chatRoomId)] = true;
-    await AsyncStorage.setItem(REVIEW_SUBMITTED_STORAGE_KEY, JSON.stringify(map));
+    await AsyncStorage.setItem(
+      REVIEW_SUBMITTED_STORAGE_KEY,
+      JSON.stringify(map)
+    );
   } catch (error) {
     console.log("후기 작성 여부 저장 실패:", error);
   }
@@ -297,11 +380,152 @@ function getFraudReasonText(value?: string) {
   return reason;
 }
 
-function toAbsoluteImageUrl(value?: string) {
+function toAbsoluteImageUrl(value?: string | null) {
   if (!value) return "";
-  if (value.startsWith("http://") || value.startsWith("https://")) return value;
-  if (value.startsWith("/")) return `${API_BASE_URL}${value}`;
-  return `${API_BASE_URL}/${value}`;
+
+  const trimmed = String(value).trim();
+
+  if (!trimmed) return "";
+
+  if (trimmed.startsWith("http://localhost:8080")) {
+    return trimmed.replace("http://localhost:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("https://localhost:8080")) {
+    return trimmed.replace("https://localhost:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("http://127.0.0.1:8080")) {
+    return trimmed.replace("http://127.0.0.1:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("https://127.0.0.1:8080")) {
+    return trimmed.replace("https://127.0.0.1:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+
+  if (trimmed.startsWith("/")) return `${API_BASE_URL}${trimmed}`;
+
+  return `${API_BASE_URL}/${trimmed}`;
+}
+
+function getUserProfileImage(user: any) {
+  return toAbsoluteImageUrl(
+    user?.profileImage ||
+      user?.profileImageUrl ||
+      user?.profileImg ||
+      user?.userProfileImage ||
+      user?.authorProfileImage ||
+      user?.sellerProfileImage ||
+      user?.imageUrl ||
+      user?.image
+  );
+}
+
+function getParticipantProfileImage(participant: any) {
+  return toAbsoluteImageUrl(
+    participant?.profileImage ||
+      participant?.profileImageUrl ||
+      participant?.authorProfileImage ||
+      participant?.userProfileImage ||
+      participant?.senderProfileImage ||
+      participant?.memberProfileImage ||
+      participant?.imageUrl ||
+      participant?.image
+  );
+}
+
+async function fetchSenderProfileMap(
+  messages: ChatMessageApiItem[] | any[],
+  myUserId?: string | number | null
+) {
+  const senderIds = Array.from(
+    new Set(
+      messages
+        .map((message: any) => message?.senderId)
+        .filter((senderId) => {
+          if (senderId === null || senderId === undefined) return false;
+          if (myUserId != null && String(senderId) === String(myUserId)) {
+            return false;
+          }
+          return true;
+        })
+        .map((senderId) => String(senderId))
+    )
+  );
+
+  const resultMap: Record<string, string> = {};
+
+  await Promise.all(
+    senderIds.map(async (senderId) => {
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/api/users/${senderId}/profile`,
+          {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+            },
+          }
+        );
+
+        const text = await response.text();
+        const data = text ? JSON.parse(text) : null;
+
+        console.log(`채팅 sender ${senderId} 프로필 응답:`, data);
+
+        if (!response.ok) return;
+
+        const profileImage = getUserProfileImage(data);
+
+        if (profileImage) {
+          resultMap[senderId] = profileImage;
+        }
+      } catch (error) {
+        console.log(`채팅 sender ${senderId} 프로필 조회 실패:`, error);
+      }
+    })
+  );
+
+  console.log("채팅 senderId 프로필 이미지 맵:", resultMap);
+
+  return resultMap;
+}
+
+function getMessageProfileImage(
+  message: any,
+  participantProfileMap?: Record<string, string>
+) {
+  const senderId = getFirstValueText(message?.senderId, message?.userId);
+
+  const fromMessage = toAbsoluteImageUrl(
+    message?.senderProfileImage ||
+      message?.senderProfileImageUrl ||
+      message?.profileImage ||
+      message?.profileImageUrl ||
+      message?.authorProfileImage ||
+      message?.userProfileImage ||
+      message?.writerProfileImage ||
+      message?.memberProfileImage ||
+      message?.senderImageUrl ||
+      message?.sender?.profileImage ||
+      message?.sender?.profileImageUrl ||
+      message?.user?.profileImage ||
+      message?.user?.profileImageUrl ||
+      message?.author?.profileImage ||
+      message?.author?.profileImageUrl
+  );
+
+  if (fromMessage) return fromMessage;
+
+  if (senderId && participantProfileMap?.[senderId]) {
+    return participantProfileMap[senderId];
+  }
+
+  return "";
 }
 
 function getImageName(uri: string) {
@@ -348,6 +572,7 @@ async function uploadImageToServer(uri: string) {
   }
 
   const imageUrl = data?.imageUrl;
+
   if (!imageUrl) {
     throw new Error("업로드된 이미지 URL을 받지 못했습니다.");
   }
@@ -366,7 +591,7 @@ function ensureStatusMessage(messages: Message[], status: TradeStatus) {
   if (!text) return messages;
 
   const alreadyExists = messages.some(
-    (message) => message.type === "trade" && message.text === text,
+    (message) => message.type === "trade" && message.text === text
   );
 
   if (alreadyExists) return messages;
@@ -384,6 +609,7 @@ function ensureStatusMessage(messages: Message[], status: TradeStatus) {
 function normalizeChatMessage(
   message: ChatMessageApiItem | any,
   myUserId?: string | number | null,
+  participantProfileMap?: Record<string, string>
 ): Message | null {
   const messageType = message.messageType;
 
@@ -409,7 +635,7 @@ function normalizeChatMessage(
     return {
       id: String(
         message.messageId ??
-          `fraud-${messageType}-${Date.now()}-${Math.random()}`,
+          `fraud-${messageType}-${Date.now()}-${Math.random()}`
       ),
       type: messageType === "FRAUD_DANGER" ? "fraudDanger" : "fraudWarning",
       text: getFraudReasonText(message.reason || message.content),
@@ -428,8 +654,9 @@ function normalizeChatMessage(
   if (messageType === "IMAGE") {
     const isMine =
       myUserId != null && String(message.senderId) === String(myUserId);
+
     const imageUrl = toAbsoluteImageUrl(
-      message.content ?? message.imageUrl ?? "",
+      message.content ?? message.imageUrl ?? ""
     );
 
     if (isMine) {
@@ -451,6 +678,7 @@ function normalizeChatMessage(
       color: COLORS.yellowLight,
       initialColor: COLORS.gray700,
       imageUrl,
+      profileImage: getMessageProfileImage(message, participantProfileMap),
       time: formatMessageTime(message.createdAt),
     };
   }
@@ -476,6 +704,7 @@ function normalizeChatMessage(
     initial: nickname.slice(0, 1),
     color: COLORS.yellowLight,
     initialColor: COLORS.gray700,
+    profileImage: getMessageProfileImage(message, participantProfileMap),
     text: message.content ?? "",
     time: formatMessageTime(message.createdAt),
   };
@@ -484,10 +713,13 @@ function normalizeChatMessage(
 function normalizeChatMessages(
   apiMessages: ChatMessageApiItem[],
   myUserId?: string | number | null,
+  participantProfileMap?: Record<string, string>
 ): Message[] {
   return apiMessages
     .filter((message) => !isFraudApiMessage(message))
-    .map((message) => normalizeChatMessage(message, myUserId))
+    .map((message) =>
+      normalizeChatMessage(message, myUserId, participantProfileMap)
+    )
     .filter((message): message is Message => message !== null);
 }
 
@@ -520,6 +752,9 @@ export default function ChatRoomDetailScreen() {
     postsId,
     id,
     communityId,
+    dividePostId,
+    linkedPostId,
+    boardName,
     sellerUserId: routeSellerUserId,
     targetUserId,
   } = useLocalSearchParams<{
@@ -548,6 +783,9 @@ export default function ChatRoomDetailScreen() {
     postsId?: string;
     id?: string;
     communityId?: string;
+    dividePostId?: string;
+    linkedPostId?: string;
+    boardName?: string;
     sellerUserId?: string;
     targetUserId?: string;
   }>();
@@ -560,9 +798,14 @@ export default function ChatRoomDetailScreen() {
   const [menuTitle, setMenuTitle] = useState("");
   const [menuOpponentName, setMenuOpponentName] = useState("");
   const [menuCommunityPostId, setMenuCommunityPostId] = useState("");
+  const [linkedDividePostId, setLinkedDividePostId] = useState("");
+  const [linkedCommunityPostId, setLinkedCommunityPostId] = useState("");
   const [menuMyRole, setMenuMyRole] = useState("");
+  const [participantProfileMap, setParticipantProfileMap] = useState<
+    Record<string, string>
+  >({});
   const [sellerUserId, setSellerUserId] = useState(() =>
-    getFirstValueText(targetUserId, routeSellerUserId),
+    getFirstValueText(targetUserId, routeSellerUserId)
   );
   const [isChatConnected, setIsChatConnected] = useState(false);
 
@@ -573,6 +816,7 @@ export default function ChatRoomDetailScreen() {
     normalizedType === "direct" ||
     normalizedType === "community" ||
     (!normalizedType && !effectiveRole);
+
   const isSeller = !isNote && effectiveRole === "seller";
   const isBuyer = !isNote && !isSeller;
   const currentRole = isSeller ? "seller" : "buyer";
@@ -601,26 +845,132 @@ export default function ChatRoomDetailScreen() {
   }, []);
 
   useEffect(() => {
+    if (!chatRoomId) return;
+
+    const syncLinkedPostInfo = async () => {
+      const roomId = String(chatRoomId);
+      const routeDividePostId = getFirstValueText(
+        postId,
+        postsId,
+        dividePostId,
+        linkedPostId,
+        id
+      );
+      const routeCommunityPostId = getFirstValueText(
+        communityId,
+        postId,
+        postsId,
+        linkedPostId,
+        id
+      );
+
+      if (isNote && routeCommunityPostId) {
+        setLinkedCommunityPostId(routeCommunityPostId);
+        await saveStoredLinkedPostInfo(roomId, {
+          type: "note",
+          communityPostId: routeCommunityPostId,
+          title: getFirstText(
+            getParamString(communityTitle),
+            getParamString(postTitle),
+            getParamString(roomName),
+            getParamString(title)
+          ),
+        });
+        return;
+      }
+
+      if (!isNote && routeDividePostId) {
+        setLinkedDividePostId(routeDividePostId);
+        await saveStoredLinkedPostInfo(roomId, {
+          type: "divide",
+          dividePostId: routeDividePostId,
+          title: getFirstText(
+            getParamString(postTitle),
+            getParamString(title),
+            getParamString(roomName)
+          ),
+        });
+        return;
+      }
+
+      const saved = await getStoredLinkedPostInfo(roomId);
+
+      if (saved.dividePostId) {
+        setLinkedDividePostId(String(saved.dividePostId));
+      }
+
+      if (saved.communityPostId) {
+        setLinkedCommunityPostId(String(saved.communityPostId));
+      }
+
+      console.log("채팅방 연결 게시글 불러오기:", roomId, saved);
+    };
+
+    syncLinkedPostInfo();
+  }, [
+    chatRoomId,
+    isNote,
+    postId,
+    postsId,
+    id,
+    communityId,
+    dividePostId,
+    linkedPostId,
+    communityTitle,
+    postTitle,
+    roomName,
+    title,
+  ]);
+
+  useEffect(() => {
     if (!chatRoomId || !myUserId) return;
 
     const loadChatRoomMenu = async () => {
       try {
-        const menu = await getChatRoomMenuInfo(String(chatRoomId), String(myUserId));
+        const menu = await getChatRoomMenuInfo(
+          String(chatRoomId),
+          String(myUserId)
+        );
+
+        console.log("채팅방 메뉴 정보:", menu);
+
+        const nextParticipantProfileMap: Record<string, string> = {};
+
+        menu?.participants?.forEach((participant) => {
+          const participantUserId = getFirstValueText(participant.userId);
+          const profileImage = getParticipantProfileImage(participant);
+
+          if (participantUserId && profileImage) {
+            nextParticipantProfileMap[participantUserId] = profileImage;
+          }
+        });
+
+        console.log("채팅 참여자 프로필 이미지 맵:", nextParticipantProfileMap);
+
+        setParticipantProfileMap((prev) => ({
+          ...prev,
+          ...nextParticipantProfileMap,
+        }));
+
+        const otherParticipant = menu?.participants?.find(
+          (participant) => String(participant.userId) !== String(myUserId)
+        );
 
         const nextTitle = getFirstText(
           menu?.title,
-          (menu as any)?.postTitle,
-          (menu as any)?.communityTitle,
-          (menu as any)?.roomName,
-          (menu as any)?.chatRoomTitle,
+          menu?.postTitle,
+          menu?.communityTitle,
+          menu?.roomName,
+          menu?.chatRoomTitle
         );
 
         const nextOpponentName = getFirstText(
-          menu?.participants?.[0]?.nickname,
-          (menu as any)?.opponentNickname,
-          (menu as any)?.opponentName,
-          (menu as any)?.sellerNickname,
-          (menu as any)?.buyerNickname,
+          otherParticipant?.nickname,
+          otherParticipant?.memberName,
+          menu?.opponentNickname,
+          menu?.opponentName,
+          menu?.sellerNickname,
+          menu?.buyerNickname
         );
 
         const nextCommunityPostId = getFirstValueText(
@@ -631,30 +981,46 @@ export default function ChatRoomDetailScreen() {
           menu?.post?.postId,
           menu?.post?.postsId,
           menu?.post?.id,
-          menu?.post?.communityId,
+          menu?.post?.communityId
         );
 
-        const nextMyRole = getFirstText(
-          (menu as any)?.myRole,
-          (menu as any)?.role,
-        ).toLowerCase();
+        const nextMyRole = getFirstText(menu?.myRole, menu?.role).toLowerCase();
 
         const sellerParticipant = menu?.participants?.find(
           (participant) =>
-            String(participant.role ?? "").trim().toLowerCase() === "seller",
+            String(participant.role ?? "").trim().toLowerCase() === "seller"
         );
 
         const nextSellerUserId = getFirstValueText(
           sellerParticipant?.userId,
-          (menu as any)?.sellerUserId,
-          (menu as any)?.sellerId,
-          (menu as any)?.seller?.sellerId,
-          (menu as any)?.seller?.userId,
+          menu?.sellerUserId,
+          menu?.sellerId,
+          menu?.seller?.sellerId,
+          menu?.seller?.userId
         );
 
         if (nextTitle) setMenuTitle(nextTitle);
         if (nextOpponentName) setMenuOpponentName(nextOpponentName);
-        if (nextCommunityPostId) setMenuCommunityPostId(nextCommunityPostId);
+        if (nextCommunityPostId) {
+          setMenuCommunityPostId(nextCommunityPostId);
+
+          if (isNote) {
+            setLinkedCommunityPostId(nextCommunityPostId);
+            saveStoredLinkedPostInfo(String(chatRoomId), {
+              type: "note",
+              communityPostId: nextCommunityPostId,
+              title: nextTitle,
+            });
+          } else {
+            setLinkedDividePostId(nextCommunityPostId);
+            saveStoredLinkedPostInfo(String(chatRoomId), {
+              type: "divide",
+              dividePostId: nextCommunityPostId,
+              title: nextTitle,
+            });
+          }
+        }
+
         if (nextMyRole === "seller" || nextMyRole === "buyer") {
           setMenuMyRole(nextMyRole);
         }
@@ -670,32 +1036,48 @@ export default function ChatRoomDetailScreen() {
     };
 
     loadChatRoomMenu();
-  }, [chatRoomId, myUserId]);
+  }, [chatRoomId, myUserId, isNote]);
 
   const routeTitle = getFirstText(
     getParamString(communityTitle),
     getParamString(postTitle),
     getParamString(roomName),
-    getParamString(title),
+    getParamString(title)
   );
 
   const roomTitle =
     routeTitle || menuTitle || (isNote ? "쪽지" : "분철 채팅방");
 
-  const currentCommunityPostId = getFirstValueText(
-    postId,
-    postsId,
-    communityId,
-    id,
-    menuCommunityPostId,
+  const currentDividePostId = getFirstValueText(
+    !isNote ? postId : "",
+    !isNote ? postsId : "",
+    !isNote ? dividePostId : "",
+    !isNote ? linkedPostId : "",
+    !isNote ? id : "",
+    !isNote ? menuCommunityPostId : "",
+    linkedDividePostId
   );
+
+  const currentCommunityPostId = getFirstValueText(
+    isNote ? communityId : "",
+    isNote ? postId : "",
+    isNote ? postsId : "",
+    isNote ? linkedPostId : "",
+    isNote ? id : "",
+    isNote ? menuCommunityPostId : "",
+    linkedCommunityPostId
+  );
+
+  const currentLinkedPostId = isNote
+    ? currentCommunityPostId
+    : currentDividePostId;
 
   const routeOpponentName = getFirstText(
     cleanParamName(opponentName),
     cleanParamName(writerName),
     cleanParamName(writerId),
     cleanParamName(sellerName),
-    cleanParamName(buyerName),
+    cleanParamName(buyerName)
   );
 
   const sellerDisplayName =
@@ -744,19 +1126,21 @@ export default function ChatRoomDetailScreen() {
   const [storedTradeStatus, setStoredTradeStatusState] =
     useState<TradeStatus | null>(null);
   const [isReviewSubmittedState, setIsReviewSubmittedState] = useState(
-    reviewSubmitted === "true",
+    reviewSubmitted === "true"
   );
 
   const routeStatus: TradeStatus = normalizeTradeStatus(status);
   const currentStatus: TradeStatus = storedTradeStatus ?? routeStatus;
   const hasCompletedTradeMessage = messages.some(
-    (message) => message.type === "trade" && message.text === TRADE_COMPLETE_TEXT,
+    (message) =>
+      message.type === "trade" && message.text === TRADE_COMPLETE_TEXT
   );
 
   const effectiveTradeStatus: TradeStatus =
     currentStatus !== "거래 취소" && hasCompletedTradeMessage
       ? "거래 완료"
       : currentStatus;
+
   const isCompleted = effectiveTradeStatus === "거래 완료";
   const isReviewSubmitted = reviewSubmitted === "true" || isReviewSubmittedState;
   const shouldShowTradeCompleteFallback =
@@ -766,7 +1150,7 @@ export default function ChatRoomDetailScreen() {
 
   const plusPanelHeight = Math.max(
     lastKeyboardHeight.current - insets.bottom,
-    DEFAULT_PANEL_HEIGHT,
+    DEFAULT_PANEL_HEIGHT
   );
 
   const bottomSpace = isKeyboardVisible
@@ -805,7 +1189,9 @@ export default function ChatRoomDetailScreen() {
 
     const loadStoredTradeState = async () => {
       const savedStatus = await getStoredTradeStatus(String(chatRoomId));
-      const savedReviewSubmitted = await getStoredReviewSubmitted(String(chatRoomId));
+      const savedReviewSubmitted = await getStoredReviewSubmitted(
+        String(chatRoomId)
+      );
 
       if (savedStatus) {
         setStoredTradeStatusState(savedStatus);
@@ -833,10 +1219,32 @@ export default function ChatRoomDetailScreen() {
     const loadMessages = async () => {
       try {
         const response = await getChatMessages(chatRoomId);
-        const normalized = normalizeChatMessages(response, myUserId);
+
+        console.log("채팅 메시지 원본 응답:", response);
+
+        const senderProfileMap = await fetchSenderProfileMap(response, myUserId);
+
+        const mergedProfileMap = {
+          ...participantProfileMap,
+          ...senderProfileMap,
+        };
+
+        setParticipantProfileMap((prev) => ({
+          ...prev,
+          ...senderProfileMap,
+        }));
+
+        const normalized = normalizeChatMessages(
+          response,
+          myUserId,
+          mergedProfileMap
+        );
+
+        console.log("채팅 메시지 변환 결과:", normalized);
+
         const hasServerCompleteMessage = normalized.some(
           (message) =>
-            message.type === "trade" && message.text === TRADE_COMPLETE_TEXT,
+            message.type === "trade" && message.text === TRADE_COMPLETE_TEXT
         );
 
         if (hasServerCompleteMessage) {
@@ -850,7 +1258,7 @@ export default function ChatRoomDetailScreen() {
               ? normalized
               : storedTradeStatus === "거래 완료"
                 ? ensureStatusMessage(normalized, "거래 완료")
-                : normalized,
+                : normalized
           );
         } else {
           const startText = opponentDisplayName
@@ -903,17 +1311,45 @@ export default function ChatRoomDetailScreen() {
         setIsChatConnected(true);
         console.log("채팅 연결됨:", WS_URL);
 
-        client.subscribe(`/sub/chat/rooms/${chatRoomId}`, (frame) => {
+        client.subscribe(`/sub/chat/rooms/${chatRoomId}`, async (frame) => {
           try {
             const apiMessage = JSON.parse(frame.body);
 
-            const normalized = normalizeChatMessage(apiMessage, myUserId);
+            console.log("채팅 수신 원본:", apiMessage);
+
+            let nextProfileMap = participantProfileMap;
+
+            if (
+              apiMessage?.senderId &&
+              String(apiMessage.senderId) !== String(myUserId) &&
+              !participantProfileMap[String(apiMessage.senderId)]
+            ) {
+              const senderProfileMap = await fetchSenderProfileMap(
+                [apiMessage],
+                myUserId
+              );
+
+              nextProfileMap = {
+                ...participantProfileMap,
+                ...senderProfileMap,
+              };
+
+              setParticipantProfileMap(nextProfileMap);
+            }
+
+            const normalized = normalizeChatMessage(
+              apiMessage,
+              myUserId,
+              nextProfileMap
+            );
 
             if (!normalized) return;
 
+            console.log("채팅 수신 변환:", normalized);
+
             setMessages((prev) => {
               const alreadyExists = prev.some(
-                (message) => message.id === normalized.id,
+                (message) => message.id === normalized.id
               );
 
               if (alreadyExists) return prev;
@@ -957,7 +1393,7 @@ export default function ChatRoomDetailScreen() {
       stompClientRef.current = null;
       client.deactivate();
     };
-  }, [chatRoomId, myUserId]);
+  }, [chatRoomId, myUserId, participantProfileMap]);
 
   useEffect(() => {
     const showEvent =
@@ -1049,6 +1485,22 @@ export default function ChatRoomDetailScreen() {
   };
 
   const handleOpenMenu = () => {
+    console.log("채팅 메뉴 이동 연결 ID:", {
+      chatRoomId,
+      isNote,
+      currentDividePostId,
+      currentCommunityPostId,
+      currentLinkedPostId,
+      routePostId: postId,
+      routePostsId: postsId,
+      routeCommunityId: communityId,
+      routeDividePostId: dividePostId,
+      routeLinkedPostId: linkedPostId,
+      linkedDividePostId,
+      linkedCommunityPostId,
+      menuCommunityPostId,
+    });
+
     router.push({
       pathname: "/chat/menu",
       params: {
@@ -1070,10 +1522,13 @@ export default function ChatRoomDetailScreen() {
         phoneNumber: phone,
         storeName: store,
         requestMessage: request,
-        postId: currentCommunityPostId,
-        postsId: currentCommunityPostId,
-        id: currentCommunityPostId,
-        communityId: currentCommunityPostId,
+        postId: currentLinkedPostId,
+        postsId: currentLinkedPostId,
+        id: currentLinkedPostId,
+        communityId: isNote ? currentCommunityPostId : "",
+        dividePostId: currentDividePostId,
+        linkedPostId: currentLinkedPostId,
+        boardName: boardName || "",
       },
     } as any);
   };
@@ -1193,10 +1648,7 @@ export default function ChatRoomDetailScreen() {
         await ImagePicker.requestMediaLibraryPermissionsAsync();
 
       if (!permission.granted) {
-        Alert.alert(
-          "권한 필요",
-          "사진을 보내려면 앨범 접근 권한이 필요합니다.",
-        );
+        Alert.alert("권한 필요", "사진을 보내려면 앨범 접근 권한이 필요합니다.");
         return;
       }
 
@@ -1272,7 +1724,7 @@ export default function ChatRoomDetailScreen() {
     if (!sellerUserId) {
       Alert.alert(
         "오류",
-        "후기 대상 판매자 정보를 찾지 못했어요. 채팅방을 다시 열어주세요.",
+        "후기 대상 판매자 정보를 찾지 못했어요. 채팅방을 다시 열어주세요."
       );
       return;
     }
@@ -1297,7 +1749,7 @@ export default function ChatRoomDetailScreen() {
   };
 
   const handleScrollBeginDrag = (
-    event: NativeSyntheticEvent<NativeScrollEvent>,
+    event: NativeSyntheticEvent<NativeScrollEvent>
   ) => {
     startDragY.current = event.nativeEvent.contentOffset.y;
 
@@ -1307,7 +1759,7 @@ export default function ChatRoomDetailScreen() {
   };
 
   const handleScrollEndDrag = (
-    event: NativeSyntheticEvent<NativeScrollEvent>,
+    event: NativeSyntheticEvent<NativeScrollEvent>
   ) => {
     const endY = event.nativeEvent.contentOffset.y;
 
@@ -1370,7 +1822,9 @@ export default function ChatRoomDetailScreen() {
                 return (
                   <FraudMessage
                     key={message.id}
-                    level={message.type === "fraudDanger" ? "danger" : "warning"}
+                    level={
+                      message.type === "fraudDanger" ? "danger" : "warning"
+                    }
                     text={message.text ?? ""}
                   />
                 );
@@ -1426,6 +1880,7 @@ export default function ChatRoomDetailScreen() {
                     initial={message.initial ?? opponentDisplayName.slice(0, 1)}
                     color={message.color ?? COLORS.yellowLight}
                     initialColor={message.initialColor ?? COLORS.gray700}
+                    profileImage={message.profileImage}
                     imageUrl={message.imageUrl}
                     time={message.time}
                   />
@@ -1439,6 +1894,7 @@ export default function ChatRoomDetailScreen() {
                   initial={message.initial ?? opponentDisplayName.slice(0, 1)}
                   color={message.color ?? COLORS.yellowLight}
                   initialColor={message.initialColor ?? COLORS.gray700}
+                  profileImage={message.profileImage}
                   text={message.text ?? ""}
                   time={message.time}
                 />
@@ -1456,7 +1912,6 @@ export default function ChatRoomDetailScreen() {
             )}
           </ScrollView>
         </View>
-
 
         {isPlusOpen && (
           <View style={[styles.bottomPanel, { height: plusPanelHeight }]}>
@@ -1484,6 +1939,7 @@ export default function ChatRoomDetailScreen() {
                     />
                   )}
                 </View>
+
                 <Text style={styles.plusMenuText}>
                   {isSendingImage ? "전송 중" : "사진"}
                 </Text>
@@ -1508,6 +1964,7 @@ export default function ChatRoomDetailScreen() {
                         color={COLORS.black}
                       />
                     </View>
+
                     <Text style={styles.plusMenuText}>운송장 번호 공유</Text>
                   </TouchableOpacity>
                 ) : (
@@ -1528,6 +1985,7 @@ export default function ChatRoomDetailScreen() {
                         color={COLORS.black}
                       />
                     </View>
+
                     <Text style={styles.plusMenuText}>배송 현황 확인</Text>
                   </TouchableOpacity>
                 ))}
@@ -1653,6 +2111,7 @@ function TradeMessage({
   return (
     <View style={styles.tradeOuterWrap}>
       <View style={styles.tradeLine} />
+
       <Text style={styles.tradeMessageText}>{text}</Text>
 
       {showReviewButton && (
@@ -1679,6 +2138,7 @@ function MyMessage({ text, time }: { text: string; time?: string }) {
     <View style={styles.myMessageWrap}>
       <View style={styles.myMessageRow}>
         {time && <Text style={styles.myTime}>{time}</Text>}
+
         <View style={styles.myBubble}>
           <Text style={styles.myBubbleText}>{text}</Text>
         </View>
@@ -1698,6 +2158,7 @@ function ImageMessage({
     <View style={styles.myMessageWrap}>
       <View style={styles.myMessageRow}>
         {time && <Text style={styles.myTime}>{time}</Text>}
+
         <View style={styles.imageBubble}>
           {imageUrl ? (
             <Image source={{ uri: imageUrl }} style={styles.chatImage} />
@@ -1714,9 +2175,10 @@ function ImageMessage({
 
 function OtherImageMessage({
   nickname,
-  initial,
+  initial: _initial,
   color,
-  initialColor,
+  initialColor: _initialColor,
+  profileImage,
   imageUrl,
   time,
 }: {
@@ -1724,19 +2186,24 @@ function OtherImageMessage({
   initial: string;
   color: string;
   initialColor: string;
+  profileImage?: string;
   imageUrl?: string;
   time?: string;
 }) {
   return (
     <View style={styles.otherMessageWrap}>
       <View style={[styles.profileCircle, { backgroundColor: color }]}>
-        <Text style={[styles.profileInitial, { color: initialColor }]}>
-          {initial}
-        </Text>
+        <Image
+          key={profileImage || "default"}
+          source={profileImage ? { uri: profileImage } : DEFAULT_PROFILE}
+          style={styles.profileImage}
+          resizeMode="cover"
+        />
       </View>
 
       <View style={styles.otherContent}>
         <Text style={styles.nickname}>{nickname}</Text>
+
         <View style={styles.otherBubbleRow}>
           <View style={styles.otherImageBubble}>
             {imageUrl ? (
@@ -1747,6 +2214,7 @@ function OtherImageMessage({
               </View>
             )}
           </View>
+
           {time && <Text style={styles.otherTime}>{time}</Text>}
         </View>
       </View>
@@ -1756,9 +2224,10 @@ function OtherImageMessage({
 
 function OtherMessage({
   nickname,
-  initial,
+  initial: _initial,
   color,
-  initialColor,
+  initialColor: _initialColor,
+  profileImage,
   text,
   time,
 }: {
@@ -1766,15 +2235,19 @@ function OtherMessage({
   initial: string;
   color: string;
   initialColor: string;
+  profileImage?: string;
   text: string;
   time?: string;
 }) {
   return (
     <View style={styles.otherMessageWrap}>
       <View style={[styles.profileCircle, { backgroundColor: color }]}>
-        <Text style={[styles.profileInitial, { color: initialColor }]}>
-          {initial}
-        </Text>
+        <Image
+          key={profileImage || "default"}
+          source={profileImage ? { uri: profileImage } : DEFAULT_PROFILE}
+          style={styles.profileImage}
+          resizeMode="cover"
+        />
       </View>
 
       <View style={styles.otherContent}>
@@ -1784,12 +2257,15 @@ function OtherMessage({
           <View style={styles.otherBubble}>
             <Text style={styles.otherBubbleText}>{text}</Text>
           </View>
+
           {time && <Text style={styles.otherTime}>{time}</Text>}
         </View>
       </View>
     </View>
   );
 }
+
+const PROFILE_RADIUS = 13;
 
 const styles = StyleSheet.create({
   safeArea: {
@@ -1845,7 +2321,6 @@ const styles = StyleSheet.create({
     color: COLORS.gray500,
     fontWeight: "500",
   },
-
   fraudMessageWrap: {
     width: "100%",
     alignItems: "center",
@@ -2036,10 +2511,16 @@ const styles = StyleSheet.create({
   profileCircle: {
     width: 40,
     height: 40,
-    borderRadius: 12,
+    borderRadius: PROFILE_RADIUS,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 10,
+    overflow: "hidden",
+  },
+  profileImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: PROFILE_RADIUS,
   },
   profileInitial: {
     fontSize: 15,

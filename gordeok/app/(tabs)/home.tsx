@@ -9,6 +9,7 @@ import {
   Pressable,
   ScrollView,
   Dimensions,
+  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -21,6 +22,10 @@ import { getFavoriteIdols, getFavoriteMembers } from "@/services/user";
 import type { PostListItem } from "@/types/post";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
+
+const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_BASE_URL ||
+  "https://frostily-derby-underpass.ngrok-free.dev";
 
 const COLORS = {
   white: "#FFFFFF",
@@ -44,14 +49,21 @@ const MEMBER_BOX_WIDTH = (SCREEN_WIDTH - 44 - 32 - MEMBER_GAP * 2) / 3;
 
 const COMPLETED_MEMBER_STORAGE_KEY = "GO_REUDEOK_COMPLETED_MEMBER_ITEMS";
 
+type FavoriteMemberForHome = {
+  id: string;
+  name: string;
+  imageUrl: string;
+};
+
 type FavoriteGroupForHome = {
   id: string;
   name: string;
   displayName: string;
   shortName: string;
   color: string;
+  imageUrl: string;
   members: string[];
-  favorites: string[];
+  favorites: FavoriteMemberForHome[];
 };
 
 type CompletedMemberItem = {
@@ -66,6 +78,7 @@ type DisplayPost = {
   groupId: string;
   groupName: string;
   userName: string;
+  profileImage: string;
   title: string;
   albumName: string;
   time: string;
@@ -112,13 +125,16 @@ export default function HomeScreen() {
   const memberParam = useMemo(() => {
     return selectedGroups
       .flatMap((group) =>
-        group.favorites.map((favorite) => `${group.id}-${favorite}`)
+        group.favorites.map((favorite) => `${group.id}-${favorite.name}`)
       )
       .join(",");
   }, [selectedGroups]);
 
   useFocusEffect(
     useCallback(() => {
+      setSelectedGroupId(null);
+      setSelectedFavoriteMember(null);
+
       const loadCompletedMembers = async () => {
         try {
           const saved = await AsyncStorage.getItem(
@@ -145,20 +161,36 @@ export default function HomeScreen() {
         const favoriteIdols = await getFavoriteIdols();
         const favoriteMembers = await getFavoriteMembers();
 
+        console.log("내 최애 그룹 응답:", favoriteIdols);
+        console.log("내 최애 멤버 응답:", favoriteMembers);
+
         const groupsWithMembers = await Promise.all(
-          favoriteIdols.map(async (idol) => {
-            let allMembers: { id: number; idolId: number; name: string }[] = [];
+          favoriteIdols.map(async (idol: any) => {
+            let allMembers: any[] = [];
 
             try {
               allMembers = await getIdolMembers(idol.id);
+              console.log(`${idol.name} 전체 멤버 응답:`, allMembers);
             } catch (error) {
               console.log("아이돌 멤버 목록 조회 실패:", error);
               allMembers = [];
             }
 
-            const myFavoriteNames = favoriteMembers
-              .filter((member) => Number(member.idolId) === Number(idol.id))
-              .map((member) => member.name);
+            const myFavoriteMembers: FavoriteMemberForHome[] = favoriteMembers
+              .filter((member: any) => Number(member.idolId) === Number(idol.id))
+              .map((member: any) => {
+                const matchedMember = allMembers.find(
+                  (item: any) =>
+                    Number(item.id) === Number(member.id) ||
+                    item.name === member.name
+                );
+
+                return {
+                  id: String(member.id),
+                  name: member.name,
+                  imageUrl: getImageUrl(member) || getImageUrl(matchedMember),
+                };
+              });
 
             return {
               id: String(idol.id),
@@ -168,25 +200,21 @@ export default function HomeScreen() {
                 ? idol.code.toUpperCase().slice(0, 5)
                 : idol.name.slice(0, 3),
               color: getGroupColor(idol.code || idol.name),
-              members: allMembers.map((member) => member.name),
-              favorites: myFavoriteNames,
+              imageUrl: getImageUrl(idol),
+              members: allMembers.map((member: any) => member.name),
+              favorites: myFavoriteMembers,
             };
           })
         );
 
         setSelectedGroups(groupsWithMembers);
-
-        setSelectedGroupId((prev) => {
-          if (prev && groupsWithMembers.some((group) => group.id === prev)) {
-            return prev;
-          }
-
-          return groupsWithMembers[0]?.id ?? null;
-        });
+        setSelectedGroupId(null);
+        setSelectedFavoriteMember(null);
       } catch (error) {
         console.log("최애 정보 불러오기 실패:", error);
         setSelectedGroups([]);
         setSelectedGroupId(null);
+        setSelectedFavoriteMember(null);
       } finally {
         setIsFavoriteLoaded(true);
       }
@@ -208,7 +236,9 @@ export default function HomeScreen() {
     if (
       selectedFavoriteMember &&
       selectedGroup &&
-      !selectedGroup.favorites.includes(selectedFavoriteMember)
+      !selectedGroup.favorites.some(
+        (favorite) => favorite.name === selectedFavoriteMember
+      )
     ) {
       setSelectedFavoriteMember(null);
     }
@@ -304,7 +334,7 @@ export default function HomeScreen() {
           contentContainerStyle={styles.scrollContent}
         >
           <View style={styles.header}>
-            <Text style={styles.logo}>GO르덕</Text>
+            <Text style={styles.logo}>홈</Text>
 
             <View style={styles.headerIcons}>
               <Pressable
@@ -350,8 +380,7 @@ export default function HomeScreen() {
               </Text>
             </View>
           ) : selectedGroups.length === 0 ? (
-            <View style={styles.emptyBox}>
-            </View>
+            <View style={styles.emptyBox} />
           ) : (
             <>
               <ScrollView
@@ -392,7 +421,9 @@ export default function HomeScreen() {
                         style={[
                           styles.groupCircle,
                           {
-                            backgroundColor: group.color,
+                            backgroundColor: group.imageUrl
+                              ? COLORS.white
+                              : group.color,
                             borderColor: isSelected
                               ? COLORS.yellow
                               : COLORS.gray300,
@@ -400,9 +431,17 @@ export default function HomeScreen() {
                           },
                         ]}
                       >
-                        <Text style={styles.groupInitial}>
-                          {group.shortName}
-                        </Text>
+                        {group.imageUrl ? (
+                          <Image
+                            source={{ uri: group.imageUrl }}
+                            style={styles.groupImage}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <Text style={styles.groupInitial}>
+                            {group.shortName}
+                          </Text>
+                        )}
                       </View>
 
                       <Text
@@ -429,6 +468,7 @@ export default function HomeScreen() {
                       params: {
                         groups: groupParam,
                         members: memberParam,
+                        editGroupId: selectedGroupId ?? "",
                       },
                     } as any)
                   }
@@ -446,11 +486,11 @@ export default function HomeScreen() {
                   group.favorites.map((favorite) => {
                     const isFavoriteSelected =
                       selectedGroupId === group.id &&
-                      selectedFavoriteMember === favorite;
+                      selectedFavoriteMember === favorite.name;
 
                     return (
                       <Pressable
-                        key={`${group.id}-${favorite}`}
+                        key={`${group.id}-${favorite.id}-${favorite.name}`}
                         style={[
                           styles.favoriteChip,
                           isFavoriteSelected && styles.favoriteChipSelected,
@@ -458,9 +498,9 @@ export default function HomeScreen() {
                         onPress={() => {
                           setSelectedGroupId(group.id);
                           setSelectedFavoriteMember((prev) =>
-                            prev === favorite && selectedGroupId === group.id
+                            prev === favorite.name && selectedGroupId === group.id
                               ? null
-                              : favorite
+                              : favorite.name
                           );
                         }}
                       >
@@ -470,15 +510,23 @@ export default function HomeScreen() {
                             isFavoriteSelected && styles.favoriteImageSelected,
                           ]}
                         >
-                          <Text
-                            style={[
-                              styles.favoriteInitial,
-                              isFavoriteSelected &&
-                                styles.favoriteInitialSelected,
-                            ]}
-                          >
-                            {favorite[0]}
-                          </Text>
+                          {favorite.imageUrl ? (
+                            <Image
+                              source={{ uri: favorite.imageUrl }}
+                              style={styles.favoriteMemberImage}
+                              resizeMode="cover"
+                            />
+                          ) : (
+                            <Text
+                              style={[
+                                styles.favoriteInitial,
+                                isFavoriteSelected &&
+                                  styles.favoriteInitialSelected,
+                              ]}
+                            >
+                              {favorite.name[0]}
+                            </Text>
+                          )}
                         </View>
 
                         <View>
@@ -489,7 +537,7 @@ export default function HomeScreen() {
                                 styles.favoriteNameSelected,
                             ]}
                           >
-                            {favorite}
+                            {favorite.name}
                           </Text>
                           <Text
                             style={[
@@ -509,8 +557,7 @@ export default function HomeScreen() {
 
               <View style={styles.postList}>
                 {isPostsLoading && filteredPosts.length === 0 ? (
-                  <View style={styles.noPostBox}>
-                  </View>
+                  <View style={styles.noPostBox} />
                 ) : postError ? (
                   <View style={styles.noPostBox}>
                     <Text style={styles.noPostTitle}>{postError}</Text>
@@ -562,6 +609,56 @@ export default function HomeScreen() {
         </Pressable>
       </View>
     </SafeAreaView>
+  );
+}
+
+function normalizeImageUrl(url?: string | null) {
+  if (!url) return "";
+
+  const trimmedUrl = String(url).trim();
+
+  if (!trimmedUrl) return "";
+
+  if (trimmedUrl.startsWith("http://") || trimmedUrl.startsWith("https://")) {
+    return trimmedUrl;
+  }
+
+  if (trimmedUrl.startsWith("/")) {
+    return `${API_BASE_URL}${trimmedUrl}`;
+  }
+
+  return `${API_BASE_URL}/${trimmedUrl}`;
+}
+
+function getImageUrl(data: any) {
+  if (!data) return "";
+
+  return normalizeImageUrl(
+    data.imageUrl ||
+      data.profileImage ||
+      data.profileImageUrl ||
+      data.memberImageUrl ||
+      data.idolImageUrl ||
+      data.photoUrl ||
+      data.image ||
+      data.imagePath ||
+      data.thumbnailUrl
+  );
+}
+
+function getProfileImageUrl(data: any) {
+  if (!data) return "";
+
+  return normalizeImageUrl(
+    data.profileImage ||
+      data.profileImageUrl ||
+      data.sellerProfileImage ||
+      data.authorProfileImage ||
+      data.userProfileImage ||
+      data.seller?.profileImage ||
+      data.seller?.profileImageUrl ||
+      data.user?.profileImage ||
+      data.user?.profileImageUrl
   );
 }
 
@@ -639,7 +736,8 @@ function normalizeApiPosts(
       id: String(postId),
       groupId: matchedGroup.id,
       groupName: post.idolName,
-      userName: post.nickname || "알 수 없음",
+      userName: post.nickname || post.seller?.nickname || "알 수 없음",
+      profileImage: getProfileImageUrl(post) || getProfileImageUrl(post.seller),
       title: post.title || "제목 없음",
       albumName: post.albumName || "",
       time: formatTime(post.createdAt),
@@ -881,7 +979,15 @@ function PostCard({
     >
       <View style={styles.postTop}>
         <View style={styles.profileCircle}>
-          <Text style={styles.profileInitial}>{post.userName[0]}</Text>
+          {post.profileImage ? (
+            <Image
+              source={{ uri: post.profileImage }}
+              style={styles.profileImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <Text style={styles.profileInitial}>{post.userName[0]}</Text>
+          )}
         </View>
 
         <View style={styles.postInfo}>
@@ -1094,6 +1200,11 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
 
+  groupImage: {
+    width: "100%",
+    height: "100%",
+  },
+
   groupInitial: {
     fontSize: 13,
     fontWeight: "900",
@@ -1165,6 +1276,11 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
   },
 
+  favoriteMemberImage: {
+    width: "100%",
+    height: "100%",
+  },
+
   favoriteInitial: {
     color: COLORS.black,
     fontSize: 12,
@@ -1195,24 +1311,6 @@ const styles = StyleSheet.create({
 
   favoriteGroupNameSelected: {
     color: COLORS.gray300,
-  },
-
-  listHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-
-  sortButton: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  sortText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: COLORS.black,
   },
 
   postList: {
@@ -1255,6 +1353,12 @@ const styles = StyleSheet.create({
     marginRight: 12,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+  },
+
+  profileImage: {
+    width: "100%",
+    height: "100%",
   },
 
   profileInitial: {

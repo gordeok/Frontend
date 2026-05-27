@@ -1,10 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView } from "react-native";
+import {
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  ScrollView,
+  Image,
+} from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
 import { getIdols, getIdolMembers } from "@/services/idol";
 import { saveFavoriteIdols, saveFavoriteMembers } from "@/services/user";
+
+const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_BASE_URL ||
+  "https://frostily-derby-underpass.ngrok-free.dev";
 
 type Idol = {
   id: number;
@@ -16,6 +27,15 @@ type Member = {
   id: number;
   idolId: number;
   name: string;
+
+  imageUrl?: string;
+  profileImage?: string;
+  profileImageUrl?: string;
+  memberImageUrl?: string;
+  photoUrl?: string;
+  image?: string;
+  imagePath?: string;
+  thumbnailUrl?: string;
 };
 
 type GroupWithMembers = Idol & {
@@ -78,6 +98,8 @@ export default function GroupEditMembers() {
           targetIdols.map(async (idol) => {
             const members = await getIdolMembers(Number(idol.id));
 
+            console.log(`${idol.name} 추가 멤버 응답:`, members);
+
             return {
               id: Number(idol.id),
               name: idol.name,
@@ -121,6 +143,37 @@ export default function GroupEditMembers() {
       prev.includes(memberId)
         ? prev.filter((id) => id !== memberId)
         : [...prev, memberId]
+    );
+  };
+
+  const normalizeImageUrl = (url?: string) => {
+    if (!url) return "";
+
+    const trimmedUrl = String(url).trim();
+
+    if (!trimmedUrl) return "";
+
+    if (trimmedUrl.startsWith("http://") || trimmedUrl.startsWith("https://")) {
+      return trimmedUrl;
+    }
+
+    if (trimmedUrl.startsWith("/")) {
+      return `${API_BASE_URL}${trimmedUrl}`;
+    }
+
+    return `${API_BASE_URL}/${trimmedUrl}`;
+  };
+
+  const getMemberImageUrl = (member: Member) => {
+    return normalizeImageUrl(
+      member.imageUrl ||
+        member.profileImage ||
+        member.profileImageUrl ||
+        member.memberImageUrl ||
+        member.photoUrl ||
+        member.image ||
+        member.imagePath ||
+        member.thumbnailUrl
     );
   };
 
@@ -169,10 +222,10 @@ export default function GroupEditMembers() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {isLoading ? (
-          <Text style={styles.noticeText}>멤버 정보를 불러오는 중이에요.</Text>
-        ) : errorMessage ? (
+        {errorMessage ? (
           <Text style={styles.noticeText}>{errorMessage}</Text>
+        ) : isLoading ? (
+          <View style={styles.loadingBlank} />
         ) : targetGroups.length === 0 ? (
           <Text style={styles.noticeText}>추가 선택할 그룹이 없어요.</Text>
         ) : (
@@ -184,6 +237,7 @@ export default function GroupEditMembers() {
                 {group.members.map((member) => {
                   const memberId = Number(member.id);
                   const isSelected = newSelectedMembers.includes(memberId);
+                  const memberImageUrl = getMemberImageUrl(member);
 
                   return (
                     <Pressable
@@ -191,13 +245,31 @@ export default function GroupEditMembers() {
                       style={[styles.card, isSelected && styles.selectedCard]}
                       onPress={() => toggleMember(memberId)}
                     >
-                      <View style={styles.imagePlaceholder} />
+                      <View style={styles.imageBox}>
+                        {memberImageUrl ? (
+                          <Image
+                            source={{ uri: memberImageUrl }}
+                            style={[
+                              styles.memberImage,
+                              !isSelected && styles.unselectedImage,
+                            ]}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <View style={styles.imagePlaceholder}>
+                            <Text style={styles.placeholderText}>
+                              {member.name.slice(0, 2)}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
 
                       <Text
                         style={[
                           styles.memberName,
                           isSelected && styles.selectedText,
                         ]}
+                        numberOfLines={1}
                       >
                         {member.name}
                       </Text>
@@ -224,7 +296,7 @@ export default function GroupEditMembers() {
           onPress={handleConfirm}
         >
           <Text style={styles.confirmText}>
-            {isSaving ? "저장 중" : "확인"}
+            {isSaving ? "확인" : "확인"}
           </Text>
         </Pressable>
       </View>
@@ -259,6 +331,10 @@ const styles = StyleSheet.create({
 
   scrollContent: {
     paddingBottom: 140,
+  },
+
+  loadingBlank: {
+    height: 36,
   },
 
   noticeText: {
@@ -304,9 +380,32 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
 
-  imagePlaceholder: {
+  imageBox: {
     height: 88,
     backgroundColor: "#E2E3E7",
+    overflow: "hidden",
+  },
+
+  memberImage: {
+    width: "100%",
+    height: "100%",
+  },
+
+  unselectedImage: {
+    opacity: 0.65,
+  },
+
+  imagePlaceholder: {
+    flex: 1,
+    backgroundColor: "#E2E3E7",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  placeholderText: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#FFFFFF",
   },
 
   memberName: {
@@ -315,6 +414,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     color: "#999",
+    paddingHorizontal: 4,
   },
 
   selectedText: {

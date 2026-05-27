@@ -136,16 +136,16 @@ const styles = StyleSheet.create({
     color: "#202633",
   },
   startButton: {
-    height: 54,
-    borderRadius: 16,
+    height: 58,
+    borderRadius: 10,
     backgroundColor: "#F7C94B",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 34,
+    marginBottom: 36,
   },
   startText: {
     color: "#fff",
-    fontSize: 16,
-    fontWeight: "900",
+    fontSize: 18,
+    fontWeight: "800",
   },
 });

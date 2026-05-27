@@ -1,7 +1,16 @@
 // 회원가입 화면
 
 import { useState } from "react";
-import { Alert, StyleSheet, Text, View } from "react-native";
+import {
+  Alert,
+  Image,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -64,60 +73,85 @@ export default function SignupScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.logo}>로고</Text>
-
-      <View style={styles.form}>
-        <AppInput
-          placeholder="닉네임"
-          value={nickname}
-          onChangeText={setNickname}
+    <KeyboardAvoidingView
+      style={styles.keyboardView}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+    >
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        onScrollBeginDrag={() => Keyboard.dismiss()}
+        showsVerticalScrollIndicator={false}
+      >
+        <Image
+          source={require("@/assets/img/logo2.png")}
+          style={styles.logo}
+          resizeMode="contain"
         />
 
-        <AppInput
-          placeholder="아이디"
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
-        />
+        <View style={styles.form}>
+          <AppInput
+            placeholder="닉네임"
+            value={nickname}
+            onChangeText={setNickname}
+          />
 
-        <AppInput
-          placeholder="비밀번호"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-        />
+          <AppInput
+            placeholder="아이디"
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+          />
 
-        <AppInput
-          placeholder="비밀번호 확인"
-          value={passwordConfirm}
-          onChangeText={setPasswordConfirm}
-          secureTextEntry
-        />
+          <AppInput
+            placeholder="비밀번호"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+          />
 
-        <AppButton
-          title={isLoading ? "가입하기" : "가입하기"}
-          onPress={handleSignup}
-          disabled={isLoading}
-        />
-      </View>
-    </View>
+          <AppInput
+            placeholder="비밀번호 확인"
+            value={passwordConfirm}
+            onChangeText={setPasswordConfirm}
+            secureTextEntry
+          />
+
+          <AppButton
+            title="가입하기"
+            onPress={handleSignup}
+            disabled={isLoading}
+          />
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  keyboardView: {
     flex: 1,
+    backgroundColor: "#FFFFFF",
+  },
+  scrollView: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+  },
+  container: {
+    flexGrow: 1,
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     paddingHorizontal: 40,
-    paddingTop: 170,
+    paddingTop: 200,
+    paddingBottom: 80,
   },
   logo: {
-    fontSize: 28,
-    fontFamily: "NotoSansKRBold",
-    marginBottom: 70,
+    width: 150,
+    height: 82,
+    marginBottom: 55,
   },
   form: {
     width: "100%",

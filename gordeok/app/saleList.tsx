@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,9 +10,11 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-
 import { getMySales, MySale } from "../services/user";
-import { apiRequest } from "../utils/api";
+
+const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_BASE_URL ||
+  "https://frostily-derby-underpass.ngrok-free.dev";
 
 const COLORS = {
   white: "#FFFFFF",
@@ -20,6 +22,7 @@ const COLORS = {
   gray900: "#222222",
   gray700: "#666666",
   gray500: "#999999",
+  gray400: "#B0B0B0",
   gray100: "#F6F6F6",
   yellow: "#F7C94B",
   lightYellow: "#FFF4CC",
@@ -30,52 +33,66 @@ const COLORS = {
   line: "#F2EDE6",
 };
 
-type SaleStatus = "모집중" | "배송중" | "거래완료";
-
-type MemberItem = {
-  id?: number;
-  memberName?: string;
-  name?: string;
-  price?: number;
-  status?: string;
-};
-
-type PostListItem = {
-  id: number;
-  postId?: number;
-  userId?: number;
-  title?: string;
-  idolName?: string;
-  albumName?: string;
-  status?: string;
-  participantCount?: number;
-  currentMembers?: number;
-  currentMemberCount?: number;
-  maxMembers?: number;
-  maxMemberCount?: number;
-  memberItems?: MemberItem[];
-};
+type SaleStatus = "모집중" | "거래완료";
 
 type SaleItem = {
   id: number;
+  postId: number;
   title: string;
-  subText: string;
+  participantCount: number;
+  date: string;
   status: SaleStatus;
-  idolName?: string;
-  participantCount?: number;
-  maxMemberCount?: number;
+  thumbnailUrl: string;
 };
 
-function getPageContent<T>(response: any): T[] {
-  if (Array.isArray(response)) return response;
-  if (Array.isArray(response?.content)) return response.content;
-  if (Array.isArray(response?.data)) return response.data;
-  if (Array.isArray(response?.items)) return response.items;
-  return [];
+function normalizeImageUrl(url?: string | null) {
+  if (!url) return "";
+
+  const trimmed = String(url).trim();
+
+  if (!trimmed) return "";
+
+  if (trimmed.startsWith("http://localhost:8080")) {
+    return trimmed.replace("http://localhost:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("https://localhost:8080")) {
+    return trimmed.replace("https://localhost:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("http://127.0.0.1:8080")) {
+    return trimmed.replace("http://127.0.0.1:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("https://127.0.0.1:8080")) {
+    return trimmed.replace("https://127.0.0.1:8080", API_BASE_URL);
+  }
+
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+
+  if (trimmed.startsWith("/")) {
+    return `${API_BASE_URL}${trimmed}`;
+  }
+
+  return `${API_BASE_URL}/${trimmed}`;
+}
+
+function getSaleImageUrl(item: any) {
+  const rawUrl =
+    item?.thumbnailUrl ||
+    item?.imageUrl ||
+    item?.albumImageUrl ||
+    item?.postImageUrl ||
+    item?.image ||
+    "";
+
+  return normalizeImageUrl(rawUrl);
 }
 
 function formatDate(value?: string) {
-  if (!value) return "작성일 없음";
+  if (!value) return "-";
 
   const date = new Date(value);
 
@@ -93,129 +110,22 @@ function formatDate(value?: string) {
     .replace(/\.$/, "");
 }
 
-function normalizeStatus(status?: string) {
-  const raw = String(status ?? "")
-    .trim()
-    .replace(/\s/g, "")
-    .toUpperCase();
+function mapSale(item: MySale): SaleItem {
+  const itemAny = item as any;
 
-  if (
-    raw === "COMPLETED" ||
-    raw === "CLOSED" ||
-    raw === "DONE" ||
-    raw === "COMPLETE" ||
-    raw === "거래완료" ||
-    raw === "모집완료"
-  ) {
-    return "COMPLETED";
-  }
-
-  return "OPEN";
-}
-
-function getPostId(post: PostListItem) {
-  return Number(post.postId ?? post.id);
-}
-
-function makePostMap(posts: PostListItem[]) {
-  const map = new Map<number, PostListItem>();
-
-  posts.forEach((post) => {
-    const postId = getPostId(post);
-
-    if (Number.isFinite(postId)) {
-      map.set(postId, post);
-    }
-  });
-
-  return map;
-}
-
-function getCleanText(value?: string | number | null) {
-  return String(value ?? "").trim();
-}
-
-function getRealIdolName(post?: PostListItem) {
-  const idolName = getCleanText(post?.idolName);
-
-  if (idolName) return idolName;
-
-  const albumName = getCleanText(post?.albumName);
-
-  if (albumName) return albumName;
-
-  return "아이돌명 없음";
-}
-
-function getRecruitCount(post?: PostListItem) {
-  const maxMembers = Number(post?.maxMembers ?? post?.maxMemberCount ?? 0);
-  const memberItemCount = Array.isArray(post?.memberItems)
-    ? post.memberItems.length
-    : 0;
-
-  if (Number.isFinite(maxMembers) && maxMembers > 0) {
-    return maxMembers;
-  }
-
-  if (memberItemCount > 0) {
-    return memberItemCount;
-  }
-
-  return 0;
-}
-
-function formatProgressSubText(item: {
-  idolName?: string;
-  participantCount?: number;
-  maxMemberCount?: number;
-}) {
-  const idolName = getCleanText(item.idolName) || "아이돌명 없음";
-
-  const participantCount = Number(item.participantCount ?? 0);
-  const recruitCount = Number(item.maxMemberCount ?? 0);
-
-  const currentCount =
-    Number.isFinite(participantCount) && participantCount >= 0
-      ? participantCount + 1
-      : 1;
-
-  const maxCount =
-    Number.isFinite(recruitCount) && recruitCount > 0
-      ? recruitCount + 1
-      : currentCount;
-
-  return `${idolName} · ${currentCount}/${maxCount}명`;
-}
-
-function formatDoneSubText(item: { idolName?: string }, createdAt?: string) {
-  const idolName = getCleanText(item.idolName) || "아이돌명 없음";
-  return `${idolName} · ${formatDate(createdAt)}`;
-}
-
-function mapSale(item: MySale, postMap: Map<number, PostListItem>): SaleItem {
-  const postId = Number(item.postId);
-  const matchedPost = postMap.get(postId);
-
-  const isDone = normalizeStatus(item.postStatus) === "COMPLETED";
-
-  const idolName = getRealIdolName(matchedPost);
-  const participantCount = Number(item.participantCount ?? 0);
-  const maxMemberCount = getRecruitCount(matchedPost);
-
-  const baseItem = {
-    id: item.postId,
-    title: item.postTitle,
-    status: isDone ? "거래완료" : "모집중",
-    idolName,
-    participantCount,
-    maxMemberCount,
-  } satisfies Omit<SaleItem, "subText">;
+  const isDone =
+    itemAny.postStatus === "COMPLETED" ||
+    itemAny.postStatus === "CLOSED" ||
+    itemAny.postStatus === "거래완료";
 
   return {
-    ...baseItem,
-    subText: isDone
-      ? formatDoneSubText(baseItem, item.createdAt)
-      : formatProgressSubText(baseItem),
+    id: Number(itemAny.postId),
+    postId: Number(itemAny.postId),
+    title: itemAny.postTitle || "제목 없음",
+    participantCount: Number(itemAny.participantCount ?? 0),
+    date: formatDate(itemAny.createdAt),
+    status: isDone ? "거래완료" : "모집중",
+    thumbnailUrl: getSaleImageUrl(itemAny),
   };
 }
 
@@ -234,24 +144,24 @@ export default function SaleListScreen() {
         setIsLoading(true);
         setErrorMessage("");
 
-        const [openData, completedData, postsResponse] = await Promise.all([
+        const [openData, completedData] = await Promise.all([
           getMySales("OPEN"),
           getMySales("COMPLETED"),
-          apiRequest<any>("/api/posts", {
-            method: "GET",
-            query: {
-              page: 0,
-              size: 100,
-              sort: "latest",
-            },
-          }),
         ]);
 
-        const posts = getPageContent<PostListItem>(postsResponse);
-        const postMap = makePostMap(posts);
+        console.log("판매 목록 OPEN 응답:", openData);
+        console.log("판매 목록 COMPLETED 응답:", completedData);
 
-        setProgressList(openData.map((item) => mapSale(item, postMap)));
-        setDoneList(completedData.map((item) => mapSale(item, postMap)));
+        const mappedOpenData = openData.map(mapSale);
+        const mappedCompletedData = completedData.map(mapSale);
+
+        console.log("판매 목록 앨범 이미지 확인:", {
+          progress: mappedOpenData,
+          done: mappedCompletedData,
+        });
+
+        setProgressList(mappedOpenData);
+        setDoneList(mappedCompletedData);
       } catch (error: any) {
         console.log("판매 목록 조회 실패:", error);
         setProgressList([]);
@@ -272,13 +182,6 @@ export default function SaleListScreen() {
       return {
         box: styles.doneStatusBadge,
         text: styles.doneStatusText,
-      };
-    }
-
-    if (status === "배송중") {
-      return {
-        box: styles.deliveryStatusBadge,
-        text: styles.deliveryStatusText,
       };
     }
 
@@ -350,13 +253,10 @@ export default function SaleListScreen() {
           contentContainerStyle={styles.listContent}
         >
           {isLoading ? (
-            <View style={styles.loadingBox}>
-              <ActivityIndicator size="small" color={COLORS.yellow} />
-            </View>
+            <View style={styles.emptyBox} />
           ) : currentList.length > 0 ? (
             currentList.map((item) => {
               const statusStyle = getStatusStyle(item.status);
-              const isProgressTab = selectedTab === "progress";
 
               return (
                 <Pressable
@@ -369,52 +269,55 @@ export default function SaleListScreen() {
                   onPress={() =>
                     router.push({
                       pathname: "/divide-detail",
-                      params: { postId: String(item.id) },
+                      params: { postId: String(item.postId) },
                     } as any)
                   }
                 >
-                  <View
-                    style={[
-                      styles.cardTop,
-                      isProgressTab && styles.progressCardTop,
-                    ]}
-                  >
+                  <View style={styles.cardTop}>
                     <View style={styles.imageBox}>
-                      <Ionicons
-                        name="albums-outline"
-                        size={22}
-                        color={COLORS.black}
-                      />
+                      {item.thumbnailUrl ? (
+                        <Image
+                          key={item.thumbnailUrl}
+                          source={{ uri: item.thumbnailUrl }}
+                          style={styles.albumImage}
+                          resizeMode="cover"
+                          onLoad={() => {
+                            console.log(
+                              "판매 목록 앨범 이미지 로드 성공:",
+                              item.thumbnailUrl
+                            );
+                          }}
+                          onError={(error) => {
+                            console.log(
+                              "판매 목록 앨범 이미지 로드 실패:",
+                              item.thumbnailUrl,
+                              error.nativeEvent
+                            );
+                          }}
+                        />
+                      ) : (
+                        <Ionicons
+                          name="albums-outline"
+                          size={22}
+                          color={COLORS.black}
+                        />
+                      )}
                     </View>
 
-                    <View
-                      style={[
-                        styles.itemInfo,
-                        isProgressTab && styles.progressItemInfo,
-                      ]}
-                    >
-                      {isProgressTab ? (
-                        <>
-                          <View style={styles.progressTitleRow}>
-                            <Text style={styles.progressItemTitle}>
-                              {item.title}
-                            </Text>
+                    <View style={styles.itemInfo}>
+                      <Text style={styles.itemTitle}>{item.title}</Text>
 
-                            <View style={statusStyle.box}>
-                              <Text style={statusStyle.text}>
-                                {item.status}
-                              </Text>
-                            </View>
-                          </View>
+                      <View style={styles.subRow}>
+                        <Text style={styles.itemSubText}>
+                          참여자 {item.participantCount}명
+                        </Text>
+                        <View style={styles.dot} />
+                        <Text style={styles.itemSubText}>{item.date}</Text>
+                      </View>
+                    </View>
 
-                          <Text style={styles.itemSubText}>{item.subText}</Text>
-                        </>
-                      ) : (
-                        <>
-                          <Text style={styles.itemTitle}>{item.title}</Text>
-                          <Text style={styles.itemSubText}>{item.subText}</Text>
-                        </>
-                      )}
+                    <View style={statusStyle.box}>
+                      <Text style={statusStyle.text}>{item.status}</Text>
                     </View>
                   </View>
 
@@ -424,8 +327,14 @@ export default function SaleListScreen() {
                         styles.reviewButton,
                         (pressed || hovered) && styles.reviewButtonHover,
                       ]}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        router.push({
+                          pathname: "/receivedReviews",
+                        } as any);
+                      }}
                     >
-                      <Text style={styles.reviewButtonText}>받은 후기 보기</Text>
+                      <Text style={styles.reviewButtonText}>후기 보기</Text>
                     </Pressable>
                   )}
                 </Pressable>
@@ -433,7 +342,7 @@ export default function SaleListScreen() {
             })
           ) : (
             <View style={styles.emptyBox}>
-              <Text style={styles.emptyText}>
+              <Text style={styles.emptyTitle}>
                 {errorMessage || "판매 내역이 없어요"}
               </Text>
             </View>
@@ -523,22 +432,6 @@ const styles = StyleSheet.create({
     paddingBottom: 36,
   },
 
-  loadingBox: {
-    alignItems: "center",
-    paddingTop: 100,
-  },
-
-  emptyBox: {
-    alignItems: "center",
-    paddingTop: 100,
-  },
-
-  emptyText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: COLORS.gray500,
-  },
-
   listCard: {
     backgroundColor: COLORS.white,
     borderRadius: 18,
@@ -563,11 +456,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-  progressCardTop: {
-    minHeight: 50,
-    alignItems: "center",
-  },
-
   imageBox: {
     width: 50,
     height: 50,
@@ -575,18 +463,19 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.lightYellow,
     justifyContent: "center",
     alignItems: "center",
+    overflow: "hidden",
+  },
+
+  albumImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 12,
   },
 
   itemInfo: {
     flex: 1,
     marginLeft: 12,
     paddingRight: 10,
-  },
-
-  progressItemInfo: {
-    justifyContent: "center",
-    paddingRight: 0,
-    minWidth: 0,
   },
 
   itemTitle: {
@@ -597,20 +486,10 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
 
-  progressTitleRow: {
+  subRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-    marginBottom: 4,
-  },
-
-  progressItemTitle: {
-    flex: 1,
-    flexShrink: 1,
-    fontSize: 15,
-    fontWeight: "900",
-    color: COLORS.gray900,
-    lineHeight: 21,
+    alignItems: "center",
+    flexWrap: "wrap",
   },
 
   itemSubText: {
@@ -618,6 +497,14 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: COLORS.gray500,
     lineHeight: 17,
+  },
+
+  dot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: COLORS.gray400,
+    marginHorizontal: 6,
   },
 
   reviewButton: {
@@ -643,32 +530,16 @@ const styles = StyleSheet.create({
   },
 
   progressStatusBadge: {
-    flexShrink: 0,
-    backgroundColor: COLORS.lightGreen,
+    backgroundColor: COLORS.lightYellow,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 13,
-    marginTop: 0,
   },
 
   progressStatusText: {
     fontSize: 11,
     fontWeight: "900",
-    color: "#009F63",
-  },
-
-  deliveryStatusBadge: {
-    flexShrink: 0,
-    backgroundColor: COLORS.lightBlue,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 13,
-  },
-
-  deliveryStatusText: {
-    fontSize: 11,
-    fontWeight: "900",
-    color: COLORS.blue,
+    color: "#B89416",
   },
 
   doneStatusBadge: {
@@ -682,5 +553,19 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "900",
     color: COLORS.green,
+  },
+
+  emptyBox: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 200,
+  },
+
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: COLORS.black,
+    marginTop: 14,
+    marginBottom: 6,
   },
 });

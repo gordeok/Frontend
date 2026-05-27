@@ -3,6 +3,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -29,6 +30,8 @@ const COLORS = {
   grayBadgeText: "#888888",
 };
 
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "";
+
 type TabType = "OPEN" | "COMPLETED";
 
 type MemberItem = {
@@ -48,12 +51,15 @@ type SaleItem = {
   participantCount?: number;
   currentCount?: number;
   maxMemberCount?: number;
+  imageUrl?: string;
 };
 
 type MySaleApiItem = {
   postId: number;
   postTitle: string;
   thumbnailUrl?: string;
+  imageUrl?: string;
+  imageUrls?: string[];
   postStatus?: string;
   participantCount?: number;
   createdAt?: string;
@@ -67,6 +73,9 @@ type PostListItem = {
   albumName?: string;
   status?: string;
   createdAt?: string;
+  imageUrl?: string;
+  imageUrls?: string[];
+  thumbnailUrl?: string;
   participantCount?: number;
   currentMembers?: number;
   currentMemberCount?: number;
@@ -216,6 +225,46 @@ function formatMemberCount(item: SaleItem) {
   return `${displayCurrentCount}/${displayMaxCount}명`;
 }
 
+function toImageUrl(url?: string | null) {
+  if (!url) return "";
+
+  const trimmedUrl = String(url).trim();
+
+  if (!trimmedUrl) return "";
+
+  if (
+    trimmedUrl.startsWith("http://") ||
+    trimmedUrl.startsWith("https://") ||
+    trimmedUrl.startsWith("file://")
+  ) {
+    return trimmedUrl;
+  }
+
+  if (!API_BASE_URL) {
+    return trimmedUrl;
+  }
+
+  const baseUrl = API_BASE_URL.endsWith("/")
+    ? API_BASE_URL.slice(0, -1)
+    : API_BASE_URL;
+
+  const path = trimmedUrl.startsWith("/") ? trimmedUrl : `/${trimmedUrl}`;
+
+  return `${baseUrl}${path}`;
+}
+
+function getPostImageUrl(post?: any) {
+  const rawUrl =
+    post?.imageUrls?.[0] ||
+    post?.imageUrl ||
+    post?.thumbnailUrl ||
+    post?.postImageUrl ||
+    post?.thumbnailImageUrl ||
+    "";
+
+  return toImageUrl(rawUrl);
+}
+
 function normalizeMySale(
   item: MySaleApiItem,
   postMap: Map<number, PostListItem>,
@@ -233,11 +282,13 @@ function normalizeMySale(
     id: postId,
     title: item.postTitle || matchedPost?.title || "제목 없음",
     idolName: getRealIdolName(matchedPost),
-    status: forcedStatus ?? normalizeStatus(item.postStatus || matchedPost?.status),
+    status:
+      forcedStatus ?? normalizeStatus(item.postStatus || matchedPost?.status),
     createdAt: item.createdAt || matchedPost?.createdAt,
     participantCount,
     currentCount,
     maxMemberCount: getRecruitCount(matchedPost),
+    imageUrl: getPostImageUrl(item) || getPostImageUrl(matchedPost),
   };
 }
 
@@ -251,6 +302,7 @@ function normalizeOtherSale(item: PostListItem): SaleItem {
     participantCount: Number(item.participantCount ?? 0),
     currentCount: getCurrentCountFromPost(item),
     maxMemberCount: getRecruitCount(item),
+    imageUrl: getPostImageUrl(item),
   };
 }
 
@@ -263,6 +315,9 @@ export default function SellerSalesScreen() {
   const [selectedTab, setSelectedTab] = useState<TabType>("OPEN");
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [imageErrorMap, setImageErrorMap] = useState<Record<number, boolean>>(
+    {}
+  );
 
   useEffect(() => {
     const loadSales = async () => {
@@ -289,6 +344,8 @@ export default function SellerSalesScreen() {
             sort: "latest",
           },
         });
+
+        console.log("판매 목록용 전체 게시글 응답:", postsRes);
 
         const posts = getPageContent<PostListItem>(postsRes);
         const postMap = makePostMap(posts);
@@ -318,6 +375,9 @@ export default function SellerSalesScreen() {
               },
             }),
           ]);
+
+          console.log("내 판매 목록 OPEN 응답:", openRes);
+          console.log("내 판매 목록 COMPLETED 응답:", completedRes);
 
           setSellerName(profileRes?.nickname || "판매자");
 
@@ -464,6 +524,8 @@ export default function SellerSalesScreen() {
               {visibleSales.length > 0 ? (
                 visibleSales.map((sale) => {
                   const isDone = normalizeStatus(sale.status) === "COMPLETED";
+                  const hasImage =
+                    !!sale.imageUrl && imageErrorMap[sale.id] !== true;
 
                   return (
                     <Pressable
@@ -481,11 +543,30 @@ export default function SellerSalesScreen() {
                     >
                       <View style={styles.cardRow}>
                         <View style={styles.imageBox}>
-                          <Ionicons
-                            name="albums-outline"
-                            size={22}
-                            color={COLORS.black}
-                          />
+                          {hasImage ? (
+                            <Image
+                              source={{ uri: sale.imageUrl }}
+                              style={styles.albumImage}
+                              resizeMode="cover"
+                              onError={() => {
+                                console.log(
+                                  "판매 목록 앨범 이미지 로드 실패:",
+                                  sale.imageUrl
+                                );
+
+                                setImageErrorMap((prev) => ({
+                                  ...prev,
+                                  [sale.id]: true,
+                                }));
+                              }}
+                            />
+                          ) : (
+                            <Ionicons
+                              name="albums-outline"
+                              size={22}
+                              color={COLORS.black}
+                            />
+                          )}
                         </View>
 
                         <View style={styles.itemInfo}>
@@ -670,6 +751,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
+    overflow: "hidden",
+  },
+
+  albumImage: {
+    width: "100%",
+    height: "100%",
   },
 
   itemInfo: {

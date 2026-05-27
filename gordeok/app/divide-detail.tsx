@@ -73,6 +73,7 @@ type DividePost = {
   groupId: string;
   groupName: string;
   userName: string;
+  sellerProfileImage?: string;
   title: string;
   albumName: string;
   imageUrl?: string;
@@ -183,6 +184,22 @@ function normalizeImageUrl(url?: string | null) {
   return trimmedUrl;
 }
 
+function getProfileImageUrl(data: any) {
+  if (!data) return "";
+
+  return normalizeImageUrl(
+    data.profileImage ||
+      data.profileImageUrl ||
+      data.sellerProfileImage ||
+      data.authorProfileImage ||
+      data.userProfileImage ||
+      data.seller?.profileImage ||
+      data.seller?.profileImageUrl ||
+      data.user?.profileImage ||
+      data.user?.profileImageUrl,
+  );
+}
+
 function mapApiPostToDetailPost(post: PostDetailResponse): DividePost {
   const postAny = post as any;
 
@@ -209,6 +226,7 @@ function mapApiPostToDetailPost(post: PostDetailResponse): DividePost {
     groupId: post.idolName,
     groupName: post.idolName,
     userName: post.seller?.nickname ?? "판매자",
+    sellerProfileImage: getProfileImageUrl(post.seller) || getProfileImageUrl(postAny),
     title: post.title,
     albumName: post.albumName ?? "",
     time: "",
@@ -234,6 +252,7 @@ function normalizePassedPost(post: DividePost): DividePost {
   return {
     ...post,
     sellerId: post.sellerId ?? "1",
+    sellerProfileImage: normalizeImageUrl(post.sellerProfileImage),
     deliveryMethod: formatShippingFeeType(post.deliveryMethod),
     scrapCount: post.scrapCount ?? 0,
     viewCount: post.viewCount ?? 0,
@@ -633,10 +652,7 @@ export default function DivideDetailScreen() {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.emptyWrap}>
-          <Text style={styles.emptyTitle}>분철 글을 찾을 수 없어요</Text>
-
           <Pressable style={styles.emptyButton} onPress={() => router.back()}>
-            <Text style={styles.emptyButtonText}>돌아가기</Text>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -774,7 +790,15 @@ export default function DivideDetailScreen() {
             }
           >
             <View style={styles.profileCircle}>
-              <Text style={styles.profileInitial}>{post.userName[0]}</Text>
+              {post.sellerProfileImage ? (
+                <Image
+                  source={{ uri: post.sellerProfileImage }}
+                  style={styles.profileImage}
+                  resizeMode="cover"
+                />
+              ) : (
+                <Text style={styles.profileInitial}>{post.userName[0]}</Text>
+              )}
             </View>
 
             <View style={styles.profileInfo}>
@@ -1253,6 +1277,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginRight: 14,
+    overflow: "hidden",
+  },
+
+  profileImage: {
+    width: "100%",
+    height: "100%",
   },
 
   profileInitial: {

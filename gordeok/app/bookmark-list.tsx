@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -33,6 +33,9 @@ export default function BookmarkListScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [removingId, setRemovingId] = useState<number | null>(null);
+  const [imageErrorMap, setImageErrorMap] = useState<Record<number, boolean>>(
+    {}
+  );
 
   useEffect(() => {
     loadBookmarks();
@@ -44,6 +47,9 @@ export default function BookmarkListScreen() {
       setErrorMessage("");
 
       const data = await getBookmarks();
+
+      console.log("북마크 목록 응답:", data);
+
       setBookmarks(data ?? []);
     } catch (error: any) {
       console.log("북마크 목록 조회 실패:", error);
@@ -57,6 +63,8 @@ export default function BookmarkListScreen() {
   };
 
   const goDetail = (post: BookmarkItem) => {
+    const imageUrl = getPostImageUrl(post);
+
     const postData = {
       id: String(post.postId),
       groupId: post.idolName,
@@ -64,6 +72,7 @@ export default function BookmarkListScreen() {
       userName: post.nickname,
       title: post.title,
       albumName: post.albumName || "",
+      imageUrl,
       time: formatTime(post.createdAt),
       date: post.createdAt?.slice(0, 10) ?? "",
       status: normalizePostStatus(post.status),
@@ -139,48 +148,72 @@ export default function BookmarkListScreen() {
               <Text style={styles.emptyTitle}>북마크를 불러오는 중이에요</Text>
             </View>
           ) : bookmarks.length > 0 ? (
-            bookmarks.map((item) => (
-              <Pressable
-                key={String(item.bookmarkId)}
-                style={({ pressed, hovered }) => [
-                  styles.card,
-                  (pressed || hovered) && styles.cardHover,
-                ]}
-                onPress={() => goDetail(item)}
-              >
-                <View style={styles.thumbnail}>
-                  <Ionicons
-                    name="albums-outline"
-                    size={22}
-                    color={COLORS.black}
-                  />
-                </View>
+            bookmarks.map((item) => {
+              const imageUrl = getPostImageUrl(item);
+              const hasImage =
+                !!imageUrl && imageErrorMap[item.bookmarkId] !== true;
 
-                <View style={styles.textBox}>
-                  <Text style={styles.title}>{item.title}</Text>
-
-                  <Text style={styles.sellerName} numberOfLines={1}>
-                    {item.nickname}
-                    {item.idolName ? ` · ${item.idolName}` : ""}
-                  </Text>
-                </View>
-
+              return (
                 <Pressable
+                  key={String(item.bookmarkId)}
                   style={({ pressed, hovered }) => [
-                    styles.bookmarkButton,
-                    (pressed || hovered) && styles.bookmarkButtonHover,
+                    styles.card,
+                    (pressed || hovered) && styles.cardHover,
                   ]}
-                  onPress={(event) => {
-                    event.stopPropagation();
-                    handleRemoveBookmark(item);
-                  }}
-                  disabled={removingId === item.bookmarkId}
-                  hitSlop={10}
+                  onPress={() => goDetail(item)}
                 >
-                  <Ionicons name="bookmark" size={22} color={COLORS.yellow} />
+                  <View style={styles.thumbnail}>
+                    {hasImage ? (
+                      <Image
+                        source={{ uri: imageUrl }}
+                        style={styles.thumbnailImage}
+                        resizeMode="cover"
+                        onError={() => {
+                          console.log("북마크 이미지 로드 실패:", imageUrl);
+
+                          setImageErrorMap((prev) => ({
+                            ...prev,
+                            [item.bookmarkId]: true,
+                          }));
+                        }}
+                      />
+                    ) : (
+                      <Ionicons
+                        name="albums-outline"
+                        size={22}
+                        color={COLORS.black}
+                      />
+                    )}
+                  </View>
+
+                  <View style={styles.textBox}>
+                    <Text style={styles.title} numberOfLines={1}>
+                      {item.title}
+                    </Text>
+
+                    <Text style={styles.sellerName} numberOfLines={1}>
+                      {item.nickname}
+                      {item.idolName ? ` · ${item.idolName}` : ""}
+                    </Text>
+                  </View>
+
+                  <Pressable
+                    style={({ pressed, hovered }) => [
+                      styles.bookmarkButton,
+                      (pressed || hovered) && styles.bookmarkButtonHover,
+                    ]}
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      handleRemoveBookmark(item);
+                    }}
+                    disabled={removingId === item.bookmarkId}
+                    hitSlop={10}
+                  >
+                    <Ionicons name="bookmark" size={22} color={COLORS.yellow} />
+                  </Pressable>
                 </Pressable>
-              </Pressable>
-            ))
+              );
+            })
           ) : (
             <View style={styles.emptyBox}>
               <Text style={styles.emptyTitle}>저장한 북마크가 없어요</Text>
@@ -193,6 +226,36 @@ export default function BookmarkListScreen() {
       </View>
     </SafeAreaView>
   );
+}
+
+function getPostImageUrl(post: any) {
+  const rawUrl =
+    post?.imageUrls?.[0] ||
+    post?.imageUrl ||
+    post?.thumbnailUrl ||
+    post?.postImageUrl ||
+    post?.imageURL ||
+    "";
+
+  return toImageUrl(rawUrl);
+}
+
+function toImageUrl(url?: string | null) {
+  if (!url) return "";
+
+  const trimmedUrl = String(url).trim();
+
+  if (!trimmedUrl) return "";
+
+  if (
+    trimmedUrl.startsWith("http://") ||
+    trimmedUrl.startsWith("https://") ||
+    trimmedUrl.startsWith("file://")
+  ) {
+    return trimmedUrl;
+  }
+
+  return trimmedUrl;
 }
 
 function normalizePostStatus(status: string) {
@@ -295,6 +358,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.lightYellow,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+  },
+
+  thumbnailImage: {
+    width: "100%",
+    height: "100%",
   },
 
   textBox: {

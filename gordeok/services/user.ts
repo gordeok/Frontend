@@ -204,3 +204,47 @@ export async function saveFavoriteMembers(memberIds: number[]) {
     body: JSON.stringify({ memberIds }),
   });
 }
+
+export async function uploadProfileImage(imageUri: string): Promise<string> {
+  const userId = await getStoredUserId();
+  const apiBase = (
+    process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://172.20.99.65:8080"
+  ).replace(/\/$/, "");
+
+  const ext = imageUri.toLowerCase().endsWith(".png") ? "png"
+    : imageUri.toLowerCase().endsWith(".webp") ? "webp"
+    : "jpeg";
+  const mimeType = `image/${ext}`;
+  const fileName = `profile-image.${ext}`;
+
+  const formData = new FormData();
+  formData.append("image", { uri: imageUri, name: fileName, type: mimeType } as any);
+
+  const response = await fetch(`${apiBase}/api/users/upload-profile-image?userId=${userId}`, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+    body: formData,
+  });
+
+  const text = await response.text();
+  let data: any = null;
+  try { data = text ? JSON.parse(text) : null; } catch {}
+
+  if (!response.ok) {
+    throw new Error(data?.message || "프로필 이미지 업로드 실패");
+  }
+
+  const imageUrl: string =
+    data?.imageUrl ?? data?.profileImage ?? data?.url ?? data?.image ?? "";
+  return imageUrl;
+}
+
+export async function updateProfile(params: { nickname?: string; profileImage?: string }) {
+  const userId = await getStoredUserId();
+
+  return apiRequest<MyProfile>("/api/users/me", {
+    method: "PATCH",
+    query: { userId },
+    body: JSON.stringify(params),
+  });
+}
