@@ -130,7 +130,7 @@ export default function TrackingStatusScreen() {
       } catch (error) {
         console.log("배송 현황 조회 실패:", error);
 
-        if (!trackingNumber) {
+        if (!getParamString(params.trackingNumber)) {
           setCourierType(
             normalizeCourierType(getParamString(params.courierType))
           );
@@ -143,7 +143,7 @@ export default function TrackingStatusScreen() {
     };
 
     loadTrackingInfo();
-  }, [chatRoomId]);
+  }, [chatRoomId, params.courierType, params.trackingNumber, params.trackingUrl]);
 
   const closeSheet = () => {
     Animated.parallel([

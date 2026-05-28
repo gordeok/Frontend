@@ -66,7 +66,6 @@ export default function ReviewWriteScreen() {
     chatRoomId,
     role,
     title,
-    status,
     targetUserId,
     reviewerId,
     sellerName,
@@ -74,7 +73,6 @@ export default function ReviewWriteScreen() {
     chatRoomId?: string;
     role?: string;
     title?: string;
-    status?: string;
     targetUserId?: string;
     reviewerId?: string;
     sellerName?: string;

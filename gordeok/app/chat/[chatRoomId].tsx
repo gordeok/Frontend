@@ -149,7 +149,7 @@ type ChatRoomMenuInfo = {
   }[];
 };
 
-function getFirstText(...values: Array<string | undefined>) {
+function getFirstText(...values: (string | undefined)[]) {
   return values.map((value) => (value ?? "").trim()).find(Boolean) ?? "";
 }
 
@@ -725,6 +725,23 @@ function normalizeChatMessages(
     .filter((message): message is Message => message !== null);
 }
 
+function runLayout(duration = 210) {
+  LayoutAnimation.configureNext({
+    duration,
+    create: {
+      type: LayoutAnimation.Types.easeInEaseOut,
+      property: LayoutAnimation.Properties.opacity,
+    },
+    update: {
+      type: LayoutAnimation.Types.easeInEaseOut,
+    },
+    delete: {
+      type: LayoutAnimation.Types.easeInEaseOut,
+      property: LayoutAnimation.Properties.opacity,
+    },
+  });
+}
+
 export default function ChatRoomDetailScreen() {
   const insets = useSafeAreaInsets();
 
@@ -1163,22 +1180,6 @@ export default function ChatRoomDetailScreen() {
 
   const scrollExtraSpace = isKeyboardVisible || isPlusOpen ? bottomSpace : 0;
 
-  const runLayout = (duration = 210) => {
-    LayoutAnimation.configureNext({
-      duration,
-      create: {
-        type: LayoutAnimation.Types.easeInEaseOut,
-        property: LayoutAnimation.Properties.opacity,
-      },
-      update: {
-        type: LayoutAnimation.Types.easeInEaseOut,
-      },
-      delete: {
-        type: LayoutAnimation.Types.easeInEaseOut,
-        property: LayoutAnimation.Properties.opacity,
-      },
-    });
-  };
 
   const scrollToBottom = (delay = 70) => {
     setTimeout(() => {
@@ -1298,7 +1299,8 @@ export default function ChatRoomDetailScreen() {
     };
 
     loadMessages();
-  }, [chatRoomId, opponentDisplayName, myUserId, storedTradeStatus]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatRoomId, opponentDisplayName, myUserId, storedTradeStatus, isBuyer, sellerDisplayName, buyerDisplayName]);
 
   useEffect(() => {
     if (!chatRoomId || !myUserId) return;
@@ -1459,7 +1461,7 @@ export default function ChatRoomDetailScreen() {
     saveStoredTradeStatus(String(chatRoomId), nextStatus);
     setMessages((prev: Message[]) => ensureStatusMessage(prev, nextStatus));
     scrollToBottom(100);
-  }, [tradeEvent, isNote]);
+  }, [tradeEvent, isNote, chatRoomId]);
 
   useEffect(() => {
     if (isNote) return;
@@ -2523,10 +2525,6 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
     borderRadius: PROFILE_RADIUS,
-  },
-  profileInitial: {
-    fontSize: 15,
-    fontWeight: "800",
   },
   otherContent: {
     flex: 1,

@@ -466,34 +466,34 @@ export default function CommunityDetailScreen() {
   const [creatingDirectChat, setCreatingDirectChat] = useState(false);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
 
-  const loadPost = async () => {
+  useEffect(() => {
     if (!postId) {
       setLoading(false);
       return;
     }
 
-    try {
-      setLoading(true);
+    const loadPost = async () => {
+      try {
+        setLoading(true);
 
-      const data = await getCommunityPost(postId);
+        const data = await getCommunityPost(postId);
 
-      console.log("커뮤니티 상세 데이터:", data);
-      console.log("커뮤니티 작성자 프로필 이미지:", getPostProfileImage(data));
-      console.log("커뮤니티 이미지 데이터:", getCommunityImages(data));
-      console.log("커뮤니티 댓글 데이터:", getCommentArray(data));
+        console.log("커뮤니티 상세 데이터:", data);
+        console.log("커뮤니티 작성자 프로필 이미지:", getPostProfileImage(data));
+        console.log("커뮤니티 이미지 데이터:", getCommunityImages(data));
+        console.log("커뮤니티 댓글 데이터:", getCommentArray(data));
 
-      setPost(data);
-      setComments(convertComments(data));
-    } catch (error) {
-      console.log("커뮤니티 상세 조회 실패", error);
-      setPost(null);
-      setComments([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+        setPost(data);
+        setComments(convertComments(data));
+      } catch (error) {
+        console.log("커뮤니티 상세 조회 실패", error);
+        setPost(null);
+        setComments([]);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  useEffect(() => {
     loadPost();
   }, [postId]);
 
@@ -1397,12 +1397,6 @@ const styles = StyleSheet.create({
     paddingVertical: 42,
     alignItems: "center",
     justifyContent: "center",
-  },
-
-  emptyCommentText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: COLORS.gray400,
   },
 
   commentItemWrap: {
