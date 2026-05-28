@@ -1,7 +1,9 @@
+// 채팅방 메뉴
+
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Animated,
@@ -535,7 +537,7 @@ export default function ChatMenuScreen() {
   const [menuInfo, setMenuInfo] = useState<ChatRoomMenuInfo | null>(null);
   const [menuParticipants, setMenuParticipants] = useState<MenuParticipant[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string>("");
-  const [isMenuLoaded, setIsMenuLoaded] = useState(false);
+  const [, setIsMenuLoaded] = useState(false);
   const [fetchedAlbumImageUrl, setFetchedAlbumImageUrl] = useState("");
   const [fetchedSelfProfileImg, setFetchedSelfProfileImg] = useState("");
   const [fetchedPostId, setFetchedPostId] = useState("");
@@ -543,12 +545,6 @@ export default function ChatMenuScreen() {
   const [linkedCommunityPostId, setLinkedCommunityPostId] = useState("");
   const [fetchedBuyerMemberName, setFetchedBuyerMemberName] = useState("");
 
-  const getFirstValueText = (...values: any[]) =>
-    values
-      .map((value) =>
-        value === null || value === undefined ? "" : String(value).trim()
-      )
-      .find(Boolean) ?? "";
 
   useEffect(() => {
     const loadLocalRoom = async () => {
@@ -642,7 +638,6 @@ export default function ChatMenuScreen() {
               }
             }
 
-            // memberName 없는 구매자는 buyerInfo API에서 가져옴
             if (isBuyerParticipant && !String(p.memberName ?? "").trim() && p.userId && chatRoomId) {
               try {
                 const buyerInfo = await apiRequest<BuyerInfoResponse>(
@@ -654,7 +649,6 @@ export default function ChatMenuScreen() {
                   console.log("메뉴 구매자 멤버 이름 조회 성공:", buyerInfo.memberName);
                 }
               } catch {
-                // 조회 실패해도 무시
               }
             }
 
@@ -678,7 +672,6 @@ export default function ChatMenuScreen() {
           .toLowerCase();
         const isDirectRoom = roomTypeText === "note" || roomTypeText === "direct";
 
-        // 앨범 이미지 — menu에서 직접 추출하고, 없으면 제목으로 게시글을 찾아서 보완
         let initialAlbum = getAlbumImageUrl(menu, localRoom);
         let foundDividePostByTitle: { postId: string; post: any } | null = null;
 
@@ -768,7 +761,6 @@ export default function ChatMenuScreen() {
           console.log("메뉴 분철 postId title 검색으로 찾음:", resolvedDividePostId);
         }
 
-        // 예전 버전에서 쓰던 저장 키도 한 번만 호환 처리
         if (!resolvedDividePostId && !resolvedCommunityPostId && chatRoomId) {
           try {
             const raw = await AsyncStorage.getItem("GO_REUDEOK_CHATROOM_POST_MAP");
@@ -800,7 +792,6 @@ export default function ChatMenuScreen() {
           const postImage = getAlbumImageUrl(postDetail);
           if (postImage) setFetchedAlbumImageUrl(postImage);
         } else if (initialAlbum) {
-          // 이미 위에서 setFetchedAlbumImageUrl 호출했음
         }
       } catch (error) {
         console.log("채팅 메뉴 조회 실패:", error);
@@ -1224,7 +1215,7 @@ export default function ChatMenuScreen() {
     setIsSheetVisible(true);
   };
 
-  const openSheetAnimation = () => {
+  const openSheetAnimation = useCallback(() => {
     sheetTranslateY.setValue(SHEET_HEIGHT);
     dimOpacity.setValue(0);
     currentTranslateY.current = SHEET_HEIGHT;
@@ -1244,7 +1235,7 @@ export default function ChatMenuScreen() {
     ]).start(() => {
       currentTranslateY.current = 0;
     });
-  };
+  }, [sheetTranslateY, dimOpacity]);
 
   const closeBuyerSheet = () => {
     Animated.parallel([
@@ -1282,7 +1273,7 @@ export default function ChatMenuScreen() {
     requestAnimationFrame(() => {
       openSheetAnimation();
     });
-  }, [isSheetVisible]);
+  }, [isSheetVisible, openSheetAnimation]);
 
   const panResponder = useRef(
     PanResponder.create({
@@ -2064,10 +2055,6 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: 17,
   },
-  memberInitial: {
-    fontSize: 20,
-    fontWeight: "900",
-  },
   crownFloatingBadge: {
     position: "absolute",
     right: 6,
@@ -2215,10 +2202,6 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
     borderRadius: 18,
-  },
-  sheetInitial: {
-    fontSize: 17,
-    fontWeight: "900",
   },
   sheetNickname: {
     fontSize: 18,

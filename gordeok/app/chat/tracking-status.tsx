@@ -1,3 +1,5 @@
+// 구매자 - 배송 현황 조회 화면
+
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {

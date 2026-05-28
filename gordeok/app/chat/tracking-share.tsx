@@ -1,3 +1,5 @@
+// 판매자 - 운송장 공유 화면
+
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";

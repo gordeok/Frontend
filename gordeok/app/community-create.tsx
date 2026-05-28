@@ -1,3 +1,5 @@
+// 커뮤니티 글 작성 화면
+
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";

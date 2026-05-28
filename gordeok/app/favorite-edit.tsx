@@ -1,4 +1,4 @@
-// 최애 편집 화면
+// 홈 화면 - 최애 편집 화면
 
 import { useEffect, useMemo, useState } from "react";
 import {

@@ -1,3 +1,5 @@
+// 최애 멤버 선택 화면
+
 import { useEffect, useMemo, useState } from "react";
 import {
   Image,

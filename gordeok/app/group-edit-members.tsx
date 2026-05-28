@@ -1,3 +1,5 @@
+// 홈 화면 - 최애 그룹 -> 멤버 편집
+
 import { useEffect, useMemo, useState } from "react";
 import {
   View,

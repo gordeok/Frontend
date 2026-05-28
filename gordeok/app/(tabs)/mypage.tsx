@@ -1,3 +1,5 @@
+// 마이페이지 화면
+
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -91,7 +93,7 @@ export default function MyPageScreen() {
   const [scoreModalVisible, setScoreModalVisible] = useState(false);
   const [profile, setProfile] = useState<MyProfile | null>(null);
   const [trustScore, setTrustScore] = useState<TrustScoreDetail | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
 
   useEffect(() => {
     const loadMyPage = async () => {
@@ -428,12 +430,6 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
     borderRadius: 18,
-  },
-
-  profileInitial: {
-    fontSize: 24,
-    fontWeight: "900",
-    color: "#4B5563",
   },
 
   profileInfo: {

@@ -1,3 +1,5 @@
+// 마이페이지 - 프로필 수정 화면
+
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as ImagePicker from "expo-image-picker";

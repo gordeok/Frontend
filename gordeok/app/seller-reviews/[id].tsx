@@ -1,3 +1,5 @@
+// 판매자 받은 후기 조회 화면
+
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";

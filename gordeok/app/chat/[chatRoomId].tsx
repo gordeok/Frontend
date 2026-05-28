@@ -1,3 +1,5 @@
+// 채팅방 화면
+
 import { Ionicons } from "@expo/vector-icons";
 import { Client } from "@stomp/stompjs";
 import { router, useLocalSearchParams } from "expo-router";

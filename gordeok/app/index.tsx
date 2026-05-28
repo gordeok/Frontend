@@ -1,3 +1,5 @@
+// 서비스 시작 화면
+
 import { View, Image, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import AppButton from "@/components/common/AppButton";
@@ -41,7 +43,7 @@ const styles = StyleSheet.create({
   logo: {
     width: 180,
     height: 180,
-    marginBottom: 80,
+    marginBottom: 20,
   },
 
   buttonBox: {

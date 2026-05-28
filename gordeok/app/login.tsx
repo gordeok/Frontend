@@ -4,7 +4,6 @@ import { useState } from "react";
 import {
   Alert,
   Image,
-  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -70,8 +69,7 @@ export default function LoginScreen() {
         style={styles.scrollView}
         contentContainerStyle={styles.container}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-        onScrollBeginDrag={() => Keyboard.dismiss()}
+        keyboardDismissMode="interactive"
         showsVerticalScrollIndicator={false}
       >
         <Image
@@ -121,13 +119,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     paddingHorizontal: 40,
-    paddingTop: 220,
-    paddingBottom: 80,
+    paddingTop: 250,
+    paddingBottom: 100,
   },
   logo: {
     width: 155,
     height: 85,
-    marginBottom: 65,
+    marginBottom: 30,
   },
   form: {
     width: "100%",

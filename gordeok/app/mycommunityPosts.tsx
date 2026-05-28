@@ -1,3 +1,5 @@
+// 마이페이지 - 내가 작성한 커뮤니티 글
+
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";

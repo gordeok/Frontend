@@ -1,3 +1,5 @@
+// 판매자 판매 목록 화면
+
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";

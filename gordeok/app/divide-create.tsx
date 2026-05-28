@@ -1,3 +1,5 @@
+// 분철 글 작성 화면
+
 import {
   View,
   Text,

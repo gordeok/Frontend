@@ -1,4 +1,4 @@
-// 그룹 편집 화면
+// 홈 화면 - 최애 그룹 편집
 
 import { useEffect, useMemo, useState } from "react";
 import {

@@ -1,3 +1,5 @@
+// 북마크 화면
+
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";

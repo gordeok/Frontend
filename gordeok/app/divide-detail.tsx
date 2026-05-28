@@ -418,9 +418,9 @@ export default function DivideDetailScreen() {
 
   useEffect(() => {
     const loadLocalImageUrl = async () => {
-      const targetPostId = postIdParam || post?.id || "";
+      if (!postIdParam) return;
 
-      if (!targetPostId) return;
+      const targetPostId = postIdParam;
 
       try {
         const savedImageUrl = await AsyncStorage.getItem(
@@ -1866,13 +1866,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
 
-  emptyTitle: {
-    fontSize: 17,
-    fontWeight: "900",
-    color: COLORS.black,
-    marginBottom: 14,
-  },
-
   emptyButton: {
     height: 44,
     paddingHorizontal: 22,
@@ -1882,9 +1875,5 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  emptyButtonText: {
-    fontSize: 14,
-    fontWeight: "900",
-    color: COLORS.white,
-  },
 });
+

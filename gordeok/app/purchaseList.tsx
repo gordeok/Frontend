@@ -1,3 +1,5 @@
+// 마이페이지 - 구매 목록
+
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";

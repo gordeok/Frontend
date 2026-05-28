@@ -1,3 +1,5 @@
+// 온보딩 완료 화면
+
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
