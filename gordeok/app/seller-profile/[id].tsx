@@ -608,17 +608,15 @@ export default function SellerProfileScreen() {
 
               <View style={styles.profileTop}>
                 <View style={styles.profileCircle}>
-                  {sellerProfile.profileImage ? (
-                    <Image
-                      source={{ uri: sellerProfile.profileImage }}
-                      style={styles.profileImage}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <Text style={styles.profileInitial}>
-                      {sellerProfile.nickname.slice(0, 1)}
-                    </Text>
-                  )}
+                  <Image
+                    source={
+                      sellerProfile.profileImage
+                        ? { uri: sellerProfile.profileImage }
+                        : require("../../assets/img/profile.jpg")
+                    }
+                    style={styles.profileImage}
+                    resizeMode="cover"
+                  />
                 </View>
 
                 <View style={styles.profileInfo}>
@@ -857,15 +855,15 @@ function ReviewRow({ review, isLast }: { review: ReviewItem; isLast: boolean }) 
   return (
     <View style={[styles.reviewItem, isLast && styles.reviewItemLast]}>
       <View style={styles.reviewProfile}>
-        {review.profileImage ? (
-          <Image
-            source={{ uri: review.profileImage }}
-            style={styles.reviewProfileImage}
-            resizeMode="cover"
-          />
-        ) : (
-          <Text style={styles.reviewInitial}>{review.initial}</Text>
-        )}
+        <Image
+          source={
+            review.profileImage
+              ? { uri: review.profileImage }
+              : require("../../assets/img/profile.jpg")
+          }
+          style={styles.reviewProfileImage}
+          resizeMode="cover"
+        />
       </View>
 
       <View style={styles.reviewContent}>

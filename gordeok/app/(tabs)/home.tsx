@@ -81,6 +81,7 @@ type DisplayPost = {
   groupName: string;
   userName: string;
   profileImage: string;
+  imageUrl: string;
   title: string;
   albumName: string;
   time: string;
@@ -749,6 +750,9 @@ function normalizeApiPosts(
       groupName: post.idolName,
       userName: post.nickname || post.seller?.nickname || "알 수 없음",
       profileImage: getProfileImageUrl(post) || getProfileImageUrl(post.seller),
+      imageUrl: normalizeImageUrl(
+        post.imageUrls?.[0] || post.imageUrl || post.thumbnailUrl || post.albumImageUrl || ""
+      ),
       title: post.title || "제목 없음",
       albumName: post.albumName || "",
       time: formatTime(post.createdAt),
@@ -989,10 +993,10 @@ function PostCard({
       ]}
     >
       <View style={styles.postTop}>
-        <View style={styles.profileCircle}>
+        <View style={styles.postThumb}>
           <Image
-            source={post.profileImage ? { uri: post.profileImage } : DEFAULT_PROFILE}
-            style={styles.profileImage}
+            source={post.imageUrl ? { uri: post.imageUrl } : DEFAULT_PROFILE}
+            style={styles.postThumbImage}
             resizeMode="cover"
           />
         </View>
@@ -1363,6 +1367,20 @@ const styles = StyleSheet.create({
   },
 
   profileImage: {
+    width: "100%",
+    height: "100%",
+  },
+
+  postThumb: {
+    width: 56,
+    height: 56,
+    borderRadius: 12,
+    backgroundColor: COLORS.gray200,
+    marginRight: 12,
+    overflow: "hidden",
+  },
+
+  postThumbImage: {
     width: "100%",
     height: "100%",
   },

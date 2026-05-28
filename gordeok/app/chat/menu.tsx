@@ -786,12 +786,31 @@ export default function ChatMenuScreen() {
           setLinkedCommunityPostId(resolvedCommunityPostId);
         }
 
-        if (!isDirectRoom && !initialAlbum && resolvedDividePostId) {
-          const postDetail = await fetchPostDetail(resolvedDividePostId);
-          console.log("메뉴 게시글 상세 응답:", postDetail);
-          const postImage = getAlbumImageUrl(postDetail);
-          if (postImage) setFetchedAlbumImageUrl(postImage);
-        } else if (initialAlbum) {
+        if (!isDirectRoom) {
+          // postId를 못 찾은 경우 채팅방 상세 API에서 한 번 더 시도
+          if (!resolvedDividePostId && chatRoomId) {
+            try {
+              const roomDetail = await apiRequest<any>(`/api/chat-rooms/${chatRoomId}`, { method: "GET" });
+              const roomDetailPostId = String(
+                roomDetail?.postId ?? roomDetail?.postsId ?? roomDetail?.post?.postId ?? roomDetail?.post?.id ?? ""
+              ).trim();
+              if (roomDetailPostId) {
+                resolvedDividePostId = roomDetailPostId;
+                setFetchedPostId(roomDetailPostId);
+                setLinkedDividePostId(roomDetailPostId);
+                console.log("채팅방 상세 API에서 postId 확보:", roomDetailPostId);
+              }
+            } catch {
+              console.log("채팅방 상세 API 조회 실패");
+            }
+          }
+
+          if (resolvedDividePostId) {
+            const postDetail = await fetchPostDetail(resolvedDividePostId);
+            console.log("메뉴 게시글 상세 응답:", postDetail);
+            const postImage = getAlbumImageUrl(postDetail);
+            if (postImage) setFetchedAlbumImageUrl(postImage);
+          }
         }
       } catch (error) {
         console.log("채팅 메뉴 조회 실패:", error);
@@ -1588,9 +1607,6 @@ export default function ChatMenuScreen() {
                     source={{ uri: albumImageUrl }}
                     style={styles.thumbnailImage}
                     resizeMode="cover"
-                    onLoad={() => {
-                      console.log("메뉴 앨범 이미지 로드 성공:", albumImageUrl);
-                    }}
                     onError={(error) => {
                       console.log(
                         "메뉴 앨범 이미지 로드 실패:",

@@ -1929,7 +1929,7 @@ export default function ChatRoomDetailScreen() {
                 <View
                   style={[
                     styles.plusMenuIcon,
-                    { backgroundColor: "#FFD8CE" },
+                    { backgroundColor: COLORS.yellowLight },
                     isSendingImage && styles.plusMenuIconDisabled,
                   ]}
                 >
@@ -1959,7 +1959,7 @@ export default function ChatRoomDetailScreen() {
                     <View
                       style={[
                         styles.plusMenuIcon,
-                        { backgroundColor: "#DCEEFF" },
+                        { backgroundColor: COLORS.yellowLight },
                       ]}
                     >
                       <Ionicons
@@ -1980,7 +1980,7 @@ export default function ChatRoomDetailScreen() {
                     <View
                       style={[
                         styles.plusMenuIcon,
-                        { backgroundColor: "#DCEEFF" },
+                        { backgroundColor: COLORS.yellowLight },
                       ]}
                     >
                       <Ionicons

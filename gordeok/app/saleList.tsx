@@ -12,6 +12,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { apiRequest } from "../utils/api";
 import { getMySales, MySale } from "../services/user";
 
 const API_BASE_URL =
@@ -41,10 +42,25 @@ type SaleItem = {
   id: number;
   postId: number;
   title: string;
+  idolName: string;
   participantCount: number;
+  currentCount: number;
+  maxMemberCount: number;
   date: string;
   status: SaleStatus;
   thumbnailUrl: string;
+};
+
+type PostListItem = {
+  id: number;
+  idolName?: string;
+  albumName?: string;
+  currentMembers?: number;
+  currentMemberCount?: number;
+  maxMembers?: number;
+  maxMemberCount?: number;
+  participantCount?: number;
+  memberItems?: any[];
 };
 
 function normalizeImageUrl(url?: string | null) {
@@ -112,19 +128,62 @@ function formatDate(value?: string) {
     .replace(/\.$/, "");
 }
 
-function mapSale(item: MySale): SaleItem {
+function getPageContent<T>(response: any): T[] {
+  if (Array.isArray(response)) return response;
+  if (Array.isArray(response?.content)) return response.content;
+  if (Array.isArray(response?.data)) return response.data;
+  if (Array.isArray(response?.data?.content)) return response.data.content;
+  return [];
+}
+
+function getRealIdolName(post?: PostListItem | null) {
+  const idolName = String(post?.idolName ?? "").trim();
+  if (idolName) return idolName;
+  const albumName = String(post?.albumName ?? "").trim();
+  if (albumName) return albumName;
+  return "";
+}
+
+function getRecruitCount(post?: PostListItem | null) {
+  const maxMembers = Number(post?.maxMembers ?? post?.maxMemberCount ?? 0);
+  if (maxMembers > 0) return maxMembers;
+  const memberItemsCount = Array.isArray(post?.memberItems) ? post.memberItems.length : 0;
+  if (memberItemsCount > 0) return memberItemsCount;
+  return 0;
+}
+
+function getCurrentCount(post?: PostListItem | null, participantCount = 0) {
+  const currentMembers = Number(post?.currentMembers ?? post?.currentMemberCount ?? 0);
+  if (currentMembers > 0) return currentMembers;
+  return participantCount + 1;
+}
+
+function formatMemberCount(item: SaleItem) {
+  const current = item.currentCount > 0 ? item.currentCount : 1;
+  const max = item.maxMemberCount > 0 ? item.maxMemberCount + 1 : current;
+  return `${current}/${max}명`;
+}
+
+function mapSale(item: MySale, postMap: Map<number, PostListItem>): SaleItem {
   const itemAny = item as any;
+  const postId = Number(itemAny.postId);
+  const matched = postMap.get(postId);
 
   const isDone =
     itemAny.postStatus === "COMPLETED" ||
     itemAny.postStatus === "CLOSED" ||
     itemAny.postStatus === "거래완료";
 
+  const participantCount = Number(itemAny.participantCount ?? 0);
+
   return {
-    id: Number(itemAny.postId),
-    postId: Number(itemAny.postId),
+    id: postId,
+    postId,
     title: itemAny.postTitle || "제목 없음",
-    participantCount: Number(itemAny.participantCount ?? 0),
+    idolName: getRealIdolName(matched),
+    participantCount,
+    currentCount: getCurrentCount(matched, participantCount),
+    maxMemberCount: getRecruitCount(matched),
     date: formatDate(itemAny.createdAt),
     status: isDone ? "거래완료" : "모집중",
     thumbnailUrl: getSaleImageUrl(itemAny),
@@ -146,21 +205,23 @@ export default function SaleListScreen() {
         setIsLoading(true);
         setErrorMessage("");
 
-        const [openData, completedData] = await Promise.all([
+        const [openData, completedData, postsRes] = await Promise.all([
           getMySales("OPEN"),
           getMySales("COMPLETED"),
+          apiRequest<any>("/api/posts", {
+            method: "GET",
+            query: { page: 0, size: 100, sort: "latest" },
+          }),
         ]);
 
-        console.log("판매 목록 OPEN 응답:", openData);
-        console.log("판매 목록 COMPLETED 응답:", completedData);
-
-        const mappedOpenData = openData.map(mapSale);
-        const mappedCompletedData = completedData.map(mapSale);
-
-        console.log("판매 목록 앨범 이미지 확인:", {
-          progress: mappedOpenData,
-          done: mappedCompletedData,
+        const posts = getPageContent<PostListItem>(postsRes);
+        const postMap = new Map<number, PostListItem>();
+        posts.forEach((post) => {
+          if (Number.isFinite(Number(post.id))) postMap.set(Number(post.id), post);
         });
+
+        const mappedOpenData = openData.map((item) => mapSale(item, postMap));
+        const mappedCompletedData = completedData.map((item) => mapSale(item, postMap));
 
         setProgressList(mappedOpenData);
         setDoneList(mappedCompletedData);
@@ -310,11 +371,13 @@ export default function SaleListScreen() {
                       <Text style={styles.itemTitle}>{item.title}</Text>
 
                       <View style={styles.subRow}>
-                        <Text style={styles.itemSubText}>
-                          참여자 {item.participantCount}명
-                        </Text>
-                        <View style={styles.dot} />
-                        <Text style={styles.itemSubText}>{item.date}</Text>
+                        {item.idolName ? (
+                          <>
+                            <Text style={styles.itemSubText}>{item.idolName}</Text>
+                            <View style={styles.dot} />
+                          </>
+                        ) : null}
+                        <Text style={styles.itemSubText}>{formatMemberCount(item)}</Text>
                       </View>
                     </View>
 
