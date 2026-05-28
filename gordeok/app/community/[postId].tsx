@@ -36,6 +36,8 @@ import { getStoredUserId } from "../../utils/api";
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://172.20.99.65:8080";
 
+const DEFAULT_PROFILE = require("../../assets/img/profile.jpg");
+
 const COLORS = {
   white: "#FFFFFF",
   black: "#111111",
@@ -611,9 +613,6 @@ export default function CommunityDetailScreen() {
 
       const fromUserId = await getStoredUserId();
 
-      console.log("쪽지 fromUserId:", fromUserId);
-      console.log("쪽지 toUserId:", toUserId);
-
       if (!fromUserId) {
         Alert.alert("로그인이 필요해요", "로그인 후 쪽지를 보낼 수 있어요.");
         setCommentMenu(null);
@@ -830,31 +829,11 @@ export default function CommunityDetailScreen() {
             <View style={styles.postBox}>
               <View style={styles.profileRow}>
                 <View style={styles.profileCircle}>
-                  {authorProfileImage ? (
-                    <Image
-                      key={authorProfileImage}
-                      source={{ uri: authorProfileImage }}
-                      style={styles.profileImage}
-                      resizeMode="cover"
-                      onLoad={() => {
-                        console.log(
-                          "게시글 작성자 프로필 이미지 로드 성공:",
-                          authorProfileImage
-                        );
-                      }}
-                      onError={(error) => {
-                        console.log(
-                          "게시글 작성자 프로필 이미지 로드 실패:",
-                          authorProfileImage,
-                          error.nativeEvent
-                        );
-                      }}
-                    />
-                  ) : (
-                    <Text style={styles.profileText}>
-                      {getProfileText(postData.authorNickname)}
-                    </Text>
-                  )}
+                  <Image
+                    source={authorProfileImage ? { uri: authorProfileImage } : DEFAULT_PROFILE}
+                    style={styles.profileImage}
+                    resizeMode="cover"
+                  />
                 </View>
 
                 <View style={styles.writerBox}>
@@ -1119,29 +1098,11 @@ function CommentItem({
     <View style={styles.commentItemWrap}>
       <Pressable style={styles.commentItem} onPress={onBackgroundPress}>
         <View style={styles.commentProfile}>
-          {comment.profileImage ? (
-            <Image
-              key={comment.profileImage}
-              source={{ uri: comment.profileImage }}
-              style={styles.commentProfileImage}
-              resizeMode="cover"
-              onLoad={() => {
-                console.log(
-                  "댓글 프로필 이미지 로드 성공:",
-                  comment.profileImage
-                );
-              }}
-              onError={(error) => {
-                console.log(
-                  "댓글 프로필 이미지 로드 실패:",
-                  comment.profileImage,
-                  error.nativeEvent
-                );
-              }}
-            />
-          ) : (
-            <Text style={styles.commentProfileText}>{comment.profileText}</Text>
-          )}
+          <Image
+            source={comment.profileImage ? { uri: comment.profileImage } : DEFAULT_PROFILE}
+            style={styles.commentProfileImage}
+            resizeMode="cover"
+          />
         </View>
 
         <View style={styles.commentContent}>
@@ -1280,12 +1241,6 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-  },
-
-  profileText: {
-    fontSize: 14,
-    fontWeight: "900",
-    color: COLORS.black,
   },
 
   writerBox: {
@@ -1429,12 +1384,6 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-  },
-
-  commentProfileText: {
-    fontSize: 13,
-    fontWeight: "900",
-    color: COLORS.black,
   },
 
   commentContent: {

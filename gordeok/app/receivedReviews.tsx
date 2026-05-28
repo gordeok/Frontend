@@ -28,6 +28,8 @@ const COLORS = {
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "";
 
+const DEFAULT_PROFILE = require("../assets/img/profile.jpg");
+
 type ReviewItem = {
   id: number;
   name: string;
@@ -167,28 +169,21 @@ export default function ReceivedReviewsScreen() {
                 <View key={review.id} style={styles.reviewCard}>
                   <View style={styles.reviewTop}>
                     <View style={styles.profileCircle}>
-                      {hasProfileImage ? (
-                        <Image
-                          source={{ uri: profileImageUrl }}
-                          style={styles.profileImage}
-                          resizeMode="cover"
-                          onError={() => {
-                            console.log(
-                              "후기 프로필 이미지 로드 실패:",
-                              profileImageUrl
-                            );
-
-                            setImageErrorMap((prev) => ({
-                              ...prev,
-                              [review.id]: true,
-                            }));
-                          }}
-                        />
-                      ) : (
-                        <Text style={styles.profileInitial}>
-                          {review.name?.slice(0, 1) || "?"}
-                        </Text>
-                      )}
+                      <Image
+                        source={
+                          hasProfileImage
+                            ? { uri: profileImageUrl }
+                            : DEFAULT_PROFILE
+                        }
+                        style={styles.profileImage}
+                        resizeMode="cover"
+                        onError={() => {
+                          setImageErrorMap((prev) => ({
+                            ...prev,
+                            [review.id]: true,
+                          }));
+                        }}
+                      />
                     </View>
 
                     <View style={styles.reviewInfo}>
@@ -292,12 +287,6 @@ const styles = StyleSheet.create({
   profileImage: {
     width: "100%",
     height: "100%",
-  },
-
-  profileInitial: {
-    fontSize: 14,
-    fontWeight: "900",
-    color: COLORS.profileText,
   },
 
   reviewInfo: {

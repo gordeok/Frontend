@@ -20,6 +20,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { getTrackingSetup, shareTracking } from "../../services/chat";
 import { apiRequest } from "../../utils/api";
 
+const DEFAULT_PROFILE = require("../../assets/img/profile.jpg");
+
 const COLORS = {
   white: "#FFFFFF",
   black: "#111111",
@@ -331,36 +333,11 @@ export default function TrackingShareScreen() {
                     { backgroundColor: buyer.color },
                   ]}
                 >
-                  {buyer.profileImageUrl ? (
-                    <Image
-                      key={buyer.profileImageUrl}
-                      source={{ uri: buyer.profileImageUrl }}
-                      style={styles.profileImage}
-                      resizeMode="cover"
-                      onLoad={() => {
-                        console.log(
-                          "운송장 공유 프로필 이미지 로드 성공:",
-                          buyer.profileImageUrl
-                        );
-                      }}
-                      onError={(error) => {
-                        console.log(
-                          "운송장 공유 프로필 이미지 로드 실패:",
-                          buyer.profileImageUrl,
-                          error.nativeEvent
-                        );
-                      }}
-                    />
-                  ) : (
-                    <Text
-                      style={[
-                        styles.profileInitial,
-                        { color: buyer.initialColor },
-                      ]}
-                    >
-                      {buyer.initial}
-                    </Text>
-                  )}
+                  <Image
+                    source={buyer.profileImageUrl ? { uri: buyer.profileImageUrl } : DEFAULT_PROFILE}
+                    style={styles.profileImage}
+                    resizeMode="cover"
+                  />
                 </View>
 
                 <View style={styles.buyerTextBox}>
@@ -509,10 +486,6 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
     borderRadius: 16,
-  },
-  profileInitial: {
-    fontSize: 19,
-    fontWeight: "900",
   },
   buyerTextBox: {
     flex: 1,

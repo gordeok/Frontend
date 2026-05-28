@@ -956,12 +956,29 @@ export default function ChatMenuScreen() {
   const effectivePostStatus =
     menuInfo?.postStatus ?? menuInfo?.status ?? postStatus ?? localRoom?.postStatus ?? localRoom?.status;
 
+  const buyerParticipantCount = menuParticipants.filter(
+    (p) => String(p.role ?? "").toUpperCase() !== "SELLER"
+  ).length;
+
+  const isCompletedStatus = (s?: string) => {
+    const v = String(s ?? "").trim();
+    return (
+      v === "모집 완료" ||
+      v === "모집완료" ||
+      v === "COMPLETED" ||
+      v === "CLOSED" ||
+      v === "SOLD_OUT"
+    );
+  };
+
   const isAllMembersCompleted =
     allMembersCompleted === "true" ||
     localRoom?.allMembersCompleted === true ||
-    effectivePostStatus === "모집 완료" ||
+    isCompletedStatus(effectivePostStatus) ||
     (parsedTotalMemberCount > 0 &&
-      parsedCompletedMemberCount >= parsedTotalMemberCount);
+      parsedCompletedMemberCount >= parsedTotalMemberCount) ||
+    (parsedTotalMemberCount > 0 &&
+      buyerParticipantCount >= parsedTotalMemberCount);
 
   const initialStatus: TradeStatus = isAllMembersCompleted
     ? "모집 완료"
@@ -989,7 +1006,13 @@ export default function ChatMenuScreen() {
   useEffect(() => {
     const nextStatus = String(menuInfo?.postStatus ?? menuInfo?.status ?? "");
 
-    if (nextStatus === "모집 완료") {
+    if (
+      nextStatus === "모집 완료" ||
+      nextStatus === "모집완료" ||
+      nextStatus === "COMPLETED" ||
+      nextStatus === "CLOSED" ||
+      nextStatus === "SOLD_OUT"
+    ) {
       setTradeStatus("모집 완료");
     } else if (nextStatus === "배송 중") {
       setTradeStatus("배송 중");
@@ -999,6 +1022,20 @@ export default function ChatMenuScreen() {
       setTradeStatus("거래 취소");
     }
   }, [menuInfo]);
+
+  useEffect(() => {
+    if (parsedTotalMemberCount <= 0) return;
+
+    const buyers = menuParticipants.filter(
+      (p) => String(p.role ?? "").toUpperCase() !== "SELLER"
+    ).length;
+
+    if (buyers >= parsedTotalMemberCount) {
+      setTradeStatus((prev) =>
+        prev === "거래 완료" || prev === "거래 취소" ? prev : "모집 완료"
+      );
+    }
+  }, [menuParticipants, parsedTotalMemberCount]);
 
   const sellerMember: Member = {
     id: "seller",
@@ -1049,7 +1086,7 @@ export default function ChatMenuScreen() {
     const isParticipantSeller = roleText === "SELLER";
 
     return {
-      id: `participant-${participant.userId ?? index}`,
+      id: `participant-${index}-${participant.userId ?? 'unknown'}`,
       userId:
         participant.userId === null || participant.userId === undefined
           ? undefined

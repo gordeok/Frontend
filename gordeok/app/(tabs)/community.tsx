@@ -34,6 +34,8 @@ const COLORS = {
 
 const SCREEN_PADDING = 22;
 
+const DEFAULT_PROFILE = require("../../assets/img/profile.jpg");
+
 const categories = ["전체", "포카교환", "오프동행", "질문게시판", "자유게시판"];
 
 type SortType = "latest" | "likes" | "views";
@@ -287,31 +289,11 @@ export default function CommunityScreen() {
               >
                 <View style={styles.profileRow}>
                   <View style={styles.profileCircle}>
-                    {profileImageUrl ? (
-                      <Image
-                        key={profileImageUrl}
-                        source={{ uri: profileImageUrl }}
-                        style={styles.profileImage}
-                        resizeMode="cover"
-                        onLoad={() => {
-                          console.log(
-                            "커뮤니티 프로필 이미지 로드 성공:",
-                            profileImageUrl
-                          );
-                        }}
-                        onError={(error) => {
-                          console.log(
-                            "커뮤니티 프로필 이미지 로드 실패:",
-                            profileImageUrl,
-                            error.nativeEvent
-                          );
-                        }}
-                      />
-                    ) : (
-                      <Text style={styles.profileText}>
-                        {item.authorNickname?.slice(0, 1) ?? "덕"}
-                      </Text>
-                    )}
+                    <Image
+                      source={profileImageUrl ? { uri: profileImageUrl } : DEFAULT_PROFILE}
+                      style={styles.profileImage}
+                      resizeMode="cover"
+                    />
                   </View>
 
                   <View style={styles.writerBox}>
@@ -626,12 +608,6 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-  },
-
-  profileText: {
-    fontSize: 14,
-    fontWeight: "900",
-    color: COLORS.black,
   },
 
   writerBox: {

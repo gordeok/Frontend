@@ -27,6 +27,8 @@ import type { PostDetailResponse } from "../types/post";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
+const DEFAULT_PROFILE = require("../assets/img/profile.jpg");
+
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://172.20.99.65:8080";
 
@@ -330,8 +332,6 @@ export default function DivideDetailScreen() {
   const [selectedMemberName, setSelectedMemberName] = useState<string | null>(
     null,
   );
-  const [isSheetExpanded, setIsSheetExpanded] = useState(false);
-
   const sheetHeight = useRef(new Animated.Value(SHEET_HIDDEN_HEIGHT)).current;
   const dimAnim = useRef(new Animated.Value(0)).current;
 
@@ -530,7 +530,6 @@ export default function DivideDetailScreen() {
 
   const moveSheetTo = (toValue: number) => {
     currentSheetHeight.current = toValue;
-    setIsSheetExpanded(toValue === SHEET_EXPANDED_HEIGHT);
 
     Animated.spring(sheetHeight, {
       toValue,
@@ -557,7 +556,6 @@ export default function DivideDetailScreen() {
     ]).start(() => {
       currentSheetHeight.current = SHEET_HIDDEN_HEIGHT;
       gestureStartHeight.current = SHEET_HIDDEN_HEIGHT;
-      setIsSheetExpanded(false);
       setIsMemberSheetOpen(false);
     });
   };
@@ -569,7 +567,6 @@ export default function DivideDetailScreen() {
     dimAnim.setValue(0);
     currentSheetHeight.current = SHEET_HIDDEN_HEIGHT;
     gestureStartHeight.current = SHEET_HIDDEN_HEIGHT;
-    setIsSheetExpanded(false);
 
     Animated.parallel([
       Animated.spring(sheetHeight, {
@@ -586,7 +583,6 @@ export default function DivideDetailScreen() {
     ]).start(() => {
       currentSheetHeight.current = initialSheetHeight;
       gestureStartHeight.current = initialSheetHeight;
-      setIsSheetExpanded(false);
     });
   }, [isMemberSheetOpen, sheetHeight, dimAnim, initialSheetHeight]);
 
@@ -790,15 +786,11 @@ export default function DivideDetailScreen() {
             }
           >
             <View style={styles.profileCircle}>
-              {post.sellerProfileImage ? (
-                <Image
-                  source={{ uri: post.sellerProfileImage }}
-                  style={styles.profileImage}
-                  resizeMode="cover"
-                />
-              ) : (
-                <Text style={styles.profileInitial}>{post.userName[0]}</Text>
-              )}
+              <Image
+                source={post.sellerProfileImage ? { uri: post.sellerProfileImage } : DEFAULT_PROFILE}
+                style={styles.profileImage}
+                resizeMode="cover"
+              />
             </View>
 
             <View style={styles.profileInfo}>
@@ -1041,10 +1033,7 @@ export default function DivideDetailScreen() {
               <ScrollView
                 style={styles.sheetScroll}
                 showsVerticalScrollIndicator={false}
-                contentContainerStyle={[
-                  styles.sheetScrollContent,
-                  isSheetExpanded && styles.sheetScrollContentExpanded,
-                ]}
+                contentContainerStyle={styles.sheetScrollContent}
               >
                 <View style={styles.sheetHeader}>
                   <Text style={styles.sheetTitle}>멤버 선택</Text>
@@ -1105,40 +1094,22 @@ export default function DivideDetailScreen() {
                     );
                   })}
                 </View>
-
-                {!isSheetExpanded && (
-                  <Pressable
-                    disabled={!isJoinEnabled}
-                    onPress={handleJoin}
-                    style={[
-                      styles.sheetJoinButton,
-                      styles.sheetJoinButtonInScroll,
-                      !isJoinEnabled && styles.sheetJoinButtonDisabled,
-                    ]}
-                  >
-                    <Text style={styles.sheetJoinButtonText}>
-                      분철 참여글 작성하기
-                    </Text>
-                  </Pressable>
-                )}
               </ScrollView>
 
-              {isSheetExpanded && (
-                <View style={styles.sheetFixedBottom}>
-                  <Pressable
-                    disabled={!isJoinEnabled}
-                    onPress={handleJoin}
-                    style={[
-                      styles.sheetJoinButton,
-                      !isJoinEnabled && styles.sheetJoinButtonDisabled,
-                    ]}
-                  >
-                    <Text style={styles.sheetJoinButtonText}>
-                      분철 참여글 작성하기
-                    </Text>
-                  </Pressable>
-                </View>
-              )}
+              <View style={styles.sheetFixedBottom}>
+                <Pressable
+                  disabled={!isJoinEnabled}
+                  onPress={handleJoin}
+                  style={[
+                    styles.sheetJoinButton,
+                    !isJoinEnabled && styles.sheetJoinButtonDisabled,
+                  ]}
+                >
+                  <Text style={styles.sheetJoinButtonText}>
+                    분철 참여글 작성하기
+                  </Text>
+                </Pressable>
+              </View>
             </Animated.View>
           </View>
         </Modal>
@@ -1283,12 +1254,6 @@ const styles = StyleSheet.create({
   profileImage: {
     width: "100%",
     height: "100%",
-  },
-
-  profileInitial: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#69645D",
   },
 
   profileInfo: {
@@ -1824,10 +1789,6 @@ const styles = StyleSheet.create({
   },
 
   sheetFixedBottom: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
     paddingHorizontal: 24,
     paddingTop: 12,
     paddingBottom: 34,

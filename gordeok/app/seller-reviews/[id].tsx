@@ -30,6 +30,8 @@ const COLORS = {
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "";
 
+const DEFAULT_PROFILE = require("../../assets/img/profile.jpg");
+
 type SellerReview = {
   id: number;
   initial: string;
@@ -146,9 +148,6 @@ export default function SellerReviewsScreen() {
   const [reviews, setReviews] = useState<SellerReview[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
-  const [imageErrorMap, setImageErrorMap] = useState<Record<number, boolean>>(
-    {}
-  );
 
   useEffect(() => {
     const loadReviews = async () => {
@@ -280,8 +279,6 @@ export default function SellerReviewsScreen() {
             {sortedReviews.length > 0 ? (
               sortedReviews.map((review) => {
                 const profileImageUrl = getImageUrl(review.profileImage);
-                const hasProfileImage =
-                  !!profileImageUrl && imageErrorMap[review.id] !== true;
 
                 return (
                   <Pressable
@@ -295,28 +292,11 @@ export default function SellerReviewsScreen() {
                     }}
                   >
                     <View style={styles.reviewProfile}>
-                      {hasProfileImage ? (
-                        <Image
-                          source={{ uri: profileImageUrl }}
-                          style={styles.reviewProfileImage}
-                          resizeMode="cover"
-                          onError={() => {
-                            console.log(
-                              "후기 프로필 이미지 로드 실패:",
-                              profileImageUrl
-                            );
-
-                            setImageErrorMap((prev) => ({
-                              ...prev,
-                              [review.id]: true,
-                            }));
-                          }}
-                        />
-                      ) : (
-                        <Text style={styles.reviewInitial}>
-                          {review.initial}
-                        </Text>
-                      )}
+                      <Image
+                        source={profileImageUrl ? { uri: profileImageUrl } : DEFAULT_PROFILE}
+                        style={styles.reviewProfileImage}
+                        resizeMode="cover"
+                      />
                     </View>
 
                     <View style={styles.reviewInfo}>

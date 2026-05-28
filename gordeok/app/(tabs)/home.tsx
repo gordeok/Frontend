@@ -23,6 +23,8 @@ import type { PostListItem } from "@/types/post";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
+const DEFAULT_PROFILE = require("../../assets/img/profile.jpg");
+
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_BASE_URL ||
   "https://frostily-derby-underpass.ngrok-free.dev";
@@ -117,6 +119,7 @@ export default function HomeScreen() {
   const [completedMembers, setCompletedMembers] = useState<
     CompletedMemberItem[]
   >([]);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const groupParam = useMemo(() => {
     return selectedGroups.map((group) => group.id).join(",");
@@ -134,6 +137,7 @@ export default function HomeScreen() {
     useCallback(() => {
       setSelectedGroupId(null);
       setSelectedFavoriteMember(null);
+      setRefreshKey((k) => k + 1);
 
       const loadCompletedMembers = async () => {
         try {
@@ -245,6 +249,7 @@ export default function HomeScreen() {
   }, [selectedGroups, selectedGroupId, selectedFavoriteMember]);
 
   const loadPosts = useCallback(async () => {
+    void refreshKey;
     if (!isFavoriteLoaded) return;
 
     if (selectedGroups.length === 0) {
@@ -265,7 +270,7 @@ export default function HomeScreen() {
 
       const response = await getPosts({
         page: 0,
-        size: 20,
+        size: 50,
         sort: "latest",
         idolName: selectedGroup?.displayName,
       });
@@ -291,7 +296,7 @@ export default function HomeScreen() {
         setIsPostsLoading(false);
       }
     }
-  }, [isFavoriteLoaded, selectedGroups, selectedGroupId]);
+  }, [isFavoriteLoaded, selectedGroups, selectedGroupId, refreshKey]);
 
   useEffect(() => {
     loadPosts();
@@ -683,12 +688,18 @@ function normalizeApiPosts(
       return result;
     }
 
-    const matchedGroup = selectedGroups.find(
-      (group) =>
-        group.displayName === post.idolName ||
-        group.name === post.idolName ||
+    const postIdolName = String(
+      post.idolName ?? post.idol?.name ?? post.groupName ?? post.group?.name ?? ""
+    ).trim().toLowerCase();
+
+    const matchedGroup = selectedGroups.find((group) => {
+      if (!postIdolName) return false;
+      return (
+        group.displayName.trim().toLowerCase() === postIdolName ||
+        group.name.trim().toLowerCase() === postIdolName ||
         group.id === String(post.idolName)
-    );
+      );
+    });
 
     if (!matchedGroup) return result;
 
@@ -897,12 +908,12 @@ function getMemberStatus(status: string) {
     status === "COMPLETED" ||
     status === "CLOSED" ||
     status === "SOLD_OUT" ||
+    status === "RESERVED" ||
+    status === "예약중" ||
     status === "모집완료"
   ) {
     return "모집완료";
   }
-
-  if (status === "RESERVED" || status === "예약중") return "예약중";
 
   return "모집중";
 }
@@ -979,15 +990,11 @@ function PostCard({
     >
       <View style={styles.postTop}>
         <View style={styles.profileCircle}>
-          {post.profileImage ? (
-            <Image
-              source={{ uri: post.profileImage }}
-              style={styles.profileImage}
-              resizeMode="cover"
-            />
-          ) : (
-            <Text style={styles.profileInitial}>{post.userName[0]}</Text>
-          )}
+          <Image
+            source={post.profileImage ? { uri: post.profileImage } : DEFAULT_PROFILE}
+            style={styles.profileImage}
+            resizeMode="cover"
+          />
         </View>
 
         <View style={styles.postInfo}>
@@ -1041,7 +1048,6 @@ function PostCard({
                   style={[
                     styles.stateDot,
                     member.state === "모집중" && styles.greenDot,
-                    member.state === "예약중" && styles.orangeDot,
                     member.state === "모집완료" && styles.grayDot,
                   ]}
                 />
@@ -1359,12 +1365,6 @@ const styles = StyleSheet.create({
   profileImage: {
     width: "100%",
     height: "100%",
-  },
-
-  profileInitial: {
-    fontSize: 17,
-    fontWeight: "900",
-    color: COLORS.white,
   },
 
   postInfo: {
