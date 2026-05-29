@@ -544,6 +544,7 @@ export default function ChatMenuScreen() {
   const [linkedDividePostId, setLinkedDividePostId] = useState("");
   const [linkedCommunityPostId, setLinkedCommunityPostId] = useState("");
   const [fetchedBuyerMemberName, setFetchedBuyerMemberName] = useState("");
+  const [fetchedTotalMemberCount, setFetchedTotalMemberCount] = useState(0);
 
 
   useEffect(() => {
@@ -810,6 +811,17 @@ export default function ChatMenuScreen() {
             console.log("메뉴 게시글 상세 응답:", postDetail);
             const postImage = getAlbumImageUrl(postDetail);
             if (postImage) setFetchedAlbumImageUrl(postImage);
+
+            const postTotalCount = Number(
+              postDetail?.totalMemberCount ??
+              postDetail?.memberCount ??
+              postDetail?.quantity ??
+              postDetail?.recruitCount ??
+              postDetail?.maxParticipants ??
+              postDetail?.totalCount ??
+              0
+            );
+            if (postTotalCount > 0) setFetchedTotalMemberCount(postTotalCount);
           }
         }
       } catch (error) {
@@ -971,6 +983,8 @@ export default function ChatMenuScreen() {
   const parsedCompletedMemberCount = Number(
     completedMemberCount ?? localRoom?.completedMemberCount ?? 0
   );
+  const effectiveTotalMemberCount =
+    parsedTotalMemberCount > 0 ? parsedTotalMemberCount : fetchedTotalMemberCount;
 
   const effectivePostStatus =
     menuInfo?.postStatus ?? menuInfo?.status ?? postStatus ?? localRoom?.postStatus ?? localRoom?.status;
@@ -994,10 +1008,10 @@ export default function ChatMenuScreen() {
     allMembersCompleted === "true" ||
     localRoom?.allMembersCompleted === true ||
     isCompletedStatus(effectivePostStatus) ||
-    (parsedTotalMemberCount > 0 &&
-      parsedCompletedMemberCount >= parsedTotalMemberCount) ||
-    (parsedTotalMemberCount > 0 &&
-      buyerParticipantCount >= parsedTotalMemberCount);
+    (effectiveTotalMemberCount > 0 &&
+      parsedCompletedMemberCount >= effectiveTotalMemberCount) ||
+    (effectiveTotalMemberCount > 0 &&
+      buyerParticipantCount >= effectiveTotalMemberCount);
 
   const initialStatus: TradeStatus = isAllMembersCompleted
     ? "모집 완료"
@@ -1043,18 +1057,18 @@ export default function ChatMenuScreen() {
   }, [menuInfo]);
 
   useEffect(() => {
-    if (parsedTotalMemberCount <= 0) return;
+    if (effectiveTotalMemberCount <= 0) return;
 
     const buyers = menuParticipants.filter(
       (p) => String(p.role ?? "").toUpperCase() !== "SELLER"
     ).length;
 
-    if (buyers >= parsedTotalMemberCount) {
+    if (buyers >= effectiveTotalMemberCount) {
       setTradeStatus((prev) =>
         prev === "거래 완료" || prev === "거래 취소" ? prev : "모집 완료"
       );
     }
-  }, [menuParticipants, parsedTotalMemberCount]);
+  }, [menuParticipants, effectiveTotalMemberCount]);
 
   const sellerMember: Member = {
     id: "seller",
@@ -1111,7 +1125,7 @@ export default function ChatMenuScreen() {
           ? undefined
           : String(participant.userId),
       nickname,
-      member: isNote ? "" : memberName,
+      member: isNote ? "" : isParticipantSeller ? "개설자" : memberName,
       initial: nickname.slice(0, 1),
       color: isParticipantSeller ? "#FFF1B8" : "#DDF7EB",
       initialColor: isParticipantSeller ? "#D09A00" : "#1E8E61",
@@ -1631,7 +1645,7 @@ export default function ChatMenuScreen() {
                   </View>
                 </View>
 
-                {!isNote && buyerMemberName ? (
+                {!isNote && !isSeller && buyerMemberName ? (
                   <View style={styles.buyerInfoBox}>
                     <Text style={styles.buyerInfoLabel}>
                       {isSeller ? "선택 멤버" : "내 참여 멤버"}
